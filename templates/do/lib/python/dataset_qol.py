@@ -28,8 +28,8 @@ def _get_required_columns(technique):
     schemas = {
         "sft": ["prompt", "completion"],
         "dpo": ["prompt", "chosen", "rejected"],
-        "rlaif": ["prompt"],  # prompt is an array of messages
-        "rlvr": ["prompt"],   # prompt is an array of messages
+        "rlaif": ["prompt"],  # prompt is a plain string (see _get_schema_types)
+        "rlvr": ["prompt"],   # prompt is a plain string (see _get_schema_types)
         # BL100: AIPerf BYOD single_turn custom-dataset loader requires a `text`
         # column (SingleTurn raises "At least one modality must be provided" when
         # a row lacks text/image/audio/video). output_length is optional per-row.
@@ -43,8 +43,16 @@ def _get_schema_types(technique):
     schemas = {
         "sft": {"prompt": "string", "completion": "string"},
         "dpo": {"prompt": "string", "chosen": "string", "rejected": "string"},
-        "rlaif": {"prompt": "array"},
-        "rlvr": {"prompt": "array"},
+        # RLAIF/RLVR managed-customization loaders tokenize `prompt` as TEXT and
+        # reject a message-array value. A live RLAIF job on allenai/RLVR-GSM
+        # (prompt = [{"role":"user","content":...}]) failed in the training
+        # container with `JSONDecodeError: Unterminated string` the moment the
+        # loader hit the `[{` where it expected a string. Typing `prompt` as
+        # "string" lets the shared auto-flatten (_detect_chat_columns /
+        # _flatten_value) collapse a single-turn message list to its content
+        # string before upload, which the loader accepts.
+        "rlaif": {"prompt": "string"},
+        "rlvr": {"prompt": "string"},
         # BL100: AIPerf single_turn BYOD dataset — `text` is the required prompt
         # column; optional `output_length` (per-request max tokens) is not part
         # of the required-column contract.

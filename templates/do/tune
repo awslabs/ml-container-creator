@@ -139,7 +139,7 @@ _parse_args() {
                 ARG_REWARD_FUNCTION="$2"; shift 2 ;;
             --reward-prompt)
                 if [ -z "${2:-}" ]; then
-                    echo "❌ --reward-prompt requires an S3 URI"
+                    echo "❌ --reward-prompt requires a hub-content evaluator ARN (or use --evaluator-name)"
                     exit 1
                 fi
                 ARG_REWARD_PROMPT="$2"; shift 2 ;;
@@ -289,7 +289,11 @@ _show_help() {
     echo "                           rlaif     → a reward prompt    (./do/register prompt)."
     echo "  --reward-function <arn>  Lambda ARN for a reward function (RLVR/MTRL; bypasses the"
     echo "                           registry — pass the ARN directly)"
-    echo "  --reward-prompt <uri>    S3 URI for a reward prompt file (RLAIF; bypasses registry)"
+    echo "  --reward-prompt <arn>    Hub-content evaluator ARN for a reward prompt (RLAIF),"
+    echo "                           e.g. arn:aws:sagemaker:<region>:<acct>:hub-content/<hub>/"
+    echo "                           JsonDoc/<name>/<ver>. NOT a bare name or S3 URI. Register"
+    echo "                           the file first with do/register prompt, then just use"
+    echo "                           --evaluator-name <name> to resolve the ARN automatically."
     echo "  Note: every RFT technique needs BOTH a prompt --dataset AND an evaluator; do/tune"
     echo "        fails before submission if either is missing."
     echo ""
@@ -946,12 +950,61 @@ _validate_dataset() {
         fi
         RESOLVED_DATASET_S3_URI="${dataset}"
 
+        # Resolve a concrete data OBJECT to sample. `--dataset` may be a prefix
+        # (SageMaker mounts the whole prefix as the train channel) or a single
+        # object. `aws s3 cp <prefix>/ -` cannot stream a prefix, so when given a
+        # prefix pick its first data object. Parquet is binary and the managed
+        # RL (verl) loader reads it container-side — the jsonl line-validation
+        # below does not apply, so skip it for parquet (and for a prefix whose
+        # data objects are parquet). This client-side check only understands jsonl.
+        local sample_object="${dataset}"
+        if [[ "${dataset}" == */ ]]; then
+            local first_obj
+            first_obj=$(aws s3 ls "${dataset}" --region "${AWS_REGION}" 2>/dev/null \
+                | awk '{print $NF}' | grep -vE '(^|/)_dataset\.json$' \
+                | grep -E '\.(jsonl|parquet|json)$' | head -1) || first_obj=""
+            if [ -n "${first_obj}" ]; then
+                sample_object="${dataset}${first_obj}"
+            fi
+        fi
+
+        # Managed RL techniques (rlvr/rlaif/mtrl) run verl's RLHFDataset, whose
+        # loader is hardcoded to parquet (datasets.load_dataset("parquet", ...)).
+        # A non-parquet dataset fails deep in the GPU job with an opaque
+        # "ArrowInvalid: Parquet magic bytes not found". Fail LOUD here in
+        # preflight instead. (sft/dpo use a different managed trainer and are not
+        # subject to this constraint, so the check is scoped to RL techniques.)
+        case "${ARG_TECHNIQUE}" in
+            rlvr|rlaif|mtrl)
+                if [[ "${sample_object}" != *.parquet ]]; then
+                    echo "❌ ${ARG_TECHNIQUE} requires a PARQUET dataset."
+                    echo "   The managed RL trainer (verl) reads the train channel as parquet;"
+                    echo "   a non-parquet file (${sample_object##*/}) fails in-container with"
+                    echo "   'ArrowInvalid: Parquet magic bytes not found'."
+                    echo ""
+                    echo "   Provide a parquet dataset. Keep 'prompt' as a chat message list"
+                    echo "   ([{\"role\",\"content\"}]), and ensure the S3 prefix contains ONLY"
+                    echo "   parquet data files (no _dataset.json sidecar in the channel)."
+                    exit 1
+                fi
+                echo "   Dataset is parquet (${sample_object##*/}); RL format check passed."
+                return 0
+                ;;
+        esac
+
+        # Parquet → skip jsonl line-validation (format is validated by the
+        # training container's parquet loader, not here).
+        if [[ "${sample_object}" == *.parquet ]]; then
+            echo "   Dataset is parquet (${sample_object##*/}); skipping jsonl line-check."
+            return 0
+        fi
+
         # Validate format by downloading first 10 lines
         local schema_json
         schema_json=$(_get_dataset_schema)
 
         local sample_data
-        sample_data=$(aws s3 cp "${dataset}" - --region "${AWS_REGION}" 2>/dev/null | head -10)
+        sample_data=$(aws s3 cp "${sample_object}" - --region "${AWS_REGION}" 2>/dev/null | head -10) || sample_data=""
 
         if [ -n "${sample_data}" ]; then
             local validate_result
@@ -1164,7 +1217,7 @@ _preflight_rft_inputs() {
     fi
 
     echo "🔍 Resolving evaluator '${ARG_EVALUATOR_NAME}' from the AI Registry..."
-    local ev_resolve_result ev_type ev_reference
+    local ev_resolve_result ev_type ev_reference ev_arn
     ev_resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-evaluator \
         --name "${ARG_EVALUATOR_NAME}" --region "${AWS_REGION}" 2>/dev/null) || ev_resolve_result=""
 
@@ -1176,19 +1229,33 @@ _preflight_rft_inputs() {
 
     ev_type=$(echo "${ev_resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('type',''))" 2>/dev/null) || ev_type=""
     ev_reference=$(echo "${ev_resolve_result}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('reference') or d.get('arn_or_uri') or '')" 2>/dev/null) || ev_reference=""
+    ev_arn=$(echo "${ev_resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('arn') or '')" 2>/dev/null) || ev_arn=""
 
-    if [ -z "${ev_reference}" ]; then
+    if [ -z "${ev_reference}" ] && [ -z "${ev_arn}" ]; then
         echo "❌ ${ARG_TECHNIQUE^^}: evaluator '${ARG_EVALUATOR_NAME}' resolved but has no source reference."
         echo "   Re-register the ${reward_kind}:  ${reward_verb}"
         exit 1
     fi
 
-    echo "   Resolved evaluator: ${ev_type} → ${ev_reference}"
-    # reward_function (RLVR/MTRL) vs reward_prompt (RLAIF). Tolerate legacy labels.
+    echo "   Resolved evaluator: ${ev_type} → ${ev_arn:-${ev_reference}}"
+    # Both RFT trainers want the HUB-CONTENT evaluator ARN, NOT the Lambda ref:
+    #   • RLVR custom_reward_function: if given a *Lambda* ARN, RLVRTrainer.train()
+    #     internally calls Evaluator.create() to wrap it — and that create path
+    #     resolves a role with get_role(role=None), defaulting to the CALLER
+    #     identity (role/<you>), which SageMaker cannot assume → "IAM role
+    #     '.../role/<you>' cannot be used for 'training'". Passing the already-
+    #     registered hub-content ARN takes the trainer's else-branch (no
+    #     Evaluator.create, no role-less resolution). So prefer ev_arn.
+    #   • RLAIF reward_prompt: validated against
+    #     ^arn:aws:sagemaker:...:hub-content/<hub>/JsonDoc/<name>/<ver>$ — also the
+    #     hub-content ARN. A bare NAME fails default-hub DescribeHubContent and an
+    #     S3 URI fails the hubContentName regex.
+    # Fall back to ev_reference only when no hub-content ARN resolved (e.g. a raw
+    # Lambda ARN passed via --reward-function with no registry entry).
     case "${ev_type}" in
-        reward_function|lambda) ARG_REWARD_FUNCTION="${ev_reference}" ;;
-        reward_prompt|model)    ARG_REWARD_PROMPT="${ev_reference}" ;;
-        *)                      ARG_REWARD_FUNCTION="${ev_reference}" ;;
+        reward_function|lambda) ARG_REWARD_FUNCTION="${ev_arn:-${ev_reference}}" ;;
+        reward_prompt|model)    ARG_REWARD_PROMPT="${ev_arn:-${ev_reference}}" ;;
+        *)                      ARG_REWARD_FUNCTION="${ev_arn:-${ev_reference}}" ;;
     esac
     return 0
 }
@@ -1212,6 +1279,40 @@ _submit_job() {
         if [ -z "${role_arn}" ]; then
             echo "❌ No execution role configured"
             echo "   Set ROLE_ARN in do/config or use --role <arn>"
+            echo "   (Is the bootstrap profile sourced? ROLE_ARN comes from"
+            echo "    _PROFILE_roleArn — an unsourced profile leaves it empty.)"
+            exit 1
+        fi
+    fi
+
+    # Fail LOUD if the resolved role is NOT a usable SageMaker training role.
+    # When role_arn is empty or is the CALLER's own identity, the SDK silently
+    # falls back to the caller principal, and the training job is rejected with
+    # "IAM role '.../role/<you>' cannot be used for 'training' workloads ... its
+    # trust policy does not allow sagemaker.amazonaws.com". Catch it here, before
+    # submit, with an actionable message instead of a cryptic SDK failure.
+    if [ -z "${role_arn}" ] || [[ "${role_arn}" != arn:aws:iam::*:role/* ]]; then
+        echo "❌ Invalid execution role: '${role_arn:-<empty>}'"
+        echo "   Expected a SageMaker execution role ARN (arn:aws:iam::<acct>:role/<name>)."
+        echo "   Set ROLE_ARN in do/config, pass --role <arn>, or ensure the bootstrap"
+        echo "   profile is sourced (ROLE_ARN derives from _PROFILE_roleArn)."
+        exit 1
+    fi
+    local _caller_arn
+    _caller_arn=$(aws sts get-caller-identity --query Arn --output text --region "${AWS_REGION}" 2>/dev/null) || _caller_arn=""
+    # STS caller ARN for an assumed role looks like
+    # arn:aws:sts::<acct>:assumed-role/<role-name>/<session>; extract <role-name>
+    # and refuse if the resolved training role IS the caller's own identity.
+    if [ -n "${_caller_arn}" ]; then
+        local _caller_role_name="${_caller_arn##*assumed-role/}"
+        _caller_role_name="${_caller_role_name%%/*}"
+        local _resolved_role_name="${role_arn##*role/}"
+        if [ -n "${_caller_role_name}" ] && [ "${_caller_role_name}" = "${_resolved_role_name}" ]; then
+            echo "❌ Execution role resolves to YOUR caller identity ('${_resolved_role_name}'),"
+            echo "   not a SageMaker execution role. SageMaker cannot assume your user/caller"
+            echo "   role for training (its trust policy excludes sagemaker.amazonaws.com)."
+            echo "   Set ROLE_ARN to the mlcc-sagemaker-execution-role in do/config, pass"
+            echo "   --role <arn>, or re-source the bootstrap profile."
             exit 1
         fi
     fi

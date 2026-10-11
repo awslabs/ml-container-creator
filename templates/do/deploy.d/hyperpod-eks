@@ -411,6 +411,14 @@ except Exception:
         g6.xlarge|g6.2xlarge|g6.4xlarge|g6.8xlarge|g6.16xlarge) echo 1 ;;
         g6.12xlarge|g6.24xlarge) echo 4 ;;
         g6.48xlarge) echo 8 ;;
+        g7.2xlarge|g7.4xlarge|g7.8xlarge) echo 1 ;;
+        g7.12xlarge) echo 2 ;;
+        g7.24xlarge) echo 4 ;;
+        g7.48xlarge) echo 8 ;;
+        g7e.2xlarge|g7e.4xlarge|g7e.8xlarge) echo 1 ;;
+        g7e.12xlarge) echo 2 ;;
+        g7e.24xlarge) echo 4 ;;
+        g7e.48xlarge) echo 8 ;;
         p4d.24xlarge|p4de.24xlarge|p5.48xlarge) echo 8 ;;
         # B300 (Blackwell Ultra)
         p6-b300.48xlarge) echo 8 ;;
@@ -582,6 +590,7 @@ _HP_TIER1_VALUES=$(
     QUANT="${VLLM_QUANTIZATION:-}" \
     LORA_ON="${_HP_LORA_ON:-false}" \
     LORA_MAX_RANK="${VLLM_MAX_LORA_RANK:-}" \
+    LORA_MAX="${VLLM_MAX_LORAS:-}" \
     LORA_TARGET_MODULES="${VLLM_LORA_TARGET_MODULES:-}" \
     CAP_MAP="${_HP_CAP_MAP}" \
     python3 - <<'_PYEOF'
@@ -598,25 +607,37 @@ if os.environ.get("LORA_ON") == "true":
     # Explicit user-set companion values always win.
     user = {
         "lora_max_rank": os.environ.get("LORA_MAX_RANK") or "",
+        "lora_max": os.environ.get("LORA_MAX") or "",
         "lora_target_modules": os.environ.get("LORA_TARGET_MODULES") or "",
     }
     for k, val in user.items():
         if val:
             v[k] = val
-    # Fill MLCC pure-dynamic defaults for companions the ACTIVE engine requires
-    # (derived from its capability_map), keyed by capability not engine name.
-    MLCC_LORA_DEFAULTS = {"lora_max_rank": "16", "lora_target_modules": "all"}
+    # MLCC pure-dynamic LoRA defaults, keyed by CAPABILITY (not engine name).
+    # lora_max=4 / lora_max_rank=16 are memory-safe sizing defaults: vLLM's own
+    # defaults (max_loras=30, max_lora_rank=64) pre-allocate a large LoRA buffer
+    # that OOMs big models on tight VRAM (validated remediation in the capability
+    # matrix: "reduce max_loras 30→4, max_lora_rank 64→16"). 4 covers 2–3 adapters
+    # plus hot-swap headroom; override via VLLM_MAX_LORAS / VLLM_MAX_LORA_RANK.
+    MLCC_LORA_DEFAULTS = {"lora_max": "4", "lora_max_rank": "16", "lora_target_modules": "all"}
     try:
         caps = json.loads(os.environ.get("CAP_MAP") or "{}")
     except Exception:
         caps = {}
     lora_decl = caps.get("lora_enable") or {}
-    required = set()
+    # Fill a default for every sizing/companion capability the ACTIVE engine
+    # DECLARES in its capability_map (not only ones gated as "required"): a plugin
+    # that declares lora_max gets the memory-safe count; one that doesn't (e.g.
+    # SGLang) silently skips it. This is the per-engine translation — each manifest
+    # maps the capability to its own env suffix (vLLM lora_max→MAX_LORAS, etc.).
+    declared = set(k for k in caps.keys())
+    # requiresAnyOf/requires companions are always eligible too (they may not be
+    # top-level capability keys on every engine).
     for group in (lora_decl.get("requiresAnyOf") or [lora_decl.get("requires") or []]):
-        required.update(group)
-    for comp in required:
-        if comp in MLCC_LORA_DEFAULTS and not v.get(comp):
-            v[comp] = MLCC_LORA_DEFAULTS[comp]
+        declared.update(group)
+    for comp, default in MLCC_LORA_DEFAULTS.items():
+        if comp in declared and not v.get(comp):
+            v[comp] = default
 print(json.dumps(v))
 _PYEOF
 )

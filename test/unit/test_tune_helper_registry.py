@@ -141,7 +141,7 @@ class TestResolveEvaluatorName:
 
     @patch("subprocess.run")
     def test_reward_function_evaluator_resolution(self, mock_run):
-        """Reward-function evaluator resolves to (reward_function, reference) for RLVR."""
+        """Reward-function evaluator resolves to (reward_function, reference, arn) for RLVR."""
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout=json.dumps({
@@ -150,24 +150,29 @@ class TestResolveEvaluatorName:
             }),
             stderr=""
         )
-        ev_type, ref = _resolve_evaluator_name("math-reward-fn")
+        ev_type, ref, arn = _resolve_evaluator_name("math-reward-fn")
         assert ev_type == "reward_function"
         assert ref == "arn:aws:lambda:us-west-2:123456789:function:math-reward"
+        assert arn == ""
 
     @patch("subprocess.run")
     def test_reward_prompt_evaluator_resolution(self, mock_run):
-        """Reward-prompt evaluator resolves to (reward_prompt, s3-uri) for RLAIF."""
+        """Reward-prompt evaluator surfaces both the S3 reference AND the hub-content
+        ARN for RLAIF. The ARN is what the RLAIF SDK path needs (the S3 URI fails
+        its hub-content ARN validation)."""
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout=json.dumps({
                 "type": "reward_prompt",
-                "reference": "s3://bucket/evaluators/judge-prompt.txt"
+                "reference": "s3://bucket/reward-prompts/judge-prompt.txt",
+                "arn": "arn:aws:sagemaker:us-west-2:123:hub-content/HUBID/JsonDoc/judge-v1/1.0.0",
             }),
             stderr=""
         )
-        ev_type, ref = _resolve_evaluator_name("judge-v1")
+        ev_type, ref, arn = _resolve_evaluator_name("judge-v1")
         assert ev_type == "reward_prompt"
-        assert ref == "s3://bucket/evaluators/judge-prompt.txt"
+        assert ref == "s3://bucket/reward-prompts/judge-prompt.txt"
+        assert arn == "arn:aws:sagemaker:us-west-2:123:hub-content/HUBID/JsonDoc/judge-v1/1.0.0"
 
     @patch("subprocess.run")
     def test_legacy_arn_or_uri_field_tolerated(self, mock_run):
@@ -180,9 +185,10 @@ class TestResolveEvaluatorName:
             }),
             stderr=""
         )
-        ev_type, ref = _resolve_evaluator_name("legacy-fn")
+        ev_type, ref, arn = _resolve_evaluator_name("legacy-fn")
         assert ev_type == "lambda"
         assert ref == "arn:aws:lambda:us-west-2:123:function:legacy"
+        assert arn == ""
 
     @patch("subprocess.run")
     def test_evaluator_not_found_exits(self, mock_run):
@@ -209,8 +215,8 @@ class TestResolveEvaluatorName:
         assert exc_info.value.code == 1
 
     @patch("subprocess.run")
-    def test_empty_reference_exits(self, mock_run):
-        """Empty reference in the response causes an error exit."""
+    def test_empty_reference_and_arn_exits(self, mock_run):
+        """Empty reference AND empty arn in the response causes an error exit."""
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout=json.dumps({"type": "reward_function", "reference": ""}),
@@ -219,6 +225,24 @@ class TestResolveEvaluatorName:
         with pytest.raises(SystemExit) as exc_info:
             _resolve_evaluator_name("empty-evaluator")
         assert exc_info.value.code == 1
+
+    @patch("subprocess.run")
+    def test_arn_only_reward_prompt_resolves(self, mock_run):
+        """A reward_prompt with only an ARN (no S3 reference) still resolves — the
+        ARN is the form RLAIF needs, so an empty reference is not fatal."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({
+                "type": "reward_prompt",
+                "reference": "",
+                "arn": "arn:aws:sagemaker:us-west-2:123:hub-content/HUBID/JsonDoc/judge/2.0.0",
+            }),
+            stderr=""
+        )
+        ev_type, ref, arn = _resolve_evaluator_name("arn-only-prompt")
+        assert ev_type == "reward_prompt"
+        assert ref == ""
+        assert arn == "arn:aws:sagemaker:us-west-2:123:hub-content/HUBID/JsonDoc/judge/2.0.0"
 
     @patch("os.path.exists", return_value=False)
     def test_helper_missing_exits(self, mock_exists):

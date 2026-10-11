@@ -47,7 +47,7 @@ from register_list import (  # noqa: E402
     cmd_list_adapters, cmd_list_models,
 )
 from register_resolve import (  # noqa: E402
-    cmd_resolve_dataset, cmd_resolve_evaluator, cmd_get_version,
+    cmd_resolve_dataset, cmd_resolve_evaluator, cmd_list_evaluators, cmd_get_version,
     _select_version,
 )
 
@@ -217,6 +217,13 @@ def main():
     resolve_evaluator_parser.add_argument("--name", required=True, help="Evaluator name to resolve")
     resolve_evaluator_parser.add_argument("--region", default=None, help="AWS region")
 
+    # ── list-evaluators ───────────────────────────────────────────────────
+    list_evaluators_parser = subparsers.add_parser("list-evaluators", help="List registered evaluators (reward functions / prompts)")
+    list_evaluators_parser.add_argument(
+        "--evaluator-type", default=None, choices=["reward_function", "reward_prompt"],
+        help="Filter by type (reward_function for RLVR/MTRL, reward_prompt for RLAIF)")
+    list_evaluators_parser.add_argument("--region", default=None, help="AWS region")
+
     # ── Parse and dispatch ────────────────────────────────────────────────
     args = parser.parse_args()
 
@@ -246,6 +253,7 @@ def main():
         "get-version": cmd_get_version,
         "resolve-dataset": cmd_resolve_dataset,
         "resolve-evaluator": cmd_resolve_evaluator,
+        "list-evaluators": cmd_list_evaluators,
     }
 
     handler = command_map.get(args.command)

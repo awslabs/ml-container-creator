@@ -94,13 +94,17 @@ def _resolve_dataset_name(dataset_name):
 
 
 def _resolve_evaluator_name(evaluator_name):
-    """Resolve a registered evaluator name to its type and source reference.
+    """Resolve a registered evaluator name to its type, source reference and ARN.
 
     BL117: evaluators are native sagemaker.ai_registry assets. Returns
-    ``(evaluator_type, reference)`` where ``evaluator_type`` is
+    ``(evaluator_type, reference, arn)`` where ``evaluator_type`` is
     ``"reward_function"`` (RLVR/MTRL — register with ``do/register evaluator``) or
-    ``"reward_prompt"`` (RLAIF — register with ``do/register prompt``), and
-    ``reference`` is the Lambda ARN or S3 prompt URI the native asset points at.
+    ``"reward_prompt"`` (RLAIF — register with ``do/register prompt``),
+    ``reference`` is the Lambda ARN or S3 prompt URI the native asset points at,
+    and ``arn`` is the hub-content evaluator ARN. RLAIF ``reward_prompt`` needs
+    the hub-content ARN (the SDK validates it against
+    ^arn:aws:sagemaker:...:hub-content/<hub>/JsonDoc/<name>/<ver>$ and takes the
+    ARN branch); the S3 ``reference`` fails that validation.
     """
     import subprocess
 
@@ -151,14 +155,15 @@ def _resolve_evaluator_name(evaluator_name):
     ev_type = output.get("type", "")
     # Native resolve returns `reference`; tolerate the legacy `arn_or_uri` field.
     reference = output.get("reference") or output.get("arn_or_uri") or ""
+    arn = output.get("arn") or ""
 
-    if not reference:
+    if not reference and not arn:
         _error_exit(
             f"Evaluator '{evaluator_name}' resolved but has no source reference. "
             f"Re-register it with `./do/register evaluator` or `./do/register prompt`."
         )
 
-    return ev_type, reference
+    return ev_type, reference, arn
 
 
 def cmd_resolve(args):

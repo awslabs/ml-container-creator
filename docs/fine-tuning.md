@@ -361,6 +361,13 @@ workflow: `do/register dataset` (the prompt corpus), `do/register evaluator` (a
 code reward function), and `do/register prompt` (a reward prompt). Datasets and
 evaluators are separate assets in separate registries; `do/tune` resolves both.
 
+List what you have registered with `--list` on either evaluator verb:
+
+```bash
+./do/register evaluator --list   # registered reward functions (RLVR / MTRL)
+./do/register prompt --list      # registered reward prompts (RLAIF)
+```
+
 ### Register a reward function (RLVR / MTRL)
 
 The lead path is **bring-your-own-Lambda** — reference an existing reward Lambda
@@ -417,16 +424,23 @@ errors and return a `0.0` floor.
 
 ### Register a reward prompt (RLAIF)
 
-A reward prompt is an LLM-as-judge template stored in S3, registered as a native
+A reward prompt is an LLM-as-judge template registered as a native
 `REWARD_PROMPT` evaluator (no Lambda, no dual-trust role):
 
 ```bash
-# Register the reward prompt
+# Easiest: pass a LOCAL file — it is auto-uploaded to the canonical core-bucket
+# location (s3://<CORE_BUCKET>/reward-prompts/<name>.<ext>) and then registered.
+./do/register prompt clarity-judge --prompt-file ./clarity-judge.txt
+
+# Or register an already-staged S3 file directly:
 ./do/register prompt clarity-judge --prompt s3://my-bucket/reward-prompts/clarity-judge.txt
 
 # Then tune (RLAIF needs BOTH a dataset and this reward prompt)
 ./do/tune --technique rlaif --dataset clarity-prompts --evaluator-name clarity-judge
 ```
+
+`--prompt-file` and `--prompt` are mutually exclusive; `--prompt-file` needs a
+provisioned mlcc-core bucket (`ml-container-creator bootstrap`) to upload into.
 
 #### Reward-prompt contract
 

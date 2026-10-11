@@ -384,41 +384,51 @@ describe('ADR-010 SGLang pure-dynamic LoRA (findings: .kiro/sglang-lora-dynamic-
     });
 });
 
-// ── 9. Deploy-driver companion defaults (SGLang 16/all, vLLM none) ─────────────
+// ── 9. Deploy-driver companion defaults (memory-safe LoRA sizing) ─────────────
 // Mirrors the exact Tier-1 value-builder logic in deploy.d/eks + deploy.d/hyperpod-eks:
-// when LoRA is on, MLCC fills pure-dynamic defaults for companions the ACTIVE
-// engine's capability_map requires, keyed by capability name (no engine branch).
+// when LoRA is on, MLCC fills pure-dynamic defaults for every LoRA sizing/companion
+// capability the ACTIVE engine DECLARES in its capability_map (not only ones gated
+// as "required"), keyed by capability name (no engine branch). The sizing defaults
+// (lora_max=4, lora_max_rank=16) replace vLLM's memory-hungry built-ins (30/64)
+// that OOM large models; each engine's manifest translates the capability to its
+// own env suffix.
 describe('ADR-010 deploy-driver companion defaults', () => {
-    const MLCC_LORA_DEFAULTS = { lora_max_rank: '16', lora_target_modules: 'all' };
+    const MLCC_LORA_DEFAULTS = { lora_max: '4', lora_max_rank: '16', lora_target_modules: 'all' };
 
-    function buildTier1Values(engine, { loraOn, userRank = '', userModules = '', serveDir } = {}) {
+    function buildTier1Values(engine, { loraOn, userRank = '', userMax = '', userModules = '', serveDir } = {}) {
         const v = { model: 'm', tensor_parallel_degree: '4' };
         if (loraOn) {
             v.lora_enable = 'true';
             if (userRank) v.lora_max_rank = userRank;
+            if (userMax) v.lora_max = userMax;
             if (userModules) v.lora_target_modules = userModules;
             const caps = capabilityMap(engine, serveDir);
             const decl = caps.lora_enable || {};
-            const required = new Set();
+            // Declared sizing capabilities ∪ required companions — fill a default
+            // for any the engine knows about and the user didn't set.
+            const declared = new Set(Object.keys(caps));
             for (const g of (decl.requiresAnyOf || [decl.requires || []])) {
-                for (const k of g) required.add(k);
+                for (const k of g) declared.add(k);
             }
-            for (const comp of required) {
-                if (comp in MLCC_LORA_DEFAULTS && !v[comp]) v[comp] = MLCC_LORA_DEFAULTS[comp];
+            for (const [comp, def] of Object.entries(MLCC_LORA_DEFAULTS)) {
+                if (declared.has(comp) && !v[comp]) v[comp] = def;
             }
         }
         return v;
     }
 
-    it('SGLang + LoRA on auto-fills rank=16 and target_modules=all, resolver emits all 3', () => {
+    it('SGLang + LoRA on auto-fills rank=16 and target_modules=all, resolver emits them', () => {
         const vals = buildTier1Values('sglang', { loraOn: true });
         assert.strictEqual(vals.lora_max_rank, '16');
         assert.strictEqual(vals.lora_target_modules, 'all');
+        // SGLang does NOT declare lora_max → no max-loras default for it.
+        assert.ok(!('lora_max' in vals), 'SGLang declares no lora_max capability');
         const { resolved, skipped } = resolveCapabilityVars('sglang', vals);
         const keys = resolved.map((e) => e.key);
         assert.ok(keys.includes('SGLANG_ENABLE_LORA'));
         assert.ok(resolved.find((e) => e.key === 'SGLANG_MAX_LORA_RANK').value === '16');
         assert.ok(resolved.find((e) => e.key === 'SGLANG_LORA_TARGET_MODULES').value === 'all');
+        assert.ok(!keys.some((k) => k === 'SGLANG_MAX_LORAS'), 'no max-loras for SGLang');
         assert.strictEqual(skipped.length, 0, 'with defaults supplied, nothing is skipped');
     });
 
@@ -428,13 +438,22 @@ describe('ADR-010 deploy-driver companion defaults', () => {
         assert.strictEqual(vals.lora_target_modules, 'q_proj,v_proj');
     });
 
-    it('vLLM + LoRA on fills NO companions (requires []), stays bare', () => {
+    it('vLLM + LoRA on fills memory-safe sizing defaults (max_loras=4, rank=16)', () => {
+        // vLLM declares lora_max + lora_max_rank, so it gets the sizing defaults —
+        // this is what prevents vLLM's built-in 30/64 from OOMing large models.
         const vals = buildTier1Values('vllm', { loraOn: true });
-        assert.ok(!('lora_max_rank' in vals), 'vLLM needs no companion defaults');
-        assert.ok(!('lora_target_modules' in vals));
+        assert.strictEqual(vals.lora_max, '4', 'vLLM max-loras defaults to 4');
+        assert.strictEqual(vals.lora_max_rank, '16', 'vLLM max-lora-rank defaults to 16');
         const { resolved } = resolveCapabilityVars('vllm', vals);
         assert.ok(resolved.some((e) => e.key === 'VLLM_ENABLE_LORA'));
-        assert.ok(!resolved.some((e) => e.key.startsWith('VLLM_MAX_LORA')));
+        assert.ok(resolved.find((e) => e.key === 'VLLM_MAX_LORAS').value === '4');
+        assert.ok(resolved.find((e) => e.key === 'VLLM_MAX_LORA_RANK').value === '16');
+    });
+
+    it('user override wins over the vLLM sizing default', () => {
+        const vals = buildTier1Values('vllm', { loraOn: true, userMax: '2', userRank: '32' });
+        assert.strictEqual(vals.lora_max, '2');
+        assert.strictEqual(vals.lora_max_rank, '32');
     });
 });
 

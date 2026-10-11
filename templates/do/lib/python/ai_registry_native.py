@@ -128,10 +128,25 @@ def _active_profile_data():
 def resolve_domain_id():
     """Return the Studio Domain_Id from the active profile, or None (Req 3.2/3.3).
 
-    Absent → the dataset is still created natively but without the @domain tag
-    (not Studio-visible); the caller notes this and does not fail.
+    Prefer the denormalized top-level ``domainId`` the bootstrap writes, but FALL
+    BACK to ``moduleOutputs['sagemaker-domain'].DomainId`` when it is absent. The
+    bootstrap denormalizer only backfills the top-level key when it runs with the
+    sagemaker-domain module in its outputs, so a profile provisioned with the
+    module BEFORE that step existed (or via an add-module that short-circuited on
+    "already provisioned") has the DomainId in moduleOutputs but no top-level key.
+    Reading both makes resolution independent of denormalization timing.
+
+    Absent in both → the asset is still created natively but without the @domain
+    tag (not Studio-visible); the caller notes this and does not fail.
     """
-    return _active_profile_data().get("domainId") or None
+    profile = _active_profile_data()
+    domain_id = profile.get("domainId")
+    if not domain_id:
+        module_outputs = profile.get("moduleOutputs") or {}
+        sm_domain = module_outputs.get("sagemaker-domain") or {}
+        if isinstance(sm_domain, dict):
+            domain_id = sm_domain.get("DomainId")
+    return domain_id or None
 
 
 def resolve_training_role():

@@ -137,3 +137,158 @@ class TestCreateEvaluatorNative:
                 region="us-west-2",
             )
         assert "upgrade sagemaker" in str(ei.value)
+
+
+# ── list/resolve via the AI Registry SDK (B) ──────────────────────────────────
+# The list/resolve paths use the SDK's own Evaluator.get_all()/get(), NOT a
+# boto3 hub-name guess — the real SDK-created hub has an opaque generated id, so
+# guessing AiRegistry-<region>-<account> always missed. These tests fake the SDK
+# Evaluator so behavior — classification, type-filter, not-found — is asserted
+# offline without AWS.
+
+class _FakeEvaluator:
+    """A fake sagemaker.ai_registry Evaluator object (what get_all/get return)."""
+    def __init__(self, name, type, version="1.0.0", arn=None, reference=None):
+        self.name = name
+        self.type = type  # SDK form: "RewardFunction" / "RewardPrompt"
+        self.version = version
+        self.arn = arn or f"arn:...:{name}"
+        self.reference = reference or f"s3://b/{name}.txt"
+
+
+def _install_fake_evaluator_registry(monkeypatch, items, by_name=None):
+    """Patch Evaluator.get_all / Evaluator.get on a fake SDK module.
+
+    items: list[_FakeEvaluator] returned by get_all (filtered by type= here to
+    mirror the real SDK). by_name: optional {name: _FakeEvaluator|None} for get().
+    """
+    import sys
+    import types as _types
+    ev_mod = sys.modules.get("sagemaker.ai_registry.evaluator") \
+        or _types.ModuleType("sagemaker.ai_registry.evaluator")
+    air = sys.modules.get("sagemaker.ai_registry.air_constants") \
+        or _types.ModuleType("sagemaker.ai_registry.air_constants")
+    air.REWARD_FUNCTION = "RewardFunction"
+    air.REWARD_PROMPT = "RewardPrompt"
+
+    class Evaluator:
+        @staticmethod
+        def get_all(type=None, max_results=None, sagemaker_session=None):
+            if type is None:
+                return list(items)
+            return [e for e in items if e.type == type]
+
+        @staticmethod
+        def get(name, sagemaker_session=None):
+            table = by_name if by_name is not None else {e.name: e for e in items}
+            if name not in table:
+                raise RuntimeError(f"ResourceNotFound: {name} does not exist")
+            return table[name]
+
+    ev_mod.Evaluator = Evaluator
+    sys.modules["sagemaker"] = sys.modules.get("sagemaker") or _types.ModuleType("sagemaker")
+    sys.modules["sagemaker.ai_registry"] = sys.modules.get("sagemaker.ai_registry") \
+        or _types.ModuleType("sagemaker.ai_registry")
+    sys.modules["sagemaker.ai_registry.evaluator"] = ev_mod
+    sys.modules["sagemaker.ai_registry.air_constants"] = air
+
+
+class TestListEvaluators:
+    def test_lists_and_classifies_by_type(self, monkeypatch):
+        import register_resolve as rr
+        _install_fake_evaluator_registry(monkeypatch, [
+            _FakeEvaluator("math-rf", "RewardFunction", arn="arn:rf"),
+            _FakeEvaluator("clarity-judge", "RewardPrompt", arn="arn:rp"),
+        ])
+        out = rr._list_evaluators_native("us-west-2")
+        types_by_name = {e["name"]: e["type"] for e in out}
+        assert types_by_name == {"math-rf": "reward_function", "clarity-judge": "reward_prompt"}
+
+    def test_filters_to_requested_type(self, monkeypatch):
+        import register_resolve as rr
+        _install_fake_evaluator_registry(monkeypatch, [
+            _FakeEvaluator("math-rf", "RewardFunction"),
+            _FakeEvaluator("clarity-judge", "RewardPrompt"),
+        ])
+        prompts = rr._list_evaluators_native("us-west-2", evaluator_type="reward_prompt")
+        assert [e["name"] for e in prompts] == ["clarity-judge"]
+        funcs = rr._list_evaluators_native("us-west-2", evaluator_type="reward_function")
+        assert [e["name"] for e in funcs] == ["math-rf"]
+
+    def test_carries_version_arn_reference(self, monkeypatch):
+        import register_resolve as rr
+        _install_fake_evaluator_registry(monkeypatch, [
+            _FakeEvaluator("clarity-judge", "RewardPrompt", version="4.0.0",
+                           arn="arn:hub/clarity-judge/4.0.0", reference="s3://b/j.txt"),
+        ])
+        out = rr._list_evaluators_native("us-west-2")
+        assert out == [{
+            "name": "clarity-judge", "type": "reward_prompt", "version": "4.0.0",
+            "arn": "arn:hub/clarity-judge/4.0.0", "reference": "s3://b/j.txt",
+        }]
+
+    def test_empty_registry_returns_empty_list(self, monkeypatch):
+        import register_resolve as rr
+        _install_fake_evaluator_registry(monkeypatch, [])
+        assert rr._list_evaluators_native("us-west-2") == []
+
+
+class TestResolveEvaluatorNative:
+    def test_resolves_existing(self, monkeypatch):
+        import register_resolve as rr
+        _install_fake_evaluator_registry(monkeypatch, [
+            _FakeEvaluator("clarity-judge", "RewardPrompt", version="4.0.0",
+                           reference="s3://b/j.txt"),
+        ])
+        got = rr._resolve_evaluator_native("clarity-judge", "us-west-2")
+        assert got["name"] == "clarity-judge"
+        assert got["type"] == "reward_prompt"
+        assert got["reference"] == "s3://b/j.txt"
+        assert got["version"] == "4.0.0"
+
+    def test_not_found_returns_none(self, monkeypatch):
+        import register_resolve as rr
+        _install_fake_evaluator_registry(monkeypatch, [], by_name={})
+        assert rr._resolve_evaluator_native("missing", "us-west-2") is None
+
+
+# ── resolve_domain_id: top-level key AND moduleOutputs fallback ────────────────
+
+class TestResolveDomainId:
+    def test_prefers_top_level_domain_id(self, monkeypatch):
+        import ai_registry_native as arn
+        monkeypatch.setattr(arn, "_active_profile_data", lambda: {"domainId": "d-top"})
+        assert arn.resolve_domain_id() == "d-top"
+
+    def test_falls_back_to_module_outputs(self, monkeypatch):
+        # The bootstrap denormalizer may not have backfilled the top-level key
+        # (module provisioned before that step, or add-module short-circuited),
+        # but moduleOutputs carries the DomainId. Resolution must find it.
+        import ai_registry_native as arn
+        monkeypatch.setattr(arn, "_active_profile_data", lambda: {
+            "moduleOutputs": {"sagemaker-domain": {"DomainId": "d-fallback"}}
+        })
+        assert arn.resolve_domain_id() == "d-fallback"
+
+    def test_top_level_wins_over_module_outputs(self, monkeypatch):
+        import ai_registry_native as arn
+        monkeypatch.setattr(arn, "_active_profile_data", lambda: {
+            "domainId": "d-top",
+            "moduleOutputs": {"sagemaker-domain": {"DomainId": "d-fallback"}},
+        })
+        assert arn.resolve_domain_id() == "d-top"
+
+    def test_none_when_neither_present(self, monkeypatch):
+        import ai_registry_native as arn
+        monkeypatch.setattr(arn, "_active_profile_data", lambda: {
+            "moduleOutputs": {"core": {"CoreBucket": "b"}}  # domain not provisioned
+        })
+        assert arn.resolve_domain_id() is None
+
+    def test_handles_malformed_module_outputs(self, monkeypatch):
+        import ai_registry_native as arn
+        # sagemaker-domain present but not a dict → must not crash, returns None.
+        monkeypatch.setattr(arn, "_active_profile_data", lambda: {
+            "moduleOutputs": {"sagemaker-domain": "oops-not-a-dict"}
+        })
+        assert arn.resolve_domain_id() is None

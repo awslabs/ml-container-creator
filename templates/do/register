@@ -116,8 +116,10 @@ _show_usage() {
     echo "  --from-sample [<id>] Materialize an editable reward-function sample to edit, then"
     echo "                      register it with --finalize (managed-Lambda path; needs the"
     echo "                      dual-trust reward-Lambda role via MLCC_REWARD_LAMBDA_ROLE_ARN)"
-    echo "  --technique <tech>  Technique: rlvr or mtrl (default: rlvr)"
     echo "  --description <d>   Optional description shown in Studio Assets"
+    echo "  Note: --technique is accepted but IGNORED (deprecated — the evaluator TYPE carries"
+    echo "        the distinction; do/tune uses its own --technique). The pairing is fixed:"
+    echo "        reward function → rlvr/mtrl, reward prompt → rlaif."
     echo "  Note: --type lambda|model is accepted as a DEPRECATED alias — lambda routes here,"
     echo "        model routes to \`do/register prompt\`."
     echo ""
@@ -162,8 +164,13 @@ _show_usage() {
     echo "  # Start from an editable sample, then register the edited file:"
     echo "  ./do/register evaluator my-reward --from-sample      # materialize + edit do/evaluators/my-reward.py"
     echo "  ./do/register evaluator my-reward --from-sample --finalize   # register the edited file"
-    echo "  # Register a reward prompt (RLAIF LLM-as-judge):"
+    echo "  # Register a reward prompt (RLAIF LLM-as-judge) from a LOCAL file (auto-uploaded):"
+    echo "  ./do/register prompt pairwise-judge --prompt-file ./judge-prompt.txt"
+    echo "  # ...or from an already-staged S3 file:"
     echo "  ./do/register prompt pairwise-judge --prompt s3://my-bucket/judge-prompt.txt"
+    echo "  # List what's registered:"
+    echo "  ./do/register evaluator --list      # reward functions (RLVR/MTRL)"
+    echo "  ./do/register prompt --list         # reward prompts (RLAIF)"
 }
 
 # Detect subcommand or legacy flags
@@ -220,8 +227,11 @@ EVALUATOR_FROM_SAMPLE=false
 EVALUATOR_SAMPLE_ID=""
 EVALUATOR_FINALIZE=false
 EVALUATOR_FORCE=false
+EVALUATOR_LIST=false
 PROMPT_NAME=""
 PROMPT_URI=""
+PROMPT_FILE=""
+PROMPT_LIST=false
 PROMPT_DESCRIPTION=""
 EXCLUDE_ADAPTERS=""
 BASE_ONLY=false
@@ -594,6 +604,7 @@ elif [ "${SUBCOMMAND}" = "evaluator" ]; then
             --sample-id=*)  EVALUATOR_SAMPLE_ID="${1#*=}"; shift ;;
             --finalize)     EVALUATOR_FINALIZE=true; shift ;;
             --force)        EVALUATOR_FORCE=true; shift ;;
+            --list)         EVALUATOR_LIST=true; shift ;;
             --description)  EVALUATOR_DESCRIPTION="$2"; shift 2 ;;
             --description=*) EVALUATOR_DESCRIPTION="${1#*=}"; shift ;;
             --name)         EVALUATOR_NAME="$2"; shift 2 ;;  # alternate to positional
@@ -619,6 +630,9 @@ elif [ "${SUBCOMMAND}" = "prompt" ]; then
         case "$1" in
             --prompt)       PROMPT_URI="$2"; shift 2 ;;
             --prompt=*)     PROMPT_URI="${1#*=}"; shift ;;
+            --prompt-file)  PROMPT_FILE="$2"; shift 2 ;;
+            --prompt-file=*) PROMPT_FILE="${1#*=}"; shift ;;
+            --list)         PROMPT_LIST=true; shift ;;
             --name)         PROMPT_NAME="$2"; shift 2 ;;  # alternate to positional
             --name=*)       PROMPT_NAME="${1#*=}"; shift ;;
             --description)  PROMPT_DESCRIPTION="$2"; shift 2 ;;
@@ -1076,6 +1090,18 @@ if [ "${SUBCOMMAND}" = "evaluator" ]; then
 fi
 
 if [ "${SUBCOMMAND}" = "evaluator" ]; then
+    # ── --list: enumerate registered REWARD_FUNCTION evaluators (B) ───────────
+    if [ "${EVALUATOR_LIST}" = true ]; then
+        if le_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-evaluators \
+            --evaluator-type reward_function --region "${AWS_REGION}"); then
+            echo "${le_output}"
+        else
+            echo "❌ Could not list reward-function evaluators"
+            exit 1
+        fi
+        exit 0
+    fi
+
     if [ -z "${EVALUATOR_NAME}" ]; then
         echo "❌ Evaluator name is required"
         echo "   Usage: ./do/register evaluator <name> --arn <lambda-arn>   (or --from-sample [<id>])"
@@ -1139,13 +1165,63 @@ fi
 # ============================================================
 
 if [ "${SUBCOMMAND}" = "prompt" ]; then
+    # ── --list: enumerate registered REWARD_PROMPT evaluators (B) ─────────────
+    if [ "${PROMPT_LIST}" = true ]; then
+        if lp_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-evaluators \
+            --evaluator-type reward_prompt --region "${AWS_REGION}"); then
+            echo "${lp_output}"
+        else
+            echo "❌ Could not list reward prompts"
+            exit 1
+        fi
+        exit 0
+    fi
+
     if [ -z "${PROMPT_NAME}" ]; then
         echo "❌ Prompt name is required"
-        echo "   Usage: ./do/register prompt <name> --prompt <s3-uri>"
+        echo "   Usage: ./do/register prompt <name> (--prompt-file <local.txt> | --prompt <s3-uri>)"
         exit 1
     fi
-    if [ -z "${PROMPT_URI}" ]; then
-        echo "❌ --prompt is required (S3 URI of the reward prompt file)"
+    if [ -n "${PROMPT_URI}" ] && [ -n "${PROMPT_FILE}" ]; then
+        echo "❌ --prompt and --prompt-file are mutually exclusive — provide only one"
+        exit 1
+    fi
+    if [ -z "${PROMPT_URI}" ] && [ -z "${PROMPT_FILE}" ]; then
+        echo "❌ Provide the reward prompt: --prompt-file <local file> (auto-uploaded) or --prompt <s3-uri>"
+        exit 1
+    fi
+
+    # ── --prompt-file: auto-upload a LOCAL file to the canonical core-bucket
+    #    location, then register that URI (A). Mirrors the dataset path's
+    #    canonicalization (s3://<CORE_BUCKET>/datasets/<name>/) so users don't
+    #    hand-run `aws s3 cp`. Destination: s3://<CORE_BUCKET>/reward-prompts/<name><ext>.
+    if [ -n "${PROMPT_FILE}" ]; then
+        if [ ! -f "${PROMPT_FILE}" ]; then
+            echo "❌ --prompt-file not found: ${PROMPT_FILE}"
+            exit 1
+        fi
+        if [ -z "${CORE_BUCKET}" ]; then
+            echo "❌ No mlcc-core bucket recorded in profile (codebuildSourceS3Bucket is empty)."
+            echo "   Run 'ml-container-creator bootstrap' to provision it, or set CORE_BUCKET,"
+            echo "   or pass an already-staged file via --prompt <s3-uri>."
+            exit 1
+        fi
+        _pf_ext="${PROMPT_FILE##*.}"
+        if [ "${_pf_ext}" = "${PROMPT_FILE}" ]; then _pf_ext="txt"; fi  # no extension → .txt
+        PROMPT_URI="s3://${CORE_BUCKET}/reward-prompts/${PROMPT_NAME}.${_pf_ext}"
+        echo "📦 Uploading reward prompt to canonical location"
+        echo "   Source: ${PROMPT_FILE}"
+        echo "   Target: ${PROMPT_URI}"
+        _pf_cmd=(aws s3 cp "${PROMPT_FILE}" "${PROMPT_URI}")
+        [ -n "${AWS_REGION:-}" ] && _pf_cmd+=(--region "${AWS_REGION}")
+        if ! "${_pf_cmd[@]}"; then
+            echo "❌ Failed to upload reward prompt to ${PROMPT_URI}"
+            exit 1
+        fi
+        echo "   ✅ Uploaded"
+        echo ""
+    elif [[ "${PROMPT_URI}" != s3://* ]]; then
+        echo "❌ --prompt must be an s3:// URI (got: ${PROMPT_URI}). For a local file use --prompt-file."
         exit 1
     fi
 

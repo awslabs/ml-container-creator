@@ -124,12 +124,19 @@ def _resolve_role_and_domain():
     return arn.resolve_training_role(), arn.resolve_domain_id()
 
 
-def _register(*, name, source, evaluator_type, technique, region, description,
+def _register(*, name, source, evaluator_type, region, description,
               verb, register_hint, role_override=None):
     """Shared register flow for both the evaluator and prompt verbs.
 
     ``role_override`` lets the managed-Lambda path pass the dual-trust
     reward-Lambda role instead of the default training role.
+
+    NOTE: ``technique`` is intentionally NOT a parameter. It used to be echoed in
+    the output JSON but was never persisted to the asset, resolvable, or consumed
+    by do/tune (which uses its own --technique) — dead metadata. The evaluator
+    TYPE (reward_function / reward_prompt) carries the meaningful distinction and
+    IS persisted. The ``--technique`` CLI flag is still accepted-and-ignored for
+    backward compatibility.
     """
     import ai_registry_native as arn
 
@@ -174,7 +181,6 @@ def _register(*, name, source, evaluator_type, technique, region, description,
     _output({
         "name": name,
         "type": evaluator_type,
-        "technique": technique,
         "reference": info.get("reference"),
         "arn": info.get("arn"),
         "version": info.get("version"),
@@ -204,7 +210,8 @@ def cmd_register_evaluator(args):
     if not name:
         _error_exit("--name is required", code="MISSING_ARGUMENT")
 
-    technique = getattr(args, "technique", None) or "rlvr"
+    # --technique is accepted-and-ignored (back-compat): it was never persisted or
+    # consumed; the evaluator TYPE carries the meaningful distinction.
     region = (
         getattr(args, "region", None)
         or os.environ.get("AWS_DEFAULT_REGION")
@@ -248,7 +255,7 @@ def cmd_register_evaluator(args):
         role_override = os.environ.get("MLCC_REWARD_LAMBDA_ROLE_ARN")
         _register(
             name=name, source=local_py, evaluator_type="reward_function",
-            technique=technique, region=region,
+            region=region,
             description=getattr(args, "description", None),
             verb="evaluator", register_hint="do/register evaluator",
             role_override=role_override,
@@ -266,7 +273,7 @@ def cmd_register_evaluator(args):
 
     _register(
         name=name, source=arn, evaluator_type="reward_function",
-        technique=technique, region=region,
+        region=region,
         description=getattr(args, "description", None),
         verb="evaluator", register_hint="do/register evaluator",
     )
@@ -302,7 +309,7 @@ def cmd_register_prompt(args):
 
     _register(
         name=name, source=source, evaluator_type="reward_prompt",
-        technique="rlaif", region=region,
+        region=region,
         description=getattr(args, "description", None),
         verb="prompt", register_hint="do/register prompt",
     )

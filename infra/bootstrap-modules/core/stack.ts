@@ -99,6 +99,17 @@ export class MlccCoreStack extends cdk.Stack {
                 'sagemaker:DescribeModelPackage', 'sagemaker:DescribeModelPackageGroup',
                 'sagemaker:ListModelPackages', 'sagemaker:ListHubContents',
                 'sagemaker:DescribeHubContent', 'sagemaker:DescribeHub',
+                // ai_registry asset WRITE path (BL117 evaluators + BL123 datasets).
+                // The high-level ai_registry SDK (DataSet.create / Evaluator.create)
+                // writes assets as hub content into its computed hub. The read
+                // actions above cover list/resolve; these cover create/update/delete.
+                // Without CreateHubContent/ImportHubContent, Evaluator.create fails
+                // its launch-gate SimulatePrincipalPolicy check with implicitDeny
+                // (surfaced confusingly as an ExpiredToken error).
+                'sagemaker:CreateHub', 'sagemaker:CreateHubContent',
+                'sagemaker:ImportHubContent', 'sagemaker:CreateHubContentReference',
+                'sagemaker:UpdateHubContent', 'sagemaker:DeleteHubContent',
+                'sagemaker:ListHubs', 'sagemaker:ListHubContentVersions',
             ],
             resources: ['*'],
         }));
@@ -213,6 +224,23 @@ export class MlccCoreStack extends cdk.Stack {
             sid: 'LambdaInvokeForReward',
             actions: ['lambda:InvokeFunction'],
             resources: ['arn:aws:lambda:*:' + this.account + ':function:mlcc-*'],
+        }));
+
+        // Bedrock judge-model invocation for RLAIF (LLM-as-judge reward). The
+        // managed RLAIF trainer scores completions by calling the configured
+        // judge model (e.g. judge_model_id=bedrock/deepseek.v3-v1:0) via
+        // bedrock:InvokeModel. Without this the job trains until the first reward
+        // call then fails: "not authorized to perform: bedrock:InvokeModel".
+        // Scoped to foundation-model and inference-profile ARNs (judge models are
+        // Bedrock FMs; some are only reachable via a cross-region inference
+        // profile) so RLVR/MTRL (which use Lambda reward fns) are unaffected.
+        this.role.addToPolicy(new iam.PolicyStatement({
+            sid: 'BedrockInvokeForJudge',
+            actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+            resources: [
+                'arn:aws:bedrock:*::foundation-model/*',
+                `arn:aws:bedrock:*:${this.account}:inference-profile/*`,
+            ],
         }));
 
         // ECR Repository (RETAIN on delete — images survive teardown). Because

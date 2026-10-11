@@ -59,6 +59,52 @@ describe('Integration: managed-RL evaluators → do/register + do/tune', () => {
             'the old stub usage line must be replaced');
     });
 
+    it('do/register prompt accepts a LOCAL file and auto-uploads it (A)', () => {
+        const result = generate();
+        const src = readFileSync(result.file('do/register'), 'utf8');
+        // --prompt-file is parsed and mutually exclusive with --prompt.
+        assert.match(src, /--prompt-file\)\s*PROMPT_FILE=/,
+            'do/register prompt must accept --prompt-file');
+        assert.match(src, /--prompt and --prompt-file are mutually exclusive/,
+            'the two prompt sources must be mutually exclusive');
+        // Local file is uploaded to the canonical core-bucket reward-prompts path.
+        assert.match(src, /s3:\/\/\$\{CORE_BUCKET\}\/reward-prompts\//,
+            'a local prompt file must be uploaded to the canonical core-bucket location');
+        assert.match(src, /aws s3 cp "\$\{PROMPT_FILE\}"/,
+            'the upload must use aws s3 cp from the local file');
+    });
+
+    it('do/register evaluator + prompt support --list (B)', () => {
+        const result = generate();
+        const src = readFileSync(result.file('do/register'), 'utf8');
+        // Both verbs parse --list and call the list-evaluators helper, filtered by type.
+        assert.match(src, /--list\)\s*EVALUATOR_LIST=true/,
+            'evaluator verb must accept --list');
+        assert.match(src, /--list\)\s*PROMPT_LIST=true/,
+            'prompt verb must accept --list');
+        assert.match(src, /list-evaluators[\s\S]*--evaluator-type reward_function/,
+            'evaluator --list must filter to reward_function');
+        assert.match(src, /list-evaluators[\s\S]*--evaluator-type reward_prompt/,
+            'prompt --list must filter to reward_prompt');
+    });
+
+    it('ships the native list-evaluators helper command', () => {
+        const result = generate();
+        const resolve = readFileSync(result.file('do/lib/python/register_resolve.py'), 'utf8');
+        assert.match(resolve, /def cmd_list_evaluators/,
+            'register_resolve must define cmd_list_evaluators');
+        // Listing/resolution use the AI Registry SDK (Evaluator.get_all/get), NOT a
+        // guessed hub name — the real SDK hub has an opaque id, so a derived
+        // AiRegistry-<region>-<account> name never matched.
+        assert.match(resolve, /Evaluator\.get_all/,
+            'listing must enumerate via the SDK Evaluator.get_all()');
+        assert.match(resolve, /Evaluator\.get\(/,
+            'resolution must use the SDK Evaluator.get()');
+        const helper = readFileSync(result.file('do/.register_helper.py'), 'utf8');
+        assert.match(helper, /"list-evaluators":\s*cmd_list_evaluators/,
+            'the helper must wire the list-evaluators subcommand');
+    });
+
     it('do/register help lists all four verbs', () => {
         const result = generate();
         const src = readFileSync(result.file('do/register'), 'utf8');

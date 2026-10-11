@@ -99,7 +99,9 @@ def main():
     submit_parser.add_argument("--reward-function", default=None,
                                help="Lambda ARN for reward function (RLVR)")
     submit_parser.add_argument("--reward-prompt", default=None,
-                               help="S3 URI for reward prompt (RLAIF)")
+                               help="Reward-prompt evaluator NAME for RLAIF "
+                                    "(hub-content name; the SDK resolves it to the "
+                                    "prompt asset). Not a raw S3 URI.")
     submit_parser.add_argument("--evaluator-name", default=None,
                                help="Registered evaluator name to resolve from registry")
     submit_parser.add_argument("--accept-eula", action="store_true", default=False,

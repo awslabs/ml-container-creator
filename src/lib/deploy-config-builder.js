@@ -308,6 +308,10 @@ const GPU_MAP = {
     'g5.12xlarge': 4, 'g5.16xlarge': 1, 'g5.24xlarge': 4, 'g5.48xlarge': 8,
     'g6.xlarge': 1, 'g6.2xlarge': 1, 'g6.4xlarge': 1, 'g6.8xlarge': 1,
     'g6.12xlarge': 4, 'g6.16xlarge': 1, 'g6.24xlarge': 4, 'g6.48xlarge': 8,
+    'g7.2xlarge': 1, 'g7.4xlarge': 1, 'g7.8xlarge': 1,
+    'g7.12xlarge': 2, 'g7.24xlarge': 4, 'g7.48xlarge': 8,
+    'g7e.2xlarge': 1, 'g7e.4xlarge': 1, 'g7e.8xlarge': 1,
+    'g7e.12xlarge': 2, 'g7e.24xlarge': 4, 'g7e.48xlarge': 8,
     'p4d.24xlarge': 8, 'p4de.24xlarge': 8, 'p5.48xlarge': 8,
     // B300 (Blackwell Ultra) — 8 GPUs per node
     'p6-b300.48xlarge': 8
