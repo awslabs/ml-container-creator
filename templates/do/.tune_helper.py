@@ -104,6 +104,10 @@ def main():
                                     "prompt asset). Not a raw S3 URI.")
     submit_parser.add_argument("--evaluator-name", default=None,
                                help="Registered evaluator name to resolve from registry")
+    submit_parser.add_argument("--agent-env", default=None,
+                               help="CustomAgentLambda ARN for MTRL. MTRL's reward lives "
+                                    "in the agent (it runs the rollout and computes reward); "
+                                    "there is no reward function/prompt. Required for mtrl.")
     submit_parser.add_argument("--accept-eula", action="store_true", default=False,
                                help="Accept model EULA for gated models (e.g., Llama)")
 

@@ -36,10 +36,21 @@ class BaseRunNotFoundError(RuntimeError):
 
 
 def _truncate_metadata(props):
-    """Truncate metadata values exceeding 256 chars with '…' suffix and log warning."""
+    """Truncate metadata values exceeding 256 chars with '…' suffix and log warning.
+
+    Also DROPS empty-string values: SageMaker's CreateModelPackage rejects any
+    CustomerMetadataProperties entry with a zero-length value ("Invalid length
+    for parameter ... value: 0, valid min length: 1"). Optional fields that were
+    not provided (e.g. modelFormat, generatorVersion for a transformers project)
+    arrive here as "" and must be OMITTED, not sent as empty — otherwise the
+    whole registration fails. Only non-empty metadata is included.
+    """
     result = {}
     for key, value in props.items():
         str_val = str(value) if value is not None else ""
+        if str_val == "":
+            # Omit empty values — SageMaker rejects zero-length metadata entries.
+            continue
         if len(str_val) > MAX_METADATA_VALUE_LEN:
             _warn(f"Metadata '{key}' truncated ({len(str_val)} \u2192 {MAX_METADATA_VALUE_LEN} chars)")
             str_val = str_val[: MAX_METADATA_VALUE_LEN - 1] + "\u2026"
@@ -274,7 +285,14 @@ def cmd_register_model(args):
     model_data_url = (args.model_data_url or "").rstrip("/")
 
     # Step 4: Create Model Package version
-    description = f"{args.deployment_config or 'model'} on {args.instance_type or 'unknown'}"
+    # Base model description: name the model + how it is served. Keep it concise
+    # and human-readable (serving details also live in CustomerMetadataProperties).
+    _desc_parts = [f"Base model {args.model_name}" if args.model_name else "Base model"]
+    if args.deployment_config:
+        _desc_parts.append(args.deployment_config)
+    if args.instance_type:
+        _desc_parts.append(f"on {args.instance_type}")
+    description = " · ".join(_desc_parts)
 
     print(f"Registering model version in {project_name}...", file=sys.stderr)
     try:
@@ -552,7 +570,12 @@ def cmd_register_adapter(args):
 
     # Step 4: Create adapter Model Package version
     technique = args.tune_technique or "unknown"
-    description = f"adapter ({technique}) on {args.instance_type or 'unknown'}, parent: {parent_version_arn}"
+    # Adapter description: technique + the base model + parent VERSION (not the
+    # full ARN — the parent ARN already lives in parentModelVersionArn metadata).
+    _parent_ver = (parent_version_arn or "").rstrip("/").rsplit("/", 1)[-1]
+    _parent_ref = f"base v{_parent_ver}" if _parent_ver.isdigit() else "base model"
+    _model_ref = f" of {args.model_name}" if args.model_name else ""
+    description = f"{technique.upper()} adapter{_model_ref} ({_parent_ref})"
 
     print(f"Registering adapter version in {project_name}...", file=sys.stderr)
     try:

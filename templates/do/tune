@@ -63,6 +63,7 @@ ARG_ACCEPT_EULA=false
 ARG_DATASET_NAME=""
 ARG_DATASET_VERSION=""
 ARG_EVALUATOR_NAME=""
+ARG_AGENT_ENV=""
 ARG_NO_REGISTER=false
 
 
@@ -203,6 +204,12 @@ _parse_args() {
                     exit 1
                 fi
                 ARG_EVALUATOR_NAME="$2"; shift 2 ;;
+            --agent-env)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --agent-env requires a CustomAgentLambda ARN (MTRL)"
+                    exit 1
+                fi
+                ARG_AGENT_ENV="$2"; shift 2 ;;
             *)
                 echo "❌ Unknown option: $1"
                 echo "   Run ./do/tune --help for usage."
@@ -283,12 +290,16 @@ _show_help() {
     echo "  --lora-alpha <n>      LoRA alpha scaling factor"
     echo "  --batch-size <n>      Global batch size"
     echo ""
-    echo "Evaluator (RFT techniques — rlvr, rlaif, mtrl — require ONE of these):"
+    echo "Reward / agent input (RL techniques — each needs ONE, differs by technique):"
     echo "  --evaluator-name <name>  Registered evaluator to resolve from the AI Registry."
-    echo "                           rlvr/mtrl → a reward function (./do/register evaluator);"
-    echo "                           rlaif     → a reward prompt    (./do/register prompt)."
-    echo "  --reward-function <arn>  Lambda ARN for a reward function (RLVR/MTRL; bypasses the"
-    echo "                           registry — pass the ARN directly)"
+    echo "                           rlvr  → a reward function (./do/register evaluator);"
+    echo "                           rlaif → a reward prompt    (./do/register prompt)."
+    echo "                           (mtrl does NOT use an evaluator — see --agent-env.)"
+    echo "  --reward-function <arn>  Lambda / hub-content ARN for a reward function (RLVR;"
+    echo "                           bypasses the registry — pass the ARN directly)"
+    echo "  --agent-env <arn>        CustomAgentLambda ARN for MTRL. MTRL's reward lives in"
+    echo "                           the agent (it runs the rollout + computes reward); there"
+    echo "                           is no reward function/prompt. Required for --technique mtrl."
     echo "  --reward-prompt <arn>    Hub-content evaluator ARN for a reward prompt (RLAIF),"
     echo "                           e.g. arn:aws:sagemaker:<region>:<acct>:hub-content/<hub>/"
     echo "                           JsonDoc/<name>/<ver>. NOT a bare name or S3 URI. Register"
@@ -1192,8 +1203,25 @@ _preflight_rft_inputs() {
         exit 1
     fi
 
-    # (2) Evaluator input — the technique's reward artifact. Determine the
-    #     expected kind + its register verb for clear messaging.
+    # (2a) MTRL is agent-based, NOT reward-evaluator-based. MultiTurnRLTrainer
+    #      requires an agent_env (a CustomAgentLambda): the agent runs the rollout,
+    #      calls the policy model, takes actions/tools, and computes the reward
+    #      itself — there is no custom_reward_function/reward_prompt. So mtrl needs
+    #      --agent-env, and does NOT resolve a reward evaluator.
+    if [ "${ARG_TECHNIQUE}" = "mtrl" ]; then
+        if [ -z "${ARG_AGENT_ENV}" ]; then
+            echo "❌ MTRL requires an agent environment, but none was provided."
+            echo "   MTRL's reward lives inside your agent (a CustomAgentLambda), not a"
+            echo "   reward function/prompt. Provide its ARN:"
+            echo "     ./do/tune --technique mtrl --dataset <name> --agent-env <custom-agent-lambda-arn>"
+            exit 1
+        fi
+        echo "   MTRL agent env: ${ARG_AGENT_ENV}"
+        return 0
+    fi
+
+    # (2b) RLVR/RLAIF evaluator input — the technique's reward artifact. Determine
+    #      the expected kind + its register verb for clear messaging.
     local reward_kind reward_verb
     if [ "${ARG_TECHNIQUE}" = "rlaif" ]; then
         reward_kind="reward prompt"
@@ -1390,6 +1418,9 @@ print(entry.get('provider', ''))
     fi
     if [ -n "${ARG_REWARD_PROMPT}" ]; then
         submit_args+=(--reward-prompt "${ARG_REWARD_PROMPT}")
+    fi
+    if [ -n "${ARG_AGENT_ENV}" ]; then
+        submit_args+=(--agent-env "${ARG_AGENT_ENV}")
     fi
 
     # Evaluator inputs for RFT techniques are resolved + threaded by
@@ -1812,6 +1843,9 @@ _dry_run() {
     fi
     if [ -n "${ARG_REWARD_PROMPT}" ]; then
         echo "   Reward prompt: ${ARG_REWARD_PROMPT}"
+    fi
+    if [ -n "${ARG_AGENT_ENV}" ]; then
+        echo "   Agent env:     ${ARG_AGENT_ENV}"
     fi
 
     echo ""

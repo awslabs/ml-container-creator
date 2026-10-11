@@ -175,8 +175,25 @@ def cmd_submit(args):
                 # during training; we only lose a client-side smoke test that is
                 # incompatible with the parquet dataset the trainer itself needs.
                 trainer_kwargs["skip_reward_validation"] = True
-            # mtrl: MultiTurnRLTrainer takes agent_env, not a plain reward fn —
-            # handled by the MTRL-specific path (not wired here yet; see TODO).
+            elif technique == "mtrl":
+                # MTRL is agent-based: MultiTurnRLTrainer requires an agent_env
+                # (a CustomAgentLambda / its ARN) that runs the rollout and computes
+                # the reward itself — there is NO reward_prompt/custom_reward_function.
+                # Its __init__ signature also differs: it does NOT accept
+                # training_type, and names the MPG `output_model_package_group`
+                # (not `model_package_group`). So reshape trainer_kwargs for mtrl.
+                if not getattr(args, "agent_env", None):
+                    _error_exit(
+                        "MTRL requires an agent environment. Provide a CustomAgentLambda "
+                        "ARN with --agent-env (there is no reward function/prompt for mtrl).",
+                        code="MISSING_AGENT_ENV",
+                    )
+                trainer_kwargs = {
+                    "model": args.model_id,
+                    "agent_env": args.agent_env,
+                    "training_dataset": args.dataset_s3_uri,
+                    "s3_output_path": output_path,
+                }
 
             # Accept EULA for gated models (e.g., Meta Llama)
             # SDK v3.12+ accepts accept_eula as a constructor parameter
@@ -203,7 +220,12 @@ def cmd_submit(args):
             except ImportError:
                 # sagemaker-core not available — skip MPG creation, let trainer handle it
                 pass
-            trainer_kwargs["model_package_group"] = mpg_name
+            # MTRL's MultiTurnRLTrainer names the MPG `output_model_package_group`;
+            # the other trainers use `model_package_group`.
+            if technique == "mtrl":
+                trainer_kwargs["output_model_package_group"] = mpg_name
+            else:
+                trainer_kwargs["model_package_group"] = mpg_name
 
             trainer = trainer_cls(**trainer_kwargs)
             trainer.role = args.role_arn
