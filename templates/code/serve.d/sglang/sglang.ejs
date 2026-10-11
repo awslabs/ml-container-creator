@@ -2,7 +2,9 @@
 # SGLang Server Configuration
 # ---------------------------------------------------------------------------
 # Env prefix: SGLANG_ (sourced from serve.d/sglang/manifest.json env_var_prefix)
-# Entrypoint: python3 -m sglang.launch_server
+# Entrypoint: sglang serve  (the recommended SGLang >=0.5 CLI; replaces the
+#             deprecated `python -m sglang.launch_server`, which emits a
+#             UserWarning. min_version 0.5.0 in the manifest guarantees it.)
 # Port: 8080 (SageMaker requirement)
 # ---------------------------------------------------------------------------
 
@@ -21,17 +23,26 @@ ARG_PREFIX="--"
 # ---------------------------------------------------------------------------
 # Positive whitelist via --help introspection (same approach as vLLM).
 #
-# Only forward SGLANG_* env vars whose --<flag> the running sglang.launch_server
-# actually accepts. This is version-proof: it adapts to whatever SGLang version
-# is in the image and silently drops env-only or unknown vars instead of
-# crashing the server with an unrecognized-arg error. Note SGLang's flag names
-# differ from vLLM (e.g. --tp-size, --context-length, --mem-fraction-static).
+# Only forward SGLANG_* env vars whose --<flag> the running server actually
+# accepts. This is version-proof: it adapts to whatever SGLang version is in the
+# image and silently drops env-only or unknown vars instead of crashing the
+# server with an unrecognized-arg error. Note SGLang's flag names differ from
+# vLLM (e.g. --tp-size, --context-length, --mem-fraction-static).
+#
+# Introspect the recommended `sglang serve --help` (>=0.5); fall back to the
+# legacy `python -m sglang.launch_server --help` if that yields nothing, so the
+# whitelist stays populated on any image. Same argparse → same --flag tokens.
 # ---------------------------------------------------------------------------
 VALID_ARGS_CACHE="/tmp/.sglang-valid-args"
 if [ ! -s "${VALID_ARGS_CACHE}" ]; then
-    python3 -m sglang.launch_server --help 2>/dev/null \
+    sglang serve --help 2>/dev/null \
         | grep -oE '\-\-[a-z0-9][a-z0-9-]+' \
         | sort -u > "${VALID_ARGS_CACHE}" 2>/dev/null || true
+    if [ ! -s "${VALID_ARGS_CACHE}" ]; then
+        python3 -m sglang.launch_server --help 2>/dev/null \
+            | grep -oE '\-\-[a-z0-9][a-z0-9-]+' \
+            | sort -u > "${VALID_ARGS_CACHE}" 2>/dev/null || true
+    fi
 fi
 
 # Fallback blocklist — used only if --help introspection produced nothing.
@@ -56,8 +67,16 @@ for var in "${env_vars[@]}"; do
 
     # Speculative decoding flags are assembled explicitly below so optional
     # values and the S3 draft-model validation follow one code path.
+    #
+    # <%= _p %>MODEL_PATH is also assembled explicitly (unconditionally) AFTER this
+    # loop: --model-path is the one load-bearing flag the server cannot start
+    # without, so it MUST NOT be gated behind the best-effort `--help` whitelist.
+    # If introspection returns empty or omits --model-path (version drift, a cold
+    # first run, or any transient exec failure — exactly the E2BIG cascade seen in
+    # the field), the whitelist would silently drop it and the server would launch
+    # with NO model. Skip it here so it is not double-added.
     case "${key}" in
-        <%= _p %>SPECULATIVE_ALGORITHM|<%= _p %>SPECULATIVE_DRAFT_MODEL_PATH|<%= _p %>SPECULATIVE_NUM_STEPS|<%= _p %>SPECULATIVE_EAGLE_TOPK)
+        <%= _p %>MODEL_PATH|<%= _p %>SPECULATIVE_ALGORITHM|<%= _p %>SPECULATIVE_DRAFT_MODEL_PATH|<%= _p %>SPECULATIVE_NUM_STEPS|<%= _p %>SPECULATIVE_EAGLE_TOPK)
             continue
             ;;
     esac
@@ -83,6 +102,26 @@ for var in "${env_vars[@]}"; do
         SERVER_ARGS+=("$value")
     fi
 done
+
+# ---------------------------------------------------------------------------
+# Model path (A) — assembled UNCONDITIONALLY, never gated by the --help
+# whitelist. code/serve's resolve_model exported <%= _p %>MODEL_PATH to the
+# resolved location (/opt/ml/model for s3/registry, or the HF id/local path).
+# --model-path is the one flag SGLang cannot start without, so it bypasses the
+# best-effort introspection that governs every optional knob above.
+# ---------------------------------------------------------------------------
+_sglang_model_path="${<%= _p %>MODEL_PATH:-}"
+
+# Fail-loud guard (C) — the whitelist/introspection subshells deliberately
+# swallow errors (`2>/dev/null || true`) to stay version-proof, which means a
+# broken environment can otherwise produce a model-less `[--host --port]` arg
+# list with NO warning (the field failure mode: server "up", serving nothing).
+# Refuse to launch without a model path so the failure is obvious and early.
+if [ -z "${_sglang_model_path}" ]; then
+    echo "❌ FATAL: no model path resolved (<%= _p %>MODEL_PATH is empty). The model could not be located or downloaded; refusing to start SGLang with no model." >&2
+    exit 1
+fi
+SERVER_ARGS+=(--model-path "${_sglang_model_path}")
 
 # ---------------------------------------------------------------------------
 # Speculative decoding (BL085) — SGLang discrete flags.
@@ -111,4 +150,4 @@ echo "-------------------------------------------------------------------"
 echo "SGLang engine args: [${SERVER_ARGS[@]}]"
 echo "-------------------------------------------------------------------"
 
-exec python3 -m sglang.launch_server "${SERVER_ARGS[@]}"
+exec sglang serve "${SERVER_ARGS[@]}"

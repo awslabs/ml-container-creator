@@ -234,10 +234,16 @@ describe('Triton Prompt Flow', () => {
                 assert.deepEqual(choices, ['pkl', 'joblib', 'custom']);
             });
 
-            it('should return empty array for triton-onnxruntime (auto-set)', () => {
+            it('should return the catalog format list for triton-onnxruntime (prompt still hidden by when)', () => {
+                // BL119: choices now returns the backend's catalog modelFormats
+                // (derived, not a hardcoded []). The prompt is NOT shown for a
+                // single-format backend — asserted by the `when` test above
+                // ("should NOT show for triton-onnxruntime"); choices honestly
+                // reflecting ['onnx'] is behaviorally irrelevant since it is never
+                // displayed, and matches the catalog source of truth.
                 const answers = { architecture: 'triton', backend: 'onnxruntime' };
                 const choices = modelFormatPrompt.choices(answers);
-                assert.deepEqual(choices, []);
+                assert.deepEqual(choices, ['onnx']);
             });
 
             it('should return http engine-based choices for http architecture', () => {

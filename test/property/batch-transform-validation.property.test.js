@@ -122,8 +122,14 @@ describe('Feature: batch-transform-endpoint, Property 1: Deployment target valid
          * Validates: Requirements 1.2
          */
         fc.assert(fc.property(
+            // Exclude the supported targets AND any value containing '${':
+            // _validateChoice INTENTIONALLY skips validation for values with '${'
+            // (unresolved shell-variable references like "${AWS_REGION:-us-west-2}"
+            // in do/config must pass through, not be rejected). A '${'-containing
+            // string is therefore NOT expected to throw — it's outside this
+            // property's domain, which is "invalid literal targets fail".
             fc.string({ minLength: 1, maxLength: 40 })
-                .filter(s => !SUPPORTED_DEPLOYMENT_TARGETS.includes(s)),
+                .filter(s => !SUPPORTED_DEPLOYMENT_TARGETS.includes(s) && !s.includes('${')),
             (deploymentTarget) => {
                 const answers = {
                     deploymentConfig: 'http-flask',

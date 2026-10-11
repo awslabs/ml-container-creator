@@ -11,7 +11,7 @@
 # targets: all
 
 # Wraps SageMaker managed fine-tuning for supported foundation models.
-# Supports SFT, DPO, RLAIF, and RLVR techniques.
+# Supports SFT, DPO, RLAIF, RLVR, and MTRL techniques.
 
 set -e
 set -u
@@ -63,6 +63,7 @@ ARG_ACCEPT_EULA=false
 ARG_DATASET_NAME=""
 ARG_DATASET_VERSION=""
 ARG_EVALUATOR_NAME=""
+ARG_AGENT_ENV=""
 ARG_NO_REGISTER=false
 
 
@@ -73,7 +74,7 @@ _parse_args() {
         case "$1" in
             --technique)
                 if [ -z "${2:-}" ]; then
-                    echo "❌ --technique requires a value (sft, dpo, rlaif, rlvr)"
+                    echo "❌ --technique requires a value (sft, dpo, rlaif, rlvr, mtrl)"
                     exit 1
                 fi
                 ARG_TECHNIQUE="$2"; shift 2 ;;
@@ -139,7 +140,7 @@ _parse_args() {
                 ARG_REWARD_FUNCTION="$2"; shift 2 ;;
             --reward-prompt)
                 if [ -z "${2:-}" ]; then
-                    echo "❌ --reward-prompt requires an S3 URI"
+                    echo "❌ --reward-prompt requires a hub-content evaluator ARN (or use --evaluator-name)"
                     exit 1
                 fi
                 ARG_REWARD_PROMPT="$2"; shift 2 ;;
@@ -203,6 +204,12 @@ _parse_args() {
                     exit 1
                 fi
                 ARG_EVALUATOR_NAME="$2"; shift 2 ;;
+            --agent-env)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --agent-env requires a CustomAgentLambda ARN (MTRL)"
+                    exit 1
+                fi
+                ARG_AGENT_ENV="$2"; shift 2 ;;
             *)
                 echo "❌ Unknown option: $1"
                 echo "   Run ./do/tune --help for usage."
@@ -223,7 +230,7 @@ _show_help() {
     echo "       ./do/tune --help"
     echo ""
     echo "SageMaker AI Managed Model Customization — fine-tune supported foundation"
-    echo "models using SFT, DPO, RLAIF, or RLVR without managing infrastructure."
+    echo "models using SFT, DPO, RLAIF, RLVR, or MTRL without managing infrastructure."
     echo ""
     echo "How it works:"
     echo ""
@@ -258,7 +265,11 @@ _show_help() {
     echo "  Or use: ./do/tune --discover [filter]"
     echo ""
     echo "Required:"
-    echo "  --technique <t>       Customization technique: sft, dpo, rlaif, rlvr"
+    echo "  --technique <t>       Customization technique: sft, dpo, rlaif, rlvr, mtrl"
+    echo "                        sft/dpo need a dataset only. rlvr/rlaif/mtrl are managed RFT"
+    echo "                        techniques that ALSO need an evaluator (register it first):"
+    echo "                          rlvr, mtrl → reward function  (./do/register evaluator)"
+    echo "                          rlaif      → reward prompt     (./do/register prompt)"
     echo "  --dataset <source>    Dataset: s3://bucket/path.jsonl or hf://org/name[/split][?file=pattern]"
     echo "                        ⚠️  Quote the URI if it contains ? or * to prevent shell expansion"
     echo ""
@@ -279,9 +290,23 @@ _show_help() {
     echo "  --lora-alpha <n>      LoRA alpha scaling factor"
     echo "  --batch-size <n>      Global batch size"
     echo ""
-    echo "Evaluator (RLVR/RLAIF only):"
-    echo "  --reward-function <arn>  Lambda ARN for reward function"
-    echo "  --reward-prompt <uri>    S3 URI for reward prompt file"
+    echo "Reward / agent input (RL techniques — each needs ONE, differs by technique):"
+    echo "  --evaluator-name <name>  Registered evaluator to resolve from the AI Registry."
+    echo "                           rlvr  → a reward function (./do/register evaluator);"
+    echo "                           rlaif → a reward prompt    (./do/register prompt)."
+    echo "                           (mtrl does NOT use an evaluator — see --agent-env.)"
+    echo "  --reward-function <arn>  Lambda / hub-content ARN for a reward function (RLVR;"
+    echo "                           bypasses the registry — pass the ARN directly)"
+    echo "  --agent-env <arn>        CustomAgentLambda ARN for MTRL. MTRL's reward lives in"
+    echo "                           the agent (it runs the rollout + computes reward); there"
+    echo "                           is no reward function/prompt. Required for --technique mtrl."
+    echo "  --reward-prompt <arn>    Hub-content evaluator ARN for a reward prompt (RLAIF),"
+    echo "                           e.g. arn:aws:sagemaker:<region>:<acct>:hub-content/<hub>/"
+    echo "                           JsonDoc/<name>/<ver>. NOT a bare name or S3 URI. Register"
+    echo "                           the file first with do/register prompt, then just use"
+    echo "                           --evaluator-name <name> to resolve the ARN automatically."
+    echo "  Note: every RFT technique needs BOTH a prompt --dataset AND an evaluator; do/tune"
+    echo "        fails before submission if either is missing."
     echo ""
     echo "Overrides:"
     echo "  --output-bucket <b>   Override output bucket (defaults to TUNE_S3_BUCKET)"
@@ -377,7 +402,7 @@ _show_status() {
     echo ""
 
     local found_any=false
-    for technique in sft dpo rlaif rlvr; do
+    for technique in sft dpo rlaif rlvr mtrl; do
         local var_name="TUNE_JOB_NAME_$(echo "${technique}" | tr '[:lower:]' '[:upper:]')"
         local job_name="${!var_name:-}"
 
@@ -726,12 +751,15 @@ for m in d.get('models', []):
 _validate_technique() {
     local technique="${ARG_TECHNIQUE}"
 
-    # Validate technique value
+    # Validate technique value. sft/dpo need a dataset only; rlvr/rlaif/mtrl are
+    # managed RFT techniques that ALSO need an evaluator (see _preflight_rft_inputs):
+    # rlvr/mtrl → a reward function (do/register evaluator), rlaif → a reward prompt
+    # (do/register prompt).
     case "${technique}" in
-        sft|dpo|rlaif|rlvr) ;;
+        sft|dpo|rlaif|rlvr|mtrl) ;;
         *)
             echo "❌ Invalid technique: ${technique}"
-            echo "   Valid techniques: sft, dpo, rlaif, rlvr"
+            echo "   Valid techniques: sft, dpo, rlaif, rlvr, mtrl"
             exit 1
             ;;
     esac
@@ -933,12 +961,61 @@ _validate_dataset() {
         fi
         RESOLVED_DATASET_S3_URI="${dataset}"
 
+        # Resolve a concrete data OBJECT to sample. `--dataset` may be a prefix
+        # (SageMaker mounts the whole prefix as the train channel) or a single
+        # object. `aws s3 cp <prefix>/ -` cannot stream a prefix, so when given a
+        # prefix pick its first data object. Parquet is binary and the managed
+        # RL (verl) loader reads it container-side — the jsonl line-validation
+        # below does not apply, so skip it for parquet (and for a prefix whose
+        # data objects are parquet). This client-side check only understands jsonl.
+        local sample_object="${dataset}"
+        if [[ "${dataset}" == */ ]]; then
+            local first_obj
+            first_obj=$(aws s3 ls "${dataset}" --region "${AWS_REGION}" 2>/dev/null \
+                | awk '{print $NF}' | grep -vE '(^|/)_dataset\.json$' \
+                | grep -E '\.(jsonl|parquet|json)$' | head -1) || first_obj=""
+            if [ -n "${first_obj}" ]; then
+                sample_object="${dataset}${first_obj}"
+            fi
+        fi
+
+        # Managed RL techniques (rlvr/rlaif/mtrl) run verl's RLHFDataset, whose
+        # loader is hardcoded to parquet (datasets.load_dataset("parquet", ...)).
+        # A non-parquet dataset fails deep in the GPU job with an opaque
+        # "ArrowInvalid: Parquet magic bytes not found". Fail LOUD here in
+        # preflight instead. (sft/dpo use a different managed trainer and are not
+        # subject to this constraint, so the check is scoped to RL techniques.)
+        case "${ARG_TECHNIQUE}" in
+            rlvr|rlaif|mtrl)
+                if [[ "${sample_object}" != *.parquet ]]; then
+                    echo "❌ ${ARG_TECHNIQUE} requires a PARQUET dataset."
+                    echo "   The managed RL trainer (verl) reads the train channel as parquet;"
+                    echo "   a non-parquet file (${sample_object##*/}) fails in-container with"
+                    echo "   'ArrowInvalid: Parquet magic bytes not found'."
+                    echo ""
+                    echo "   Provide a parquet dataset. Keep 'prompt' as a chat message list"
+                    echo "   ([{\"role\",\"content\"}]), and ensure the S3 prefix contains ONLY"
+                    echo "   parquet data files (no _dataset.json sidecar in the channel)."
+                    exit 1
+                fi
+                echo "   Dataset is parquet (${sample_object##*/}); RL format check passed."
+                return 0
+                ;;
+        esac
+
+        # Parquet → skip jsonl line-validation (format is validated by the
+        # training container's parquet loader, not here).
+        if [[ "${sample_object}" == *.parquet ]]; then
+            echo "   Dataset is parquet (${sample_object##*/}); skipping jsonl line-check."
+            return 0
+        fi
+
         # Validate format by downloading first 10 lines
         local schema_json
         schema_json=$(_get_dataset_schema)
 
         local sample_data
-        sample_data=$(aws s3 cp "${dataset}" - --region "${AWS_REGION}" 2>/dev/null | head -10)
+        sample_data=$(aws s3 cp "${sample_object}" - --region "${AWS_REGION}" 2>/dev/null | head -10) || sample_data=""
 
         if [ -n "${sample_data}" ]; then
             local validate_result
@@ -1102,8 +1179,120 @@ _check_idempotency() {
 
 # ── _submit_job() ─────────────────────────────────────────────────────────────
 # Invoke Python helper with all args to submit the customization job.
+# ── _preflight_rft_inputs() ───────────────────────────────────────────────────
+# Req 3A: a managed RFT technique (rlvr/rlaif/mtrl) needs BOTH a prompt dataset
+# AND an evaluator. Resolve both and fail BEFORE submission if either is missing,
+# naming WHICH input is absent and its register verb — not a partial submission
+# that errors server-side. Also resolves a registered --evaluator-name into the
+# right reward flag so the resolved reference is threaded in. SFT/DPO are
+# dataset-only and skip this entirely (no behavior change).
+#
+# On success for an RFT technique, sets ARG_REWARD_FUNCTION or ARG_REWARD_PROMPT.
+_preflight_rft_inputs() {
+    case "${ARG_TECHNIQUE}" in
+        rlvr|rlaif|mtrl) ;;
+        *) return 0 ;;  # sft/dpo: dataset only, nothing to check
+    esac
+
+    # (1) Dataset input — already resolved by the dataset-resolution step. If it
+    #     is empty, the prompt dataset could not be resolved.
+    if [ -z "${RESOLVED_DATASET_S3_URI:-}" ]; then
+        echo "❌ ${ARG_TECHNIQUE^^} requires a prompt dataset, but none could be resolved."
+        echo "   Register one first:  ./do/register dataset <name> --s3-uri <uri> --technique ${ARG_TECHNIQUE}"
+        echo "   then:                ./do/tune --technique ${ARG_TECHNIQUE} --dataset <name> ..."
+        exit 1
+    fi
+
+    # (2a) MTRL is agent-based, NOT reward-evaluator-based. MultiTurnRLTrainer
+    #      requires an agent_env (a CustomAgentLambda): the agent runs the rollout,
+    #      calls the policy model, takes actions/tools, and computes the reward
+    #      itself — there is no custom_reward_function/reward_prompt. So mtrl needs
+    #      --agent-env, and does NOT resolve a reward evaluator.
+    if [ "${ARG_TECHNIQUE}" = "mtrl" ]; then
+        if [ -z "${ARG_AGENT_ENV}" ]; then
+            echo "❌ MTRL requires an agent environment, but none was provided."
+            echo "   MTRL's reward lives inside your agent (a CustomAgentLambda), not a"
+            echo "   reward function/prompt. Provide its ARN:"
+            echo "     ./do/tune --technique mtrl --dataset <name> --agent-env <custom-agent-lambda-arn>"
+            exit 1
+        fi
+        echo "   MTRL agent env: ${ARG_AGENT_ENV}"
+        return 0
+    fi
+
+    # (2b) RLVR/RLAIF evaluator input — the technique's reward artifact. Determine
+    #      the expected kind + its register verb for clear messaging.
+    local reward_kind reward_verb
+    if [ "${ARG_TECHNIQUE}" = "rlaif" ]; then
+        reward_kind="reward prompt"
+        reward_verb="./do/register prompt <name> --prompt <s3-uri>"
+    else
+        reward_kind="reward function"
+        reward_verb="./do/register evaluator <name> --arn <lambda-arn>"
+    fi
+
+    # An explicit --reward-function / --reward-prompt already satisfies it.
+    if [ -n "${ARG_REWARD_FUNCTION}" ] || [ -n "${ARG_REWARD_PROMPT}" ]; then
+        return 0
+    fi
+
+    # Otherwise an evaluator MUST be named and resolvable from the registry.
+    if [ -z "${ARG_EVALUATOR_NAME}" ]; then
+        echo "❌ ${ARG_TECHNIQUE^^} requires a ${reward_kind} evaluator, but none was provided."
+        echo "   Register it first:   ${reward_verb}"
+        echo "   then pass it with:   --evaluator-name <name>  (or --reward-function/--reward-prompt directly)"
+        exit 1
+    fi
+
+    echo "🔍 Resolving evaluator '${ARG_EVALUATOR_NAME}' from the AI Registry..."
+    local ev_resolve_result ev_type ev_reference ev_arn
+    ev_resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-evaluator \
+        --name "${ARG_EVALUATOR_NAME}" --region "${AWS_REGION}" 2>/dev/null) || ev_resolve_result=""
+
+    if [ -z "${ev_resolve_result}" ]; then
+        echo "❌ ${ARG_TECHNIQUE^^}: evaluator '${ARG_EVALUATOR_NAME}' is not registered."
+        echo "   Register the ${reward_kind} first:  ${reward_verb}"
+        exit 1
+    fi
+
+    ev_type=$(echo "${ev_resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('type',''))" 2>/dev/null) || ev_type=""
+    ev_reference=$(echo "${ev_resolve_result}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('reference') or d.get('arn_or_uri') or '')" 2>/dev/null) || ev_reference=""
+    ev_arn=$(echo "${ev_resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('arn') or '')" 2>/dev/null) || ev_arn=""
+
+    if [ -z "${ev_reference}" ] && [ -z "${ev_arn}" ]; then
+        echo "❌ ${ARG_TECHNIQUE^^}: evaluator '${ARG_EVALUATOR_NAME}' resolved but has no source reference."
+        echo "   Re-register the ${reward_kind}:  ${reward_verb}"
+        exit 1
+    fi
+
+    echo "   Resolved evaluator: ${ev_type} → ${ev_arn:-${ev_reference}}"
+    # Both RFT trainers want the HUB-CONTENT evaluator ARN, NOT the Lambda ref:
+    #   • RLVR custom_reward_function: if given a *Lambda* ARN, RLVRTrainer.train()
+    #     internally calls Evaluator.create() to wrap it — and that create path
+    #     resolves a role with get_role(role=None), defaulting to the CALLER
+    #     identity (role/<you>), which SageMaker cannot assume → "IAM role
+    #     '.../role/<you>' cannot be used for 'training'". Passing the already-
+    #     registered hub-content ARN takes the trainer's else-branch (no
+    #     Evaluator.create, no role-less resolution). So prefer ev_arn.
+    #   • RLAIF reward_prompt: validated against
+    #     ^arn:aws:sagemaker:...:hub-content/<hub>/JsonDoc/<name>/<ver>$ — also the
+    #     hub-content ARN. A bare NAME fails default-hub DescribeHubContent and an
+    #     S3 URI fails the hubContentName regex.
+    # Fall back to ev_reference only when no hub-content ARN resolved (e.g. a raw
+    # Lambda ARN passed via --reward-function with no registry entry).
+    case "${ev_type}" in
+        reward_function|lambda) ARG_REWARD_FUNCTION="${ev_arn:-${ev_reference}}" ;;
+        reward_prompt|model)    ARG_REWARD_PROMPT="${ev_arn:-${ev_reference}}" ;;
+        *)                      ARG_REWARD_FUNCTION="${ev_arn:-${ev_reference}}" ;;
+    esac
+    return 0
+}
+
 # Sets JOB_NAME on success.
 _submit_job() {
+    # Req 3A two-input pre-flight: RFT techniques need BOTH dataset + evaluator.
+    _preflight_rft_inputs
+
     local output_bucket
     output_bucket=$(_resolve_output_bucket)
 
@@ -1118,6 +1307,40 @@ _submit_job() {
         if [ -z "${role_arn}" ]; then
             echo "❌ No execution role configured"
             echo "   Set ROLE_ARN in do/config or use --role <arn>"
+            echo "   (Is the bootstrap profile sourced? ROLE_ARN comes from"
+            echo "    _PROFILE_roleArn — an unsourced profile leaves it empty.)"
+            exit 1
+        fi
+    fi
+
+    # Fail LOUD if the resolved role is NOT a usable SageMaker training role.
+    # When role_arn is empty or is the CALLER's own identity, the SDK silently
+    # falls back to the caller principal, and the training job is rejected with
+    # "IAM role '.../role/<you>' cannot be used for 'training' workloads ... its
+    # trust policy does not allow sagemaker.amazonaws.com". Catch it here, before
+    # submit, with an actionable message instead of a cryptic SDK failure.
+    if [ -z "${role_arn}" ] || [[ "${role_arn}" != arn:aws:iam::*:role/* ]]; then
+        echo "❌ Invalid execution role: '${role_arn:-<empty>}'"
+        echo "   Expected a SageMaker execution role ARN (arn:aws:iam::<acct>:role/<name>)."
+        echo "   Set ROLE_ARN in do/config, pass --role <arn>, or ensure the bootstrap"
+        echo "   profile is sourced (ROLE_ARN derives from _PROFILE_roleArn)."
+        exit 1
+    fi
+    local _caller_arn
+    _caller_arn=$(aws sts get-caller-identity --query Arn --output text --region "${AWS_REGION}" 2>/dev/null) || _caller_arn=""
+    # STS caller ARN for an assumed role looks like
+    # arn:aws:sts::<acct>:assumed-role/<role-name>/<session>; extract <role-name>
+    # and refuse if the resolved training role IS the caller's own identity.
+    if [ -n "${_caller_arn}" ]; then
+        local _caller_role_name="${_caller_arn##*assumed-role/}"
+        _caller_role_name="${_caller_role_name%%/*}"
+        local _resolved_role_name="${role_arn##*role/}"
+        if [ -n "${_caller_role_name}" ] && [ "${_caller_role_name}" = "${_resolved_role_name}" ]; then
+            echo "❌ Execution role resolves to YOUR caller identity ('${_resolved_role_name}'),"
+            echo "   not a SageMaker execution role. SageMaker cannot assume your user/caller"
+            echo "   role for training (its trust policy excludes sagemaker.amazonaws.com)."
+            echo "   Set ROLE_ARN to the mlcc-sagemaker-execution-role in do/config, pass"
+            echo "   --role <arn>, or re-source the bootstrap profile."
             exit 1
         fi
     fi
@@ -1196,37 +1419,13 @@ print(entry.get('provider', ''))
     if [ -n "${ARG_REWARD_PROMPT}" ]; then
         submit_args+=(--reward-prompt "${ARG_REWARD_PROMPT}")
     fi
-
-    # Resolve evaluator from registry if --evaluator-name is set (AC-2c.3, AC-2c.4)
-    if [ -n "${ARG_EVALUATOR_NAME}" ] && [ -z "${ARG_REWARD_FUNCTION}" ] && [ -z "${ARG_REWARD_PROMPT}" ]; then
-        echo "🔍 Resolving evaluator '${ARG_EVALUATOR_NAME}' from registry..."
-        local ev_resolve_result
-        ev_resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-evaluator \
-            --name "${ARG_EVALUATOR_NAME}" 2>/dev/null) || ev_resolve_result=""
-
-        if [ -n "${ev_resolve_result}" ]; then
-            local ev_type ev_arn_or_uri
-            ev_type=$(echo "${ev_resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('type',''))" 2>/dev/null) || ev_type=""
-            ev_arn_or_uri=$(echo "${ev_resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('arn_or_uri',''))" 2>/dev/null) || ev_arn_or_uri=""
-
-            if [ -n "${ev_arn_or_uri}" ]; then
-                echo "   Resolved evaluator: ${ev_type} → ${ev_arn_or_uri}"
-                if [ "${ev_type}" = "lambda" ]; then
-                    submit_args+=(--reward-function "${ev_arn_or_uri}")
-                else
-                    submit_args+=(--reward-prompt "${ev_arn_or_uri}")
-                fi
-            else
-                echo "⚠️  Evaluator '${ARG_EVALUATOR_NAME}' not found in registry"
-                echo "   Register it first: ./do/register --evaluator --evaluator-name ${ARG_EVALUATOR_NAME} ..."
-                exit 1
-            fi
-        else
-            echo "⚠️  Failed to resolve evaluator '${ARG_EVALUATOR_NAME}' from registry"
-            echo "   Register it first: ./do/register --evaluator --evaluator-name ${ARG_EVALUATOR_NAME} ..."
-            exit 1
-        fi
+    if [ -n "${ARG_AGENT_ENV}" ]; then
+        submit_args+=(--agent-env "${ARG_AGENT_ENV}")
     fi
+
+    # Evaluator inputs for RFT techniques are resolved + threaded by
+    # _preflight_rft_inputs() (Req 3A), which runs at the top of _submit_job and
+    # sets ARG_REWARD_FUNCTION / ARG_REWARD_PROMPT — already appended above.
     if [ "${ARG_ACCEPT_EULA}" = true ]; then
         submit_args+=(--accept-eula)
     fi
@@ -1590,6 +1789,10 @@ ADAPTER_CONF
 # ── _dry_run() ────────────────────────────────────────────────────────────────
 # Validate all inputs and show what would be submitted without creating a job.
 _dry_run() {
+    # Req 3A: validate the two-input contract (dataset + evaluator) for RFT
+    # techniques up front so --dry-run surfaces a missing input before submission.
+    _preflight_rft_inputs
+
     local output_bucket
     output_bucket=$(_resolve_output_bucket)
 
@@ -1640,6 +1843,9 @@ _dry_run() {
     fi
     if [ -n "${ARG_REWARD_PROMPT}" ]; then
         echo "   Reward prompt: ${ARG_REWARD_PROMPT}"
+    fi
+    if [ -n "${ARG_AGENT_ENV}" ]; then
+        echo "   Agent env:     ${ARG_AGENT_ENV}"
     fi
 
     echo ""

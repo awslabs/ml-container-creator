@@ -49,8 +49,6 @@ def _lookup_registered_technique(dataset_name, region):
     dataset sidecar in the Core bucket is the source of truth; the Hub is a
     best-effort fallback. Returns None if unresolved (soft warning path).
     """
-    import re as _re
-
     core_bucket = os.environ.get("CORE_BUCKET") or os.environ.get("MLCC_CORE_BUCKET")
     if core_bucket:
         try:
@@ -64,33 +62,10 @@ def _lookup_registered_technique(dataset_name, region):
                 return sidecar.get("technique")
         except Exception:
             pass
-    # Hub fallback (best-effort)
-    try:
-        import json as _json
-        import boto3
-        config_path = os.path.join(os.path.expanduser('~'), '.ml-container-creator', 'config.json')
-        if os.path.exists(config_path):
-            with open(config_path) as f:
-                config = _json.load(f)
-            profiles = config.get('profiles', {})
-            hub_name = None
-            for profile in profiles.values():
-                if not isinstance(profile, dict):
-                    continue
-                hub_name = profile.get('aiRegistryHubName')
-                if hub_name:
-                    break
-            if hub_name:
-                sm = boto3.client('sagemaker', region_name=region)
-                resp = sm.describe_hub_content(
-                    HubName=hub_name, HubContentType='Dataset', HubContentName=dataset_name
-                )
-                desc = resp.get('HubContentDescription', '')
-                match = _re.search(r'\[technique:([^\]]+)\]', desc)
-                if match:
-                    return match.group(1)
-    except Exception:
-        pass
+    # BL123: the branded-hub technique fallback (reading aiRegistryHubName +
+    # describe_hub_content) was retired. The S3 sidecar is the source of truth; an
+    # unresolved technique returns None (soft warning path) rather than probing a
+    # hub MLCC no longer targets.
     return None
 
 

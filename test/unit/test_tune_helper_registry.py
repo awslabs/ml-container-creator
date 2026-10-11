@@ -140,34 +140,55 @@ class TestResolveEvaluatorName:
     """
 
     @patch("subprocess.run")
-    def test_lambda_evaluator_resolution(self, mock_run):
-        """Lambda evaluator resolves to (lambda, arn) tuple for RLVR."""
+    def test_reward_function_evaluator_resolution(self, mock_run):
+        """Reward-function evaluator resolves to (reward_function, reference, arn) for RLVR."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({
+                "type": "reward_function",
+                "reference": "arn:aws:lambda:us-west-2:123456789:function:math-reward"
+            }),
+            stderr=""
+        )
+        ev_type, ref, arn = _resolve_evaluator_name("math-reward-fn")
+        assert ev_type == "reward_function"
+        assert ref == "arn:aws:lambda:us-west-2:123456789:function:math-reward"
+        assert arn == ""
+
+    @patch("subprocess.run")
+    def test_reward_prompt_evaluator_resolution(self, mock_run):
+        """Reward-prompt evaluator surfaces both the S3 reference AND the hub-content
+        ARN for RLAIF. The ARN is what the RLAIF SDK path needs (the S3 URI fails
+        its hub-content ARN validation)."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({
+                "type": "reward_prompt",
+                "reference": "s3://bucket/reward-prompts/judge-prompt.txt",
+                "arn": "arn:aws:sagemaker:us-west-2:123:hub-content/HUBID/JsonDoc/judge-v1/1.0.0",
+            }),
+            stderr=""
+        )
+        ev_type, ref, arn = _resolve_evaluator_name("judge-v1")
+        assert ev_type == "reward_prompt"
+        assert ref == "s3://bucket/reward-prompts/judge-prompt.txt"
+        assert arn == "arn:aws:sagemaker:us-west-2:123:hub-content/HUBID/JsonDoc/judge-v1/1.0.0"
+
+    @patch("subprocess.run")
+    def test_legacy_arn_or_uri_field_tolerated(self, mock_run):
+        """A legacy `arn_or_uri` field is still read when `reference` is absent."""
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout=json.dumps({
                 "type": "lambda",
-                "arn_or_uri": "arn:aws:lambda:us-west-2:123456789:function:math-reward"
+                "arn_or_uri": "arn:aws:lambda:us-west-2:123:function:legacy"
             }),
             stderr=""
         )
-        ev_type, arn = _resolve_evaluator_name("math-reward-fn")
+        ev_type, ref, arn = _resolve_evaluator_name("legacy-fn")
         assert ev_type == "lambda"
-        assert arn == "arn:aws:lambda:us-west-2:123456789:function:math-reward"
-
-    @patch("subprocess.run")
-    def test_model_evaluator_resolution(self, mock_run):
-        """Model evaluator resolves to (model, uri) tuple for RLAIF."""
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=json.dumps({
-                "type": "model",
-                "arn_or_uri": "s3://bucket/preference-model/model.tar.gz"
-            }),
-            stderr=""
-        )
-        ev_type, uri = _resolve_evaluator_name("pref-model-v1")
-        assert ev_type == "model"
-        assert uri == "s3://bucket/preference-model/model.tar.gz"
+        assert ref == "arn:aws:lambda:us-west-2:123:function:legacy"
+        assert arn == ""
 
     @patch("subprocess.run")
     def test_evaluator_not_found_exits(self, mock_run):
@@ -194,16 +215,34 @@ class TestResolveEvaluatorName:
         assert exc_info.value.code == 1
 
     @patch("subprocess.run")
-    def test_empty_arn_exits(self, mock_run):
-        """Empty arn_or_uri in response causes error exit."""
+    def test_empty_reference_and_arn_exits(self, mock_run):
+        """Empty reference AND empty arn in the response causes an error exit."""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout=json.dumps({"type": "lambda", "arn_or_uri": ""}),
+            stdout=json.dumps({"type": "reward_function", "reference": ""}),
             stderr=""
         )
         with pytest.raises(SystemExit) as exc_info:
             _resolve_evaluator_name("empty-evaluator")
         assert exc_info.value.code == 1
+
+    @patch("subprocess.run")
+    def test_arn_only_reward_prompt_resolves(self, mock_run):
+        """A reward_prompt with only an ARN (no S3 reference) still resolves — the
+        ARN is the form RLAIF needs, so an empty reference is not fatal."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({
+                "type": "reward_prompt",
+                "reference": "",
+                "arn": "arn:aws:sagemaker:us-west-2:123:hub-content/HUBID/JsonDoc/judge/2.0.0",
+            }),
+            stderr=""
+        )
+        ev_type, ref, arn = _resolve_evaluator_name("arn-only-prompt")
+        assert ev_type == "reward_prompt"
+        assert ref == ""
+        assert arn == "arn:aws:sagemaker:us-west-2:123:hub-content/HUBID/JsonDoc/judge/2.0.0"
 
     @patch("os.path.exists", return_value=False)
     def test_helper_missing_exits(self, mock_exists):
@@ -395,3 +434,47 @@ class TestDatasetARNResolution:
         result = _resolve_dataset_name("my-dataset")
         # Empty string is falsy, should fall back to s3_uri
         assert result == "s3://bucket/datasets/train.jsonl"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 4. MTRL technique (BL117) — the submit router accepts the new managed technique
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestMtrlTechnique:
+    """Test that `submit --technique mtrl` is accepted by the CLI (BL117 Req 4)."""
+
+    def test_submit_accepts_mtrl(self):
+        """The submit subparser accepts mtrl alongside sft/dpo/rlaif/rlvr."""
+        argv = [
+            "prog", "submit",
+            "--model-id", "m",
+            "--technique", "mtrl",
+            "--training-type", "lora",
+            "--dataset-s3-uri", "s3://b/prompts/",
+            "--output-bucket", "b",
+            "--role-arn", "arn:role",
+            "--job-name", "j",
+            "--project-name", "proj",
+        ]
+        with patch("sys.argv", argv):
+            with patch.object(_tune_helper, "cmd_submit") as mock_cmd:
+                _tune_helper.main()
+                mock_cmd.assert_called_once()
+                assert mock_cmd.call_args[0][0].technique == "mtrl"
+
+    def test_submit_rejects_unknown_technique(self):
+        """An unknown technique is rejected at parse time."""
+        argv = [
+            "prog", "submit",
+            "--model-id", "m",
+            "--technique", "bogus",
+            "--training-type", "lora",
+            "--dataset-s3-uri", "s3://b/x/",
+            "--output-bucket", "b",
+            "--role-arn", "arn:role",
+            "--job-name", "j",
+        ]
+        with patch("sys.argv", argv):
+            with pytest.raises(SystemExit):
+                _tune_helper.main()

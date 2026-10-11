@@ -270,31 +270,73 @@ echo "Repo: {hf_repo_id}"
 echo ""
 
 {token_env}
-# Install huggingface_hub for fast downloads
-pip install -q huggingface_hub hf_transfer 2>/dev/null || true
+# Ensure huggingface_hub + hf_transfer are available WITHOUT upgrading.
+# Upgrading the DLC's baked-in huggingface_hub has pulled an httpx2-based build
+# whose streaming decoder is incompatible with the image's compression extension
+# ("TypeError: process() takes no keyword arguments"). Install each only if it is
+# genuinely missing; never upgrade the baked-in huggingface_hub.
+python3 -c "import huggingface_hub" 2>/dev/null || pip install -q huggingface_hub 2>/dev/null || true
+python3 -c "import hf_transfer" 2>/dev/null || pip install -q hf_transfer 2>/dev/null || true
 if python3 -c "import hf_transfer" 2>/dev/null; then
     export HF_HUB_ENABLE_HF_TRANSFER=1
 fi
 
+export MLCC_HF_REPO_ID="{hf_repo_id}"
 OUTPUT_DIR="/opt/ml/processing/output"
+export MLCC_OUTPUT_DIR="$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
-# Download adapter files using huggingface-cli
+# Download via the Python API, forcing an UNCOMPRESSED response body.
+# huggingface_hub v2.x uses httpx2, whose streaming decoder calls the image's
+# compression extension with a kwarg it rejects ("process() takes no keyword
+# arguments"), crashing every download. Sending Accept-Encoding: identity avoids
+# the decompressor entirely. We install a v2 client factory (or fall back to the
+# v1 session hook) that sets that header.
 echo "Downloading adapter files..."
-HF_ARGS="download {hf_repo_id} --local-dir $OUTPUT_DIR"
-if [ -n "${{HF_TOKEN:-}}" ]; then
-    HF_ARGS="$HF_ARGS --token $HF_TOKEN"
-fi
-
-if command -v huggingface-cli &>/dev/null; then
-    huggingface-cli $HF_ARGS
-elif python3 -c "from huggingface_hub import snapshot_download" 2>/dev/null; then
-    python3 -c "
+if python3 -c "from huggingface_hub import snapshot_download" 2>/dev/null; then
+    python3 - <<'PYEOF'
+import os
 from huggingface_hub import snapshot_download
-snapshot_download('{hf_repo_id}', local_dir='$OUTPUT_DIR', token=None if not '${{HF_TOKEN:-}}' else '${{HF_TOKEN}}')
-"
+
+repo_id = os.environ["MLCC_HF_REPO_ID"]
+token = os.environ.get("HF_TOKEN") or None
+local_dir = os.environ["MLCC_OUTPUT_DIR"]
+
+_forced = False
+try:
+    from huggingface_hub.utils import httpx as _hf_httpx
+    from huggingface_hub.utils import set_client_factory
+
+    def _client_factory(**kwargs):
+        headers = dict(kwargs.pop("headers", {{}}) or {{}})
+        headers["Accept-Encoding"] = "identity"
+        return _hf_httpx.Client(headers=headers, **kwargs)
+
+    set_client_factory(_client_factory)
+    _forced = True
+    print("Forcing Accept-Encoding: identity via huggingface_hub v2 client factory.")
+except Exception as e:
+    print("v2 client factory unavailable (" + type(e).__name__ + "); trying v1 session hook.")
+
+if not _forced:
+    try:
+        from huggingface_hub.utils import _http as _hf_http
+        _orig_get_session = _hf_http.get_session
+
+        def _patched_get_session():
+            s = _orig_get_session()
+            s.headers["Accept-Encoding"] = "identity"
+            return s
+
+        _hf_http.get_session = _patched_get_session
+        print("Forcing Accept-Encoding: identity via huggingface_hub v1 session hook.")
+    except Exception as e:
+        print("v1 session hook unavailable (" + type(e).__name__ + "); proceeding without override.")
+
+snapshot_download(repo_id, local_dir=local_dir, token=token)
+PYEOF
 else
-    echo "ERROR: huggingface-cli not available"
+    echo "ERROR: huggingface_hub not available"
     exit 1
 fi
 

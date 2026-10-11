@@ -35,7 +35,7 @@ function setupHandler(opts = {}) {
             provisionedModules: ['core', 'registry'],
             moduleOutputs: {
                 core: { RoleArn: TEST_ROLE_ARN, EcrRepositoryName: 'ml-container-creator' },
-                registry: { AiRegistryHubName: `mlcc-registry-${TEST_ACCOUNT_ID}` }
+                registry: { ModelPackageGroupName: 'mlcc-default-models' }
             },
             roleArn: TEST_ROLE_ARN,
             ecrRepositoryName: 'ml-container-creator'

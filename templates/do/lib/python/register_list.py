@@ -15,7 +15,7 @@ from common import _output, _error_exit, _check_sagemaker_core
 import register_common
 from register_common import _load_registry
 import dataset_store
-from register_dataset import _get_hub_name_from_profile, _list_hub_datasets, _resolve_core_bucket
+from register_dataset import _resolve_core_bucket
 from register_model import _extract_version_from_arn
 
 
@@ -184,17 +184,12 @@ def cmd_list_datasets(args):
     region = getattr(args, 'region', None) or os.environ.get('AWS_DEFAULT_REGION') or os.environ.get('AWS_REGION')
     technique_filter = getattr(args, 'technique', None)
 
+    # BL123: the branded-hub "remote" listing was retired (the native AI Registry
+    # hub is SDK-computed and not enumerated by MLCC's list — the S3 sidecar /
+    # MLflow is the canonical read source). `remote` is kept as an always-empty
+    # key so the {local, remote} JSON shape stays stable for bash callers.
     remote_entries = []
     local_entries = []
-
-    if source in ('remote', 'all'):
-        hub_name = _get_hub_name_from_profile(region)
-        if hub_name:
-            remote_entries = _list_hub_datasets(hub_name, region)
-            if technique_filter:
-                remote_entries = [e for e in remote_entries if e.get('technique') == technique_filter]
-        else:
-            print('\u26a0\ufe0f  No AI Registry Hub configured \u2014 skipping remote datasets.', file=sys.stderr)
 
     if source in ('local', 'all'):
         # BL110 Req 2.1 / Property 5: when MLflow is configured it is the read

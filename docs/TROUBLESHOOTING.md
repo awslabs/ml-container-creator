@@ -213,7 +213,7 @@ they forward only args the running engine actually accepts. If you see junk
    rebuild is required.
 3. Redeploy. The `vLLM engine args:` log line should now be clean.
 
-This applies to SGLang too (`SGLANG_*` → `sglang.launch_server`). The
+This applies to SGLang too (`SGLANG_*` → `sglang serve`). The
 model-server-version MCP is **not** at fault — it selects the image correctly;
 the issue is purely serve-script arg harvesting. Full mechanism + a
 troubleshooting matrix: [Serving Engine Arguments & Version Troubleshooting](dev/registries-and-catalogs.md#serving-engine-arguments--version-troubleshooting).
@@ -423,6 +423,44 @@ The agent (`ml-container-creator hey`) checks this automatically in its health r
    ```
 
 **Key diagnostic:** The `CUDA compat` log line confirms the mismatch. If you see this followed by silence (no "Loading model..." or error), it's always the driver compatibility issue.
+
+### Multi-GPU NCCL fails on plain EKS: "unhandled system error" at `ncclCommInitRank`
+
+**Symptoms:** On a plain `eks` deploy of a tensor-parallel model (`--tp-size > 1`), every TP rank crashes at startup with `RuntimeError: NCCL error: unhandled system error (run with NCCL_DEBUG=INFO for details)` in `ncclCommInitRank`. Weights may load first; the failure is at communicator init.
+
+**Root cause:** Kubernetes defaults a pod's `/dev/shm` to **64Mi**. NCCL uses `/dev/shm` for intra-node, cross-GPU transport; 64Mi is far too small, so the communicator can't form. (`hyperpod-eks` doesn't hit this — the operator sizes shared memory.)
+
+**Fix:** The `eks` Deployment template mounts a RAM-backed `/dev/shm` sized `HP_GPU_COUNT × 8Gi`. If you still see the error, confirm the mount took and raise it:
+
+```bash
+kubectl exec <pod> -- df -h /dev/shm      # should show GiB, not 64M
+# raise it in do/config, then redeploy:
+echo 'export HP_SHM_SIZE=64Gi' >> do/config
+```
+
+**Diagnostic:** Set `export NCCL_DEBUG=INFO` in `do/config` and read the `NCCL INFO/WARN` lines just before the failure — they name the subsystem (`shm`, P2P, NVLS). A `shm`/`shmOpen` error is this issue; a P2P/IPC or NVLS error is a different, pod-capability/driver problem.
+
+### Server start fails with "Argument list too long" on every command (E2BIG)
+
+**Symptoms:** After an S3 model download completes on plain `eks`, the serve log shows `env`, `grep`, `python`, and the server binary all failing with `Argument list too long`, and the engine never starts.
+
+**Root cause:** `aws s3 cp/sync` write a progress meter to **stdout**. The serve script captures `resolve_model`'s stdout as the model path and exports it into the engine's model env var; the leaked progress blob can exceed the kernel's per-string limit (`MAX_ARG_STRLEN`, 128 KiB), after which every `execve` fails with E2BIG. It is model-size probabilistic — surfaces on large, many-shard models.
+
+**Fix:** Fixed in the generated `code/serve` (aws calls use `--no-progress --only-show-errors` and the downloader's stdout is isolated from the captured path). If you see this on an older generated project, `mcc regenerate` to pick up the fix.
+
+### SGLang won't start a quantized MoE model with LoRA enabled
+
+**Symptoms:** Weights load, then `NotImplementedError: Mxfp4MoEMethod does not expose quant info for 'flashinfer_mxfp4'` from `init_lora_manager`.
+
+**Root cause:** LoRA was enabled (`HP_LORA_ENABLED=true`) on an MXFP4-quantized MoE model. SGLang (as of 0.5.x) does not implement LoRA over MXFP4-quantized MoE expert modules.
+
+**Fix:** If you are serving the base model, disable LoRA — set `export HP_LORA_ENABLED=false` in `do/config` and redeploy. (You can hot-patch a live pod by removing `SGLANG_ENABLE_LORA`/`SGLANG_MAX_LORA_RANK`/`SGLANG_LORA_TARGET_MODULES` from its ConfigMap and restarting.) If you genuinely need LoRA on such a model, it is blocked upstream in SGLang — no MLCC setting changes it.
+
+### Custom-tokenizer model refuses to start without trust-remote-code
+
+**Symptoms:** A model whose tokenizer ships custom Python (e.g. certain MoE/multimodal models) fails at tokenizer load unless remote code is trusted.
+
+**Fix:** Set the engine's trust-remote-code flag in `do/config` — `export SGLANG_TRUST_REMOTE_CODE=true` (or `VLLM_TRUST_REMOTE_CODE=true`). The same flag also feeds `do/benchmark`'s tokenizer loading on the HyperPod/SageMaker path.
 
 ### Adapter IC "InService" but inference returns "Failed to download model data"
 

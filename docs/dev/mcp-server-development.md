@@ -53,7 +53,6 @@ Twelve servers ship with the project:
 | `model-picker` | `get_ml_config` | static, smart, discover | Resolves HuggingFace model metadata |
 | `hyperpod-cluster-picker` | `get_ml_config` | discover | Discovers existing HyperPod EKS clusters |
 | `endpoint-picker` | `get_inference_endpoints` | discover | Discovers InService SageMaker AI endpoints |
-| `marketplace-picker` | `get_ml_config` | static, discover | Lists SageMaker AI Marketplace models |
 | `e2e-status` | `get_ml_config` | static | Returns E2E validation status for models |
 | `workload-picker` | `list_workloads`, `get_workload_profile` | static | Provides named benchmark workload profiles for `do/benchmark` |
 | `draft-model-picker` | `list_draft_models`, `get_draft_model`, `recommend_draft` | static, discover | Catalog of speculative-decoding draft models; queried at runtime by `do/draft list` |

@@ -6,6 +6,12 @@
  * Covers: module prompts (sample model, test types), LoRA, benchmark.
  */
 
+import {
+    isKnownBackend as isTritonBackend,
+    isLlm as tritonIsLlm,
+    supportsSampleModel as tritonSupportsSampleModel
+} from '../triton-backend-reader.js';
+
 const modulePrompts = [
     {
         type: 'confirm',
@@ -26,14 +32,12 @@ const modulePrompts = [
                 return false;
             }
             
-            // For Triton, check if backend supports sample model
+            // For Triton, the catalog's supportsSampleModel flag is the source of
+            // truth (BL119). NOTE: this is NOT isLlm — pytorch is a non-LLM backend
+            // that still declares supportsSampleModel:false, so it is correctly
+            // excluded here. An unknown backend conservatively shows the prompt.
             if (architecture === 'triton') {
-                // Triton LLM backends don't support sample model
-                if (backend === 'vllm' || backend === 'tensorrtllm' || backend === 'pytorch') {
-                    return false;
-                }
-                // Other Triton backends support sample model
-                return true;
+                return !isTritonBackend(backend) || tritonSupportsSampleModel(backend);
             }
             
             // For http architecture, always show
@@ -64,7 +68,8 @@ const modulePrompts = [
             if (architecture === 'diffusors') {
                 return ['hosted-model-endpoint', 'sagemaker-ai-automated-benchmarking'];
             }
-            if (architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm')) {
+            // Triton LLM backends only support hosted-endpoint tests (derived — BL119).
+            if (architecture === 'triton' && isTritonBackend(backend) && tritonIsLlm(backend)) {
                 return ['hosted-model-endpoint'];
             }
             
@@ -80,7 +85,8 @@ const modulePrompts = [
             if (architecture === 'diffusors') {
                 return ['hosted-model-endpoint', 'sagemaker-ai-automated-benchmarking'];
             }
-            if (architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm')) {
+            // Triton LLM backends only support hosted-endpoint tests (derived — BL119).
+            if (architecture === 'triton' && isTritonBackend(backend) && tritonIsLlm(backend)) {
                 return ['hosted-model-endpoint'];
             }
             

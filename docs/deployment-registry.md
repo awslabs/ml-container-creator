@@ -207,6 +207,20 @@ machines.
 `codebuildSourceS3Bucket` (e.g. `mlcc-core-<account>-<region>`), provisioned by
 `ml-container-creator bootstrap`.
 
+!!! note "Studio discoverability (native AI Registry)"
+    After the sidecar is written, `do/register dataset` **additively** registers
+    the dataset in SageMaker's native AI Registry so it appears in **Studio
+    Assets** — pointing at the same canonical S3 URI (no copy). This is
+    best-effort: if it is skipped (unsupported region, old `sagemaker` SDK, or a
+    `benchmark`/evaluator technique) or fails, the sidecar still stands and the
+    dataset is fully usable. Studio **visibility** requires a Studio domain:
+    provision the `sagemaker-domain` bootstrap module so its `DomainId` is
+    captured into your profile and passed as the asset's domain tag. Datasets and
+    evaluators live in the AI Registry; **models** live in the Model Package
+    Group (never hub-mirrored). See
+    [Dataset registry](fine-tuning.md#dataset-registry) in the fine-tuning guide
+    for native versioning, technique→member mapping, and lineage details.
+
 Provide **exactly one** input source:
 
 ```bash
@@ -241,10 +255,11 @@ Provide **exactly one** input source:
 | `<name>` | Dataset name (positional, or use `--name`). Also the canonical S3 key: `datasets/<name>/` |
 | `--s3-uri <s3://...>` | Existing S3 dataset. Copied to the canonical location (`cp` for an object, `sync` for a prefix). Mutually exclusive with `--hf-id` |
 | `--hf-id <org/name>` | HuggingFace dataset ID. Staged to the canonical location via the stage-hf Processing Job. Mutually exclusive with `--s3-uri` |
-| `--technique <tech>` | Technique: `sft`, `dpo`, `rlaif`, `rlvr` (default: `sft`) |
+| `--technique <tech>` | Technique: `sft`, `dpo`, `rlvr`, `rlaif`, `mtrl`, `benchmark` (default: `benchmark`). `sft`/`dpo` register under their own native member; `rlvr`/`rlaif`/`mtrl` under the RLVR member; `benchmark` is sidecar-only |
 | `--row-count <n>` | Number of records. With `--hf-id`, passed to staging as `--take` |
 | `--format <fmt>` | Format: `jsonl`, `parquet`, `csv` (default: `jsonl`) |
 | `--column-schema <json>` | Column schema as JSON string |
+| `--description <text>` | Human description shown on the native asset in Studio Assets |
 | `--hf-split <split>` | (`--hf-id` only) Dataset split to stage (default: `train`) |
 | `--column-map <map>` | (`--hf-id` only) Rename columns, e.g. `prompt=question,completion=answer` |
 | `--attribution <text>` | Custom metadata: attribution (recorded under `customMetadata`) |

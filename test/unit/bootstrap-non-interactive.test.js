@@ -102,7 +102,7 @@ function setupHandler() {
                 moduleOutputs.core = { RoleArn: TEST_ROLE_ARN, EcrRepositoryName: 'ml-container-creator' };
                 break;
             case 'registry':
-                moduleOutputs.registry = { AiRegistryHubName: `mlcc-registry-${accountId}`, ModelPackageGroupName: `mlcc-${profileName}-models` };
+                moduleOutputs.registry = { ModelPackageGroupName: `mlcc-${profileName}-models` };
                 break;
             case 'benchmark':
                 moduleOutputs.benchmark = { BenchmarkBucket: `mlcc-benchmark-results-${accountId}-${region}`, GlueDatabase: 'mlcc_ci' };
@@ -338,7 +338,7 @@ describe('Bootstrap Non-Interactive Mode (Modular)', () => {
             assert.strictEqual(profile.roleArn, TEST_ROLE_ARN, 'roleArn should be denormalized from core outputs');
             assert.strictEqual(profile.ecrRepositoryName, 'ml-container-creator', 'ecrRepositoryName should be denormalized');
             assert.ok(profile.ciBenchmarkResultsBucket, 'ciBenchmarkResultsBucket should be denormalized from benchmark outputs');
-            assert.ok(profile.aiRegistryHubName, 'aiRegistryHubName should be denormalized from registry outputs');
+            assert.ok(profile.modelPackageGroupName, 'modelPackageGroupName should be denormalized from registry outputs');
         });
     });
 });

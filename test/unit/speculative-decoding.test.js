@@ -307,9 +307,17 @@ describe('DSpark: deploy.d/hyperpod-eks wiring', () => {
             'export VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD="${HP_SPECULATIVE_REJECTION_SAMPLE_METHOD:-}"'));
     });
 
-    it('treats the two new vars as managed (not double-injected as pass-through extras)', () => {
-        assert.ok(DEPLOY_TEMPLATE.includes('"VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD"'));
-        assert.ok(DEPLOY_TEMPLATE.includes('"VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD"'));
+    it('excludes speculative vars from Tier-2 pass-through via the derived SPECULATIVE rule (ADR-010)', () => {
+        // ADR-010 removed the hardcoded `managed` VLLM_* list. Speculative vars are
+        // now excluded from the Tier-2 prefix pass-through by a derived rule — any
+        // key containing "SPECULATIVE" is skipped — so they are never double-
+        // injected as pass-through extras, for every engine. Assert the derivation
+        // rule is present, not a frozen literal list.
+        assert.ok(DEPLOY_TEMPLATE.includes('"SPECULATIVE" in k'),
+            'Tier-2 pass-through must skip speculative vars via the derived substring rule');
+        // The hardcoded managed-set literal must be gone (derive-dont-hardcode).
+        assert.ok(!DEPLOY_TEMPLATE.includes('"VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD",'),
+            'no hardcoded VLLM_* managed-set literal should remain');
     });
 });
 
@@ -375,5 +383,162 @@ echo "\${DRAFT_DRAFT_SAMPLE_METHOD}|\${DRAFT_REJECTION_SAMPLE_METHOD}"
 
     it('non-dspark algorithm leaves both empty (no defaults applied)', () => {
         assert.strictEqual(runDefaultLogic('eagle3'), '|');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// BL125: TensorRT-LLM structured speculative_config.
+// Unlike vLLM (--speculative-config JSON flag) and SGLang (discrete flags),
+// trtllm-serve takes a YAML via --extra_llm_api_options with a speculative_config
+// block. These tests prove the wrapper EMITS that config (not just that the
+// manifest declares it), plus the manifest round-trips through the readers.
+// ---------------------------------------------------------------------------
+import { effectiveSupportedAlgorithms, listServeEngines } from '../../src/lib/serve-manifest-reader.js';
+
+describe('BL125: TensorRT-LLM manifest declares speculative decoding honestly', () => {
+    const SERVE_D = resolve(templatesRoot, 'code/serve.d');
+    const manifest = JSON.parse(
+        readFileSync(resolve(SERVE_D, 'tensorrt-llm/manifest.json'), 'utf8')
+    );
+
+    it('declares speculative_decoding: true', () => {
+        assert.strictEqual(manifest.speculative_decoding, true);
+    });
+
+    it('supported_algorithms round-trips through the serve-manifest reader', () => {
+        // Fail-open (no version) → the flat supported_algorithms set.
+        const algos = effectiveSupportedAlgorithms('tensorrt-llm', null, SERVE_D);
+        assert.deepStrictEqual([...algos].sort(), ['draft-model', 'eagle3', 'mtp', 'ngram']);
+    });
+
+    it('algorithm_map maps every supported algorithm to a TRT-LLM decoding_type', () => {
+        // Every declared algorithm must have a map entry (no orphan declaration).
+        for (const alg of manifest.supported_algorithms) {
+            assert.ok(manifest.algorithm_map[alg],
+                `algorithm_map must map '${alg}' to a TRT-LLM decoding_type`);
+        }
+        // The map values are TRT-LLM's actual decoding_type enum (1.2.x).
+        const VALID_DECODING_TYPES = new Set(['Eagle', 'DraftTarget', 'NGram', 'MTP']);
+        for (const [alg, enumName] of Object.entries(manifest.algorithm_map)) {
+            assert.ok(VALID_DECODING_TYPES.has(enumName),
+                `algorithm_map['${alg}'] = '${enumName}' must be a valid trtllm decoding_type`);
+        }
+    });
+
+    it('algorithm_map keys are a subset of supported_algorithms (no over-declaration)', () => {
+        for (const alg of Object.keys(manifest.algorithm_map)) {
+            assert.ok(manifest.supported_algorithms.includes(alg),
+                `algorithm_map key '${alg}' must be declared in supported_algorithms`);
+        }
+    });
+
+    it('is discovered as a serve engine by the reader', () => {
+        assert.ok(listServeEngines(SERVE_D).includes('tensorrt-llm'));
+    });
+});
+
+describe('BL125: TensorRT-LLM serve wrapper emits speculative_config', () => {
+    const rendered = renderServe({ modelServer: 'tensorrt-llm' });
+
+    it('excludes the speculative component vars from the flat --flag loop', () => {
+        assert.ok(rendered.includes(
+            'TRTLLM_SPECULATIVE_ALGORITHM|TRTLLM_SPECULATIVE_MODEL|TRTLLM_SPECULATIVE_NUM_TOKENS|TRTLLM_SPECULATIVE_MAX_MATCHING_NGRAM_SIZE'),
+        'the case-guard must skip the speculative component vars so they are not forwarded as --flags');
+    });
+
+    it('assembles a speculative_config YAML and passes it via --extra_llm_api_options', () => {
+        assert.ok(rendered.includes('speculative_config:'),
+            'wrapper must emit a speculative_config YAML block');
+        assert.ok(rendered.includes('decoding_type:'),
+            'wrapper must emit decoding_type');
+        assert.ok(rendered.includes('extra_llm_api_options'),
+            'wrapper must pass the YAML via --extra_llm_api_options');
+    });
+
+    it('reads the prefix from the manifest (ADR-004), not a hardcoded TRTLLM_ literal in the assembly', () => {
+        // The assembly uses the EJS-interpolated prefix. With envVarPrefix omitted
+        // the render falls back to TRTLLM_ (byte-identical), but the wrapper source
+        // must reference the interpolated prefix, proving it is not hardcoded.
+        const wrapperSrc = readFileSync(
+            resolve(templatesRoot, 'code/serve.d/tensorrt-llm/tensorrt-llm.ejs'), 'utf8');
+        assert.ok(wrapperSrc.includes('<%= _p %>SPECULATIVE_ALGORITHM'),
+            'the wrapper source must interpolate the manifest prefix for the speculative var names');
+    });
+
+    // Execute the rendered speculative assembly as a shell fragment (the block from
+    // the _spec_draft_model line through the --extra_llm_api_options append). This
+    // proves EMISSION, the core Req 4 guard against "declared but not wired".
+    function extractSpeculativeBlock() {
+        const lines = rendered.split('\n');
+        const start = lines.findIndex(l => l.startsWith('_spec_draft_model='));
+        assert.notStrictEqual(start, -1, 'must find the speculative assembly block');
+        const end = lines.findIndex((l, i) => i > start && l.includes('extra_llm_api_options" "${_spec_yaml}"'));
+        assert.notStrictEqual(end, -1, 'must find the --extra_llm_api_options append');
+        return lines.slice(start, end + 2).join('\n'); // +2 to include the closing fi
+    }
+
+    function runBlock(env) {
+        const yaml = '/tmp/.bl125-trtllm-test.yaml';
+        const envAssign = Object.entries(env)
+            .map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(' ');
+        const block = extractSpeculativeBlock().replace('/tmp/.trtllm-extra-llm-api-options.yaml', yaml);
+        // Build the harness with explicit concatenation so the shell ${...}
+        // expansions below are NOT interpolated by the JS template literal.
+        const script = [
+            'set -e',
+            'SERVER_ARGS=()',
+            'PREFIX="TRTLLM_"',
+            'ARG_PREFIX="--"',
+            envAssign ? `export ${envAssign}` : ':',
+            block,
+            'echo "ARGS:${SERVER_ARGS[*]}"',
+            `if [ -f "${yaml}" ]; then echo "---YAML---"; cat "${yaml}"; rm -f "${yaml}"; fi`
+        ].join('\n');
+        return execFileSync('bash', ['-c', script], { encoding: 'utf8' });
+    }
+
+    it('Eagle: emits decoding_type Eagle + max_draft_len + speculative_model', () => {
+        const out = runBlock({
+            TRTLLM_SPECULATIVE_ALGORITHM: 'Eagle',
+            TRTLLM_SPECULATIVE_MODEL: 'yuhuili/EAGLE3-LLaMA3.1-8B',
+            TRTLLM_SPECULATIVE_NUM_TOKENS: '4'
+        });
+        assert.ok(out.includes('--extra_llm_api_options'), 'must append --extra_llm_api_options');
+        assert.ok(out.includes('decoding_type: Eagle'));
+        assert.ok(out.includes('max_draft_len: 4'));
+        assert.ok(out.includes('speculative_model: yuhuili/EAGLE3-LLaMA3.1-8B'));
+        assert.ok(out.includes('disable_overlap_scheduler: true'));
+    });
+
+    it('NGram: emits decoding_type NGram with default max_draft_len and no speculative_model', () => {
+        const out = runBlock({
+            TRTLLM_SPECULATIVE_ALGORITHM: 'NGram',
+            TRTLLM_SPECULATIVE_MAX_MATCHING_NGRAM_SIZE: '4'
+        });
+        assert.ok(out.includes('decoding_type: NGram'));
+        assert.ok(out.includes('max_draft_len: 5'), 'defaults max_draft_len to 5 when NUM_TOKENS unset');
+        assert.ok(out.includes('max_matching_ngram_size: 4'));
+        assert.ok(!out.includes('speculative_model:'),
+            'NGram does not use a draft model — must not emit speculative_model');
+    });
+
+    it('absent request emits nothing (no YAML, no extra_llm_api_options arg)', () => {
+        const out = runBlock({});
+        assert.ok(!out.includes('--extra_llm_api_options'),
+            'no speculative request → no --extra_llm_api_options');
+        assert.ok(!out.includes('---YAML---'), 'no YAML file written when the algorithm is unset');
+        assert.strictEqual(out.split('\n').find(l => l.startsWith('ARGS:')), 'ARGS:',
+            'SERVER_ARGS must be empty for a non-speculative config');
+    });
+
+    it('rejects an s3:// draft model with exit code 1', () => {
+        let threw = false;
+        try {
+            runBlock({ TRTLLM_SPECULATIVE_ALGORITHM: 'Eagle', TRTLLM_SPECULATIVE_MODEL: 's3://bucket/draft' });
+        } catch (err) {
+            threw = true;
+            assert.ok(String(err.stderr || err.stdout || err).includes('not an s3:// URI'));
+        }
+        assert.ok(threw, 's3:// draft model must cause a non-zero exit');
     });
 });

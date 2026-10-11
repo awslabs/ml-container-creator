@@ -8,9 +8,13 @@
 
 import { ValidationError } from './config-manager.js';
 import { validationRules } from './generated/validation-rules.js';
-// Triton backend metadata comes from the shared catalog loader (single source
-// of truth; previously duplicated here and in config-manager.js).
-import { tritonBackends } from './triton-backends-catalog.js';
+// Triton per-backend knowledge comes from the single Triton backend reader
+// (ADR-008 "derive, don't hardcode") over servers/lib/catalogs/triton-backends.json.
+import {
+    isKnownBackend as isTritonBackend,
+    modelFormats as tritonModelFormats,
+    supportsSampleModel as tritonSupportsSampleModel
+} from './triton-backend-reader.js';
 // Predictor-framework (http) engine + model-format knowledge is derived from the
 // predictors.d descriptors (single source of truth), not hardcoded here.
 import {
@@ -68,6 +72,21 @@ export default class ConfigValidator {
                         const validFormats = supportedOptions.modelFormats[engine] || [];
                         if (validFormats.length > 0 && !validFormats.includes(m.config.modelFormat)) {
                             errors.push(`Unsupported model format '${m.config.modelFormat}' for engine '${engine}'. Supported: ${validFormats.join(', ')}`);
+                        }
+                    }
+                } else if (parts.architecture === 'triton') {
+                    // --skip-prompts gap: a Triton --model-format bypasses the
+                    // interactive prompt's catalog-derived choice list, so validate
+                    // it here against the backend's catalog modelFormats (reader =
+                    // single source of truth). LLM backends (modelFormats === null)
+                    // take no model format at all.
+                    const backend = m.config.backend || parts.backend;
+                    if (backend && isTritonBackend(backend)) {
+                        const validFormats = tritonModelFormats(backend);
+                        if (validFormats === null) {
+                            errors.push(`Triton backend '${backend}' does not take a model format. Remove --model-format.`);
+                        } else if (!validFormats.includes(m.config.modelFormat)) {
+                            errors.push(`Unsupported model format '${m.config.modelFormat}' for Triton backend '${backend}'. Supported: ${validFormats.join(', ')}`);
                         }
                     }
                 }
@@ -201,11 +220,7 @@ export default class ConfigValidator {
                 const value = finalConfig[param];
                 const isEmpty = value === null || value === undefined || value === '';
 
-                if (param === 'modelFormat' && (finalConfig.architecture === 'transformers' || finalConfig.architecture === 'triton' || finalConfig.architecture === 'diffusors' || finalConfig.architecture === 'marketplace')) {
-                    return;
-                }
-
-                if (finalConfig.architecture === 'marketplace' && (param === 'includeSampleModel' || param === 'buildTarget')) {
+                if (param === 'modelFormat' && (finalConfig.architecture === 'transformers' || finalConfig.architecture === 'triton' || finalConfig.architecture === 'diffusors')) {
                     return;
                 }
 
@@ -260,8 +275,7 @@ export default class ConfigValidator {
             errors.push(`Architecture '${config.architecture}' does not support sample models. The 'includeSampleModel' parameter will be automatically set to false.`);
         }
         if (config.architecture === 'triton' && config.includeSampleModel === true) {
-            const backendMeta = tritonBackends[config.backend];
-            if (!backendMeta || !backendMeta.supportsSampleModel) {
+            if (!isTritonBackend(config.backend) || !tritonSupportsSampleModel(config.backend)) {
                 errors.push(`Triton backend '${config.backend}' does not support sample models. The 'includeSampleModel' parameter will be automatically set to false.`);
             }
         }

@@ -86,19 +86,26 @@ describe('Feature: model-server-loading-adapter — Dockerfile example-based tes
                     withoutSource.includes('ENV MODEL_SOURCE="huggingface"'),
                     'Default (undefined) source must set MODEL_SOURCE="huggingface"'
                 );
-                // Neither should install AWS CLI
+                // AWS CLI IS installed for wrapper-path engines regardless of the
+                // generate-time modelSource: a huggingface-generated project can be
+                // staged to S3 at DEPLOY time (do/stage → MODEL_SOURCE=s3), and
+                // code/serve's download_model_from_s3 then needs `aws s3`. Gating
+                // the install on the generate-time source produced a runtime
+                // `download_model_from_s3: command not found` / `aws: not found`
+                // crash. (See ADR-010 Model-A note.)
                 assert.ok(
-                    !withSource.includes('pip install'),
-                    'HuggingFace source must not install AWS CLI'
+                    withSource.includes('awscli'),
+                    'Wrapper-path engine must install AWS CLI (deploy-time S3 staging is possible)'
                 );
-                // Neither should have model download instructions
+                // Still no BUILD-TIME model download: the download is a runtime
+                // shell function in code/serve, never a Dockerfile RUN.
                 assert.ok(
                     !withSource.includes('RUN huggingface-cli download'),
                     'Runtime HuggingFace must not have build-time download'
                 );
                 assert.ok(
-                    !withSource.includes('aws s3 sync'),
-                    'Runtime HuggingFace must not have S3 download'
+                    !withSource.includes('RUN aws s3 sync'),
+                    'Runtime must not have a build-time S3 download RUN instruction'
                 );
             });
         }
@@ -142,13 +149,31 @@ describe('Feature: model-server-loading-adapter — Dockerfile example-based tes
         }
     });
 
-    // ── No AWS CLI for HuggingFace source (Req 10.2) ────────────────────
+    // ── AWS CLI install is modelSource-independent for wrapper engines (Req 10.2, ADR-010) ──
+    // UPDATED: AWS CLI is NO LONGER gated on the generate-time modelSource. Because
+    // do/stage can stage ANY project to S3 at deploy time (MODEL_SOURCE=s3), the
+    // wrapper-path engines (vllm/sglang/tensorrt-llm) always install it; the
+    // container-owns-entrypoint engines (lmi/djl/llama-cpp) load the model via
+    // their DLC and never call code/serve's download path, so they never do.
 
-    describe('No AWS CLI for HuggingFace source (Req 10.2)', () => {
+    describe('AWS CLI install is modelSource-independent for wrapper engines (Req 10.2, ADR-010)', () => {
 
-        for (const modelServer of ['vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl']) {
-            it(`huggingface+${modelServer}: runtime does NOT install AWS CLI`, () => {
-                // **Validates: Requirements 10.2**
+        for (const modelServer of ['vllm', 'sglang', 'tensorrt-llm']) {
+            it(`huggingface+${modelServer}: runtime STILL installs AWS CLI (deploy-time S3 staging)`, () => {
+                const rendered = renderDockerfile({
+                    modelSource: 'huggingface',
+                    modelServer,
+                    modelLoadStrategy: 'runtime'
+                });
+                assert.ok(
+                    rendered.includes('awscli'),
+                    `huggingface+${modelServer} must install AWS CLI — do/stage can stage it to S3 later`
+                );
+            });
+        }
+
+        for (const modelServer of ['lmi', 'djl', 'llama-cpp']) {
+            it(`huggingface+${modelServer}: container-owns-entrypoint engine does NOT install AWS CLI`, () => {
                 const rendered = renderDockerfile({
                     modelSource: 'huggingface',
                     modelServer,
@@ -156,7 +181,7 @@ describe('Feature: model-server-loading-adapter — Dockerfile example-based tes
                 });
                 assert.ok(
                     !rendered.includes('awscli'),
-                    `huggingface+${modelServer} must not install AWS CLI`
+                    `${modelServer} loads the model via its DLC and must not install AWS CLI`
                 );
             });
         }

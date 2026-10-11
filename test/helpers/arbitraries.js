@@ -78,7 +78,7 @@ export const VALUES = Object.freeze({
     // Test-domain lists for fields with no bounded schema enum.
     // architecture is the prefix of deploymentConfig; keep in sync with the
     // architecture routing switch in src/app.js writeProject().
-    architecture: ['http', 'transformers', 'triton', 'diffusors', 'marketplace'],
+    architecture: ['http', 'transformers', 'triton', 'diffusors'],
     // A representative, stable region sample for tests that need a region value.
     awsRegion: ['us-east-1', 'us-west-2', 'eu-west-1', 'ap-northeast-1']
 });

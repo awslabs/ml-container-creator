@@ -105,7 +105,7 @@ function createMockHandlerForSetup(configPath, { accountId, region }) {
     handler.config = new BootstrapConfig(configPath);
 
     // Mock provisioners._verifyCliV2
-    handler.provisioners = { _verifyCliV2: () => true, provisionAiRegistryHub: async () => {} };
+    handler.provisioners = { _verifyCliV2: () => true };
 
     // Mock _displayProgress
     handler._displayProgress = () => {};
@@ -148,7 +148,7 @@ function createMockHandlerForSetup(configPath, { accountId, region }) {
                     EcrRepositoryName: 'ml-container-creator'
                 };
             } else if (m === 'registry') {
-                moduleOutputs.registry = { AiRegistryHubName: `mlcc-registry-${acctId}` };
+                moduleOutputs.registry = { ModelPackageGroupName: `mlcc-${acctId}-models` };
             } else {
                 moduleOutputs[m] = {};
             }
@@ -207,7 +207,7 @@ function createMockHandlerForUpdate(configPath, { accountId, region: _region }) 
                     EcrRepositoryName: 'ml-container-creator'
                 };
             } else if (m === 'registry') {
-                moduleOutputs.registry = { AiRegistryHubName: `mlcc-registry-${acctId}` };
+                moduleOutputs.registry = { ModelPackageGroupName: `mlcc-${acctId}-models` };
             } else {
                 moduleOutputs[m] = {};
             }
@@ -235,7 +235,7 @@ function writeProfileConfig(handler, profileName, accountId, region) {
                         RoleArn: `arn:aws:iam::${accountId}:role/mlcc-sagemaker-execution-role`,
                         EcrRepositoryName: 'ml-container-creator'
                     },
-                    registry: { AiRegistryHubName: `mlcc-registry-${accountId}` }
+                    registry: { ModelPackageGroupName: `mlcc-${accountId}-models` }
                 },
                 roleArn: `arn:aws:iam::${accountId}:role/mlcc-sagemaker-execution-role`,
                 ecrRepositoryName: 'ml-container-creator'

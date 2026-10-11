@@ -148,7 +148,7 @@ describe('Feature: v18-w2-02-bl105 Serve-Layer Plugin Interface', () => {
             this.timeout(PROPERTY_CONFIG.timeout);
             fc.assert(fc.property(
                 fc.stringMatching(/^[a-z_]{3,15}$/).filter((k) => !(k in validManifest())
-                    && !['metrics_endpoint', 'dimension_map'].includes(k)),
+                    && !['metrics_endpoint', 'dimension_map', 'capability_map'].includes(k)),
                 (unknownKey) => {
                     const m = validManifest();
                     m[unknownKey] = 'surprise';

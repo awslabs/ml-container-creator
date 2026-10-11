@@ -181,12 +181,101 @@ else
     echo "   (Continuing — token only required for gated HuggingFace models)"
 fi
 
+# ── ServiceAccount for pod AWS identity (IRSA) ────────────────────────────────
+# A plain-EKS inference pod has NO AWS identity by default (the `default` SA is
+# unannotated), so code/serve's `aws s3 sync` of a staged model fails with
+# "Unable to locate credentials". Unlike HyperPod — where the operator pulls S3
+# weights with its own role and the pod never calls S3 — a plain-EKS pod must
+# download the model itself and therefore needs its OWN IRSA role.
+#
+# This driver creates the inference ServiceAccount `mlcc-eks-inference-sa`, and
+# the Deployment runs under it (serviceAccountName). The pod assumes an IRSA role
+# with S3 read on the mlcc-core models bucket, resolved in this order:
+#   1. EKS_INFERENCE_ROLE_ARN  — explicit, set in do/config, OR
+#   2. _PROFILE_eksInferenceRoleArn — denormalized from the active bootstrap
+#      profile once a dedicated `eks` bootstrap module provisions the role (v1.10;
+#      see .kiro/specs). Until then, create the role yourself (e.g. `eksctl create
+#      iamserviceaccount` or the console) with a trust policy for this cluster's
+#      OIDC provider + SA `mlcc-eks-inference-sa`, and set EKS_INFERENCE_ROLE_ARN.
+# A HuggingFace-source deploy needs no role; only an S3-staged model (do/stage)
+# requires it.
+EKS_INFERENCE_SA="mlcc-eks-inference-sa"
+EKS_INFERENCE_ROLE_ARN="${EKS_INFERENCE_ROLE_ARN:-${_PROFILE_eksInferenceRoleArn:-}}"
+export EKS_INFERENCE_SA
+
+echo "🔐 Ensuring ServiceAccount '${EKS_INFERENCE_SA}' in namespace '${HP_NAMESPACE}'..."
+if ! kubectl create serviceaccount "${EKS_INFERENCE_SA}" \
+    --namespace "${HP_NAMESPACE}" \
+    --dry-run=client -o yaml | kubectl apply -f - 2>&1; then
+    echo "⚠️  Warning: could not create ServiceAccount ${EKS_INFERENCE_SA} (will continue)"
+fi
+
+if [ -n "${EKS_INFERENCE_ROLE_ARN}" ]; then
+    # Annotate for IRSA. --overwrite so a re-deploy updates a changed role ARN.
+    if kubectl annotate serviceaccount "${EKS_INFERENCE_SA}" \
+        --namespace "${HP_NAMESPACE}" \
+        "eks.amazonaws.com/role-arn=${EKS_INFERENCE_ROLE_ARN}" \
+        --overwrite 2>&1; then
+        echo "✅ ServiceAccount annotated with IRSA role: ${EKS_INFERENCE_ROLE_ARN}"
+    else
+        echo "⚠️  Warning: could not annotate ServiceAccount with the IRSA role"
+    fi
+else
+    # No role ARN resolved — the pod will run without AWS credentials. That is
+    # FINE for a HuggingFace-source deploy, but an S3-staged model will fail to
+    # download. Warn clearly rather than fail now (HF deploys are valid).
+    if [ "${HP_MODEL_SOURCE:-}" = "s3" ] || [ -n "${STAGED_MODEL_PATH:-}" ]; then
+        echo "⚠️  No EKS inference IRSA role set — but this deploy uses an S3-staged model."
+        echo "    The pod will fail to download it ('Unable to locate credentials')."
+        echo "    Create an IRSA role (trust: this cluster's OIDC + SA 'mlcc-eks-inference-sa';"
+        echo "    permissions: s3:GetObject/ListBucket on the mlcc-core models bucket), e.g.:"
+        echo "      eksctl create iamserviceaccount --cluster <eks-cluster> --namespace ${HP_NAMESPACE} \\"
+        echo "        --name mlcc-eks-inference-sa --attach-policy-arn <s3-read-policy> --approve"
+        echo "    then set EKS_INFERENCE_ROLE_ARN in do/config (or re-run once the v1.10 eks"
+        echo "    bootstrap module provisions it automatically) and redeploy."
+    else
+        echo "ℹ️  No EKS inference IRSA role set — fine for this HuggingFace-source deploy"
+        echo "    (the pod pulls the model from HuggingFace, no AWS credentials needed)."
+    fi
+fi
+
 # ── Auto-resolve GPU count / CPU / memory from the instance type ──────────────
 # Mirrors deploy.d/hyperpod-eks (BL096): the GPU-derived resource requests are
 # resolved at DEPLOY time so changing the instance type keeps node affinity and
 # tensor-parallel degree in sync.
+#
+# derive-dont-hardcode (ADR-008): the GPU count is OWNED by the instance catalog,
+# shipped into the project at .mlcc/instances.json (the same source
+# deploy-config-builder.js, hyperpod-eks, and the benchmark writer use). Read it
+# first so new instance families (g7/g7e, p6-b200, ...) resolve without editing
+# this script; the hardcoded case is ONLY a fallback for when the catalog is
+# absent/unreadable.
 _eks_detect_gpu_count() {
-    local suffix="${1#ml.}"
+    local itype="${1}"
+    [ -n "${itype}" ] || { echo 1; return; }
+
+    # 1) Authoritative source: .mlcc/instances.json (catalog[<ml.type>].gpus).
+    #    ${SCRIPT_DIR:-} so an unset SCRIPT_DIR degrades to the fallback case.
+    local _catalog="${SCRIPT_DIR:-}/../.mlcc/instances.json"
+    if [ -n "${SCRIPT_DIR:-}" ] && [ -f "${_catalog}" ] && command -v python3 >/dev/null 2>&1; then
+        local _gpus
+        _gpus="$(ITYPE="${itype}" CATALOG="${_catalog}" python3 -c '
+import json, os
+try:
+    cat = json.load(open(os.environ["CATALOG"]))["catalog"]
+    g = cat.get(os.environ["ITYPE"], {}).get("gpus")
+    print(int(g) if g and int(g) > 0 else "")
+except Exception:
+    print("")
+' 2>/dev/null)" || _gpus=""
+        if [ -n "${_gpus}" ]; then
+            echo "${_gpus}"
+            return
+        fi
+    fi
+
+    # 2) Fallback only when the catalog is unavailable or lacks the type.
+    local suffix="${itype#ml.}"
     case "${suffix}" in
         g5.xlarge|g5.2xlarge|g5.4xlarge|g5.8xlarge|g5.16xlarge) echo 1 ;;
         g5.12xlarge|g5.24xlarge) echo 4 ;;
@@ -194,7 +283,16 @@ _eks_detect_gpu_count() {
         g6.xlarge|g6.2xlarge|g6.4xlarge|g6.8xlarge|g6.16xlarge) echo 1 ;;
         g6.12xlarge|g6.24xlarge) echo 4 ;;
         g6.48xlarge) echo 8 ;;
+        g7.2xlarge|g7.4xlarge|g7.8xlarge) echo 1 ;;
+        g7.12xlarge) echo 2 ;;
+        g7.24xlarge) echo 4 ;;
+        g7.48xlarge) echo 8 ;;
+        g7e.2xlarge|g7e.4xlarge|g7e.8xlarge) echo 1 ;;
+        g7e.12xlarge) echo 2 ;;
+        g7e.24xlarge) echo 4 ;;
+        g7e.48xlarge) echo 8 ;;
         p4d.24xlarge|p4de.24xlarge|p5.48xlarge) echo 8 ;;
+        p6-b300.48xlarge) echo 8 ;;
         *) echo 1 ;;
     esac
 }
@@ -216,28 +314,171 @@ echo "   CPU request: ${HP_CPU_REQUEST}  Memory request: ${HP_MEM_REQUEST}"
 
 # ── Resolve model source env ──────────────────────────────────────────────────
 # The BYOC entrypoint (code/serve) reads MODEL_SOURCE + engine env. For a plain
-# EKS deployment there is no operator to pre-download weights, so:
-#   • STAGED_MODEL_PATH set → s3 (pod pulls from S3 at startup)
+# EKS deployment there is NO operator to pre-download/mount weights (unlike
+# HyperPod), so the POD itself downloads from S3 at startup:
+#   • STAGED_MODEL_PATH set → s3. code/serve's resolve_model() needs the S3 URI in
+#     MODEL_ARTIFACT_URI to `aws s3 sync` it to /opt/ml/model, then it rewrites the
+#     engine model key to that local path. HP_MODEL_ID (the engine's model-path
+#     env) is also the staged URI; code/serve overwrites it post-download.
 #   • otherwise            → huggingface (server pulls MODEL_NAME directly)
 if [ -n "${STAGED_MODEL_PATH:-}" ]; then
     export HP_MODEL_SOURCE="s3"
     export HP_MODEL_ID="${STAGED_MODEL_PATH}"
+    # Plain EKS has no model-mounting operator; the pod downloads from S3 itself,
+    # so code/serve requires the artifact URI explicitly (HyperPod gets it mounted
+    # at /opt/ml/model instead and never needs this).
+    export HP_MODEL_ARTIFACT_URI="${STAGED_MODEL_PATH}"
 else
     export HP_MODEL_SOURCE="huggingface"
     export HP_MODEL_ID="${MODEL_NAME:-}"
+    export HP_MODEL_ARTIFACT_URI=""
 fi
 export MODEL_NAME="${MODEL_NAME:-}"
-export VLLM_TENSOR_PARALLEL_SIZE="${VLLM_TENSOR_PARALLEL_SIZE:-${HP_GPU_COUNT}}"
-export VLLM_QUANTIZATION="${VLLM_QUANTIZATION:-}"
 
-# Export VLLM_ENABLE_LORA for the ConfigMap render (BL115) — HP_LORA_ENABLED in
-# do/config controls LoRA at deploy time without regeneration. Mirrors the
-# hyperpod-eks mapping so the LoRA default reaches the plain EKS worker env too.
-if [ "${HP_LORA_ENABLED:-false}" = "true" ]; then
-    export VLLM_ENABLE_LORA="true"
-else
-    export VLLM_ENABLE_LORA=""
+# ── Tier-1 engine config: derive from the serve manifest (ADR-010) ────────────
+# derive-dont-hardcode: the per-engine env-var names, value shapes, and LoRA
+# companion contract are OWNED by serve.d/<engine>/manifest.json (capability_map),
+# resolved here through serve_manifest.py — never a hardcoded VLLM_* block. MLCC
+# computes only the Tier-1 VALUES (model id, tensor-parallel degree = GPU count,
+# quantization pass-through, LoRA toggle); the resolver maps them onto the active
+# engine's env vars and omits any capability whose companions are unmet (so a
+# boolean like SGLang lora_enable never emits a server-crashing bare flag).
+# Everything else is Tier-2 prefix pass-through (handled by the EJS renderer).
+_EKS_ENGINE="${MODEL_SERVER:-vllm}"
+
+# The active engine's capability_map tells us WHICH LoRA companions this engine
+# requires (ADR-010), so MLCC can supply pure-dynamic defaults for them without
+# branching on the engine name.
+_EKS_CAP_MAP="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" capability_map "${_EKS_ENGINE}" 2>/dev/null || echo '{}')"
+
+# Canonical Tier-1 values as a JSON object keyed by capability name. Only keys
+# with a resolvable value are set; unset valued caps (e.g. quantization) are
+# OMITTED so the resolver drops them rather than emitting an empty/sentinel value
+# that breaks engine startup (ADR-010 "omit-when-unset"). LoRA is a boolean
+# toggle gated on HP_LORA_ENABLED. When LoRA is on, MLCC supplies pure-dynamic
+# defaults for any companion the engine's capability_map requires and the user
+# did not set (e.g. SGLang needs max_lora_rank + lora_target_modules for a
+# no-initial-adapters start); vLLM requires no companions and stays bare. Users
+# override any companion via Tier-2 SGLANG_*/VLLM_* pass-through.
+_EKS_TIER1_VALUES=$(
+    MODEL_ID="${HP_MODEL_ID:-${MODEL_NAME:-}}" \
+    TP_DEGREE="${VLLM_TENSOR_PARALLEL_SIZE:-${HP_GPU_COUNT}}" \
+    QUANT="${VLLM_QUANTIZATION:-}" \
+    LORA_ON="$([ "${HP_LORA_ENABLED:-false}" = "true" ] && echo true || echo false)" \
+    LORA_MAX_RANK="${VLLM_MAX_LORA_RANK:-}" \
+    LORA_MAX="${VLLM_MAX_LORAS:-}" \
+    LORA_TARGET_MODULES="${VLLM_LORA_TARGET_MODULES:-}" \
+    CAP_MAP="${_EKS_CAP_MAP}" \
+    python3 - <<'_PYEOF'
+import json, os
+v = {}
+if os.environ.get("MODEL_ID"):
+    v["model"] = os.environ["MODEL_ID"]
+if os.environ.get("TP_DEGREE"):
+    v["tensor_parallel_degree"] = os.environ["TP_DEGREE"]
+if os.environ.get("QUANT"):
+    v["quantization"] = os.environ["QUANT"]
+if os.environ.get("LORA_ON") == "true":
+    v["lora_enable"] = "true"
+    # Explicit user-set companion values always win.
+    user = {
+        "lora_max_rank": os.environ.get("LORA_MAX_RANK") or "",
+        "lora_max": os.environ.get("LORA_MAX") or "",
+        "lora_target_modules": os.environ.get("LORA_TARGET_MODULES") or "",
+    }
+    for k, val in user.items():
+        if val:
+            v[k] = val
+    # MLCC pure-dynamic LoRA defaults, keyed by CAPABILITY (not engine name).
+    # lora_max=4 / lora_max_rank=16 are memory-safe sizing defaults: vLLM's own
+    # defaults (max_loras=30, max_lora_rank=64) pre-allocate a large LoRA buffer
+    # that OOMs big models on tight VRAM (validated remediation in the capability
+    # matrix: "reduce max_loras 30→4, max_lora_rank 64→16"). 4 covers 2–3 adapters
+    # plus hot-swap headroom; override via VLLM_MAX_LORAS / VLLM_MAX_LORA_RANK.
+    MLCC_LORA_DEFAULTS = {"lora_max": "4", "lora_max_rank": "16", "lora_target_modules": "all"}
+    try:
+        caps = json.loads(os.environ.get("CAP_MAP") or "{}")
+    except Exception:
+        caps = {}
+    lora_decl = caps.get("lora_enable") or {}
+    # Fill a default for every sizing/companion capability the ACTIVE engine
+    # DECLARES in its capability_map (not only ones gated as "required"): a plugin
+    # that declares lora_max gets the memory-safe count; one that doesn't (e.g.
+    # SGLang) silently skips it. Each manifest maps the capability to its own env
+    # suffix (vLLM lora_max→MAX_LORAS), so this is the per-engine translation.
+    declared = set(k for k in caps.keys())
+    for group in (lora_decl.get("requiresAnyOf") or [lora_decl.get("requires") or []]):
+        declared.update(group)
+    for comp, default in MLCC_LORA_DEFAULTS.items():
+        if comp in declared and not v.get(comp):
+            v[comp] = default
+print(json.dumps(v))
+_PYEOF
+)
+
+# Resolve Tier-1 values → concrete {resolved:[{key,value}], skipped:[...]} for the
+# active engine. Fail-open: if the resolver is unavailable the render falls back
+# to the template's own ${VAR:-default} shapes.
+EKS_TIER1_ENV_JSON="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" \
+    resolve_capability_vars "${_EKS_ENGINE}" "${_EKS_TIER1_VALUES}" 2>/dev/null || echo '')"
+export EKS_TIER1_ENV_JSON
+export MODEL_SERVER="${_EKS_ENGINE}"
+
+# Surface any companion-gated omissions (e.g. SGLang LoRA without rank/target
+# modules) so an operator sees WHY a requested capability was not injected.
+if [ -n "${EKS_TIER1_ENV_JSON}" ]; then
+    printf '%s' "${EKS_TIER1_ENV_JSON}" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for s in data.get("skipped", []):
+    print("   ⚠️  engine config: %s" % s.get("reason", s.get("capability", "")))
+' 2>/dev/null || true
 fi
+
+# ── Tier-2 engine config: unbounded prefix pass-through (ADR-010) ─────────────
+# Every OTHER engine flag (batch_size, advanced knobs, a custom plugin's bespoke
+# options) is NOT enumerated by MLCC. Any env var under the active engine's
+# manifest prefix that is not already a Tier-1 key is forwarded verbatim into the
+# pod env. The exclusion set is DERIVED from the capability_map (the Tier-1 keys
+# the resolver already placed) — never a hardcoded VLLM_* literal — so a custom
+# engine participates with zero MLCC edits.
+ENGINE_ENV_PREFIX=$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" env_var_prefix "${_EKS_ENGINE}" 2>/dev/null || true)
+[ -n "${ENGINE_ENV_PREFIX}" ] || ENGINE_ENV_PREFIX="VLLM_"
+EKS_TIER2_ENV_JSON=$(
+    ENGINE_ENV_PREFIX="${ENGINE_ENV_PREFIX}" \
+    EKS_TIER1_ENV_JSON="${EKS_TIER1_ENV_JSON}" \
+    python3 - <<'_PYEOF'
+import json, os
+prefix = os.environ.get("ENGINE_ENV_PREFIX", "VLLM_")
+# Tier-1 keys already emitted by the resolver — exclude them so we never
+# double-emit (and never override a companion-gated omission).
+try:
+    t1 = json.loads(os.environ.get("EKS_TIER1_ENV_JSON") or "{}")
+except Exception:
+    t1 = {}
+tier1_keys = {e.get("key") for e in t1.get("resolved", []) if isinstance(e, dict)}
+# Speculative-decoding env vars are assembled by the serve wrapper from their own
+# components; they are not plain pass-through flags.
+pairs = []
+for k, v in sorted(os.environ.items()):
+    if k in ("ENGINE_ENV_PREFIX", "EKS_TIER1_ENV_JSON"):
+        continue
+    if not k.startswith(prefix):
+        continue
+    if k in tier1_keys:
+        continue
+    if "SPECULATIVE" in k:
+        continue
+    if v == "":
+        continue
+    pairs.append({"key": k, "value": v})
+print(json.dumps({"resolved": pairs}))
+_PYEOF
+)
+export EKS_TIER2_ENV_JSON
 
 # ── Portable variable-substitution shim (matches hyperpod-eks) ────────────────
 # GNU envsubst does not understand ${VAR:-default}; route substitution through a
@@ -274,14 +515,30 @@ echo "📄 Rendering Kubernetes manifests from eks/..."
 # variables (projectName/framework/namespace/replicas/modelName/GPU count). They
 # come from do/config (already sourced) so the render reflects deploy-time values.
 export PROJECT_NAME FRAMEWORK HP_NAMESPACE HP_REPLICAS MODEL_NAME HP_GPU_COUNT
+# ADR-010: MODEL_SERVER selects the engine; EKS_TIER1_ENV_JSON carries the
+# manifest-derived Tier-1 env pairs the ConfigMap loops (no hardcoded VLLM_*),
+# EKS_TIER2_ENV_JSON the unbounded prefix pass-through.
+export MODEL_SERVER EKS_TIER1_ENV_JSON EKS_TIER2_ENV_JSON
+# Optional: node-local NVMe mount base for the model volume (hostPath). When set
+# (e.g. HP_MODEL_HOSTPATH=/opt/dlami/nvme in do/config), the model lands on the
+# node's instance-store NVMe instead of an emptyDir on the small EBS root —
+# required for large models on nodes whose NVMe isn't the kubelet ephemeral root.
+export HP_MODEL_HOSTPATH="${HP_MODEL_HOSTPATH:-}"
 
 # ── Detect the EJS renderer (node + ejs) ──────────────────────────────────────
 # The renderer is do/lib/render-eks-manifests.cjs; its --probe exits 0 only when
-# node runs AND the ejs module loads. A generated project without the ejs module
-# (the common case, matching hyperpod-eks today) fails the probe → envsubst.
+# node runs AND the ejs module loads. The EJS path is taken ONLY when BOTH the
+# renderer is usable AND eks/*.yaml.ejs SOURCE files are actually present: a
+# project generated for a non-eks default target ships only the frozen eks/*.yaml
+# (the .ejs source is shipped only for a generate-time eks target), so without
+# this check the EJS loop would match zero files and silently apply NOTHING while
+# still reporting success. When no .ejs source exists we fall back to the frozen
+# eks/*.yaml (envsubst), which is always present.
 EKS_RENDERER="do/lib/render-eks-manifests.cjs"
 USE_EJS_RENDERER=false
-if command -v node >/dev/null 2>&1 && [ -f "${EKS_RENDERER}" ] \
+_eks_ejs_sources=$(ls eks/*.yaml.ejs 2>/dev/null || true)
+if [ -n "${_eks_ejs_sources}" ] \
+    && command -v node >/dev/null 2>&1 && [ -f "${EKS_RENDERER}" ] \
     && node "${EKS_RENDERER}" --probe >/dev/null 2>&1; then
     USE_EJS_RENDERER=true
 fi
@@ -296,6 +553,11 @@ fi
 
 APPLY_OUTPUT=""
 APPLY_EXIT_CODE=0
+# Count the manifest documents actually sent to kubectl. A render that produces
+# zero applyable documents (e.g. no source files matched, or none contained a
+# `kind:`) MUST fail loudly rather than report success — the silent no-op that
+# left "✅ applied" printed while the deployment never existed.
+APPLIED_COUNT=0
 
 if [ "${USE_EJS_RENDERER}" = true ]; then
     # Preferred path: render each .ejs SOURCE with EJS semantics, then resolve the
@@ -314,6 +576,7 @@ if [ "${USE_EJS_RENDERER}" = true ]; then
                 APPLY_EXIT_CODE=$?
             }
             APPLY_OUTPUT="${APPLY_OUTPUT}${FILE_OUTPUT}"$'\n'
+            APPLIED_COUNT=$(( APPLIED_COUNT + 1 ))
         fi
     done
 else
@@ -326,8 +589,23 @@ else
                 APPLY_EXIT_CODE=$?
             }
             APPLY_OUTPUT="${APPLY_OUTPUT}${FILE_OUTPUT}"$'\n'
+            APPLIED_COUNT=$(( APPLIED_COUNT + 1 ))
         fi
     done
+fi
+
+# Fail loudly on a zero-apply: no manifest documents reached kubectl, so nothing
+# was created even though individual kubectl calls (there were none) did not error.
+if [ "${APPLIED_COUNT}" -eq 0 ]; then
+    echo ""
+    echo "❌ No Kubernetes manifests were applied — the render produced zero documents."
+    echo "   Expected eks/*.yaml(.ejs) with a 'kind:' to apply, but found none."
+    echo "   Debug:"
+    echo "   • ls -la eks/        (are the manifest sources present?)"
+    echo "   • Renderer in use:   $( [ "${USE_EJS_RENDERER}" = true ] && echo 'node+ejs (eks/*.yaml.ejs)' || echo 'envsubst (eks/*.yaml)' )"
+    echo "   • Regenerate the project if eks/ is empty or stale."
+    _update_config "DEPLOYMENT_TARGET_EKS_STATUS" "Failed"
+    exit 1
 fi
 
 if [ "${APPLY_EXIT_CODE}" -ne 0 ]; then

@@ -9,5 +9,6 @@
     "path": "/health",
     "port": 8081,
     "format": "text"
-  }
+  },
+  "capability_map": {}
 }

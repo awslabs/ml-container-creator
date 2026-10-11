@@ -38,9 +38,12 @@ import ConfigLoader from './config-loader.js';
 import ConfigMcpClient from './config-mcp-client.js';
 import ConfigValidator from './config-validator.js';
 import { parameterMatrix } from './generated/parameter-matrix.js';
-// Triton backend metadata comes from the shared catalog loader (single source
-// of truth; previously duplicated here and in config-validator.js).
-import { tritonBackends } from './triton-backends-catalog.js';
+// Triton per-backend knowledge comes from the single Triton backend reader
+// (ADR-008 "derive, don't hardcode") over servers/lib/catalogs/triton-backends.json.
+import {
+    isKnownBackend as isTritonBackend,
+    supportsSampleModel as tritonSupportsSampleModel
+} from './triton-backend-reader.js';
 
 
 
@@ -272,8 +275,7 @@ export default class ConfigManager {
             finalConfig.includeSampleModel = false;
         }
         if (finalConfig.architecture === 'triton') {
-            const backendMeta = tritonBackends[finalConfig.backend];
-            if (!backendMeta || !backendMeta.supportsSampleModel) {
+            if (!isTritonBackend(finalConfig.backend) || !tritonSupportsSampleModel(finalConfig.backend)) {
                 finalConfig.includeSampleModel = false;
             }
         }

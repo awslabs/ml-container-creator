@@ -16,6 +16,13 @@ import {
     displayName as predictorDisplayName,
     modelFormats as predictorModelFormats
 } from '../predictor-manifest-reader.js';
+// Triton per-backend facts (formats, isLlm) derive from triton-backends.json via
+// the reader, not hardcoded name lists (BL119 / ADR-008).
+import {
+    isKnownBackend as isTritonBackend,
+    isLlm as tritonIsLlm,
+    modelFormats as tritonModelFormats
+} from '../triton-backend-reader.js';
 
 /**
  * Engine-specific feature prompts (ADR-004 §c), built from the serve-plugin
@@ -167,8 +174,8 @@ const deploymentConfigPrompts = [
             }
             // AWS Marketplace deployment config is deprecated and hard-refused
             // (see src/lib/marketplace-refusal.js). The menu choice is removed so
-            // users cannot select a dead option; the flow file stays dormant for
-            // one release before removal.
+            // users cannot select a dead option; the generation surface was removed
+            // in BL120, leaving only the hard-refusal.
         ]
     }
 ];
@@ -254,18 +261,12 @@ const modelFormatPrompts = [
                 return predictorModelFormats(answers.engine);
             }
             
-            // For triton architecture, use backend-specific formats
+            // For triton architecture, the backend's valid formats come from the
+            // catalog (BL119). LLM backends have modelFormats:null (served by name,
+            // no format choice); file-artifact backends return their format list.
             if (architecture === 'triton') {
-                // FIL backend has multiple format choices
-                if (backend === 'fil') {
-                    return ['xgboost_json', 'xgboost_ubj', 'lightgbm_txt'];
-                }
-                // Python backend has multiple format choices
-                if (backend === 'python') {
-                    return ['pkl', 'joblib', 'custom'];
-                }
-                // Other Triton backends have auto-set formats (handled in when clause)
-                return [];
+                if (!isTritonBackend(backend)) return [];
+                return tritonModelFormats(backend) || [];
             }
             
             // Legacy support for old format (should not be reached with new
@@ -292,14 +293,13 @@ const modelFormatPrompts = [
                 return true;
             }
             
-            // For triton architecture, only show for backends with multiple format choices
+            // For triton architecture, only show when the backend has MORE THAN ONE
+            // catalog format to choose between (BL119). Single-format backends are
+            // auto-set; LLM backends (modelFormats:null) have no format choice.
             if (architecture === 'triton') {
-                // FIL and Python backends have multiple format choices
-                if (backend === 'fil' || backend === 'python') {
-                    return true;
-                }
-                // Other backends have auto-set formats
-                return false;
+                if (!isTritonBackend(backend)) return false;
+                const formats = tritonModelFormats(backend);
+                return Array.isArray(formats) && formats.length > 1;
             }
             
             // Legacy support
@@ -381,8 +381,8 @@ const modelFormatPrompts = [
                 return true;
             }
             
-            // Show for Triton LLM backends (vllm, tensorrtllm)
-            if (architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm')) {
+            // Show for Triton LLM backends (derived from the catalog — BL119)
+            if (architecture === 'triton' && isTritonBackend(backend) && tritonIsLlm(backend)) {
                 return true;
             }
             
@@ -417,8 +417,8 @@ const modelFormatPrompts = [
                 return true;
             }
             
-            // Show for Triton LLM backends with custom model selection
-            if (architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm') && answers.modelName === 'Custom (enter manually)') {
+            // Show for Triton LLM backends with custom model selection (derived — BL119)
+            if (architecture === 'triton' && isTritonBackend(backend) && tritonIsLlm(backend) && answers.modelName === 'Custom (enter manually)') {
                 return true;
             }
             
@@ -478,9 +478,9 @@ const hfTokenPrompts = [
             // Prompt for diffusors architecture (uses HuggingFace Hub)
             const isDiffusors = architecture === 'diffusors';
             
-            // Prompt for Triton LLM backends (vllm, tensorrtllm)
+            // Prompt for Triton LLM backends (derived from the catalog — BL119)
             // Requirements: 9.1, 9.2
-            const isTritonLlm = architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm');
+            const isTritonLlm = architecture === 'triton' && isTritonBackend(backend) && tritonIsLlm(backend);
             
             if (!isTransformers && !isDiffusors && !isTritonLlm) {
                 return false;
@@ -646,7 +646,7 @@ async function buildHfTokenPrompts(answers, deps = {}) {
                     const backend = promptAnswers.backend || promptAnswers.deploymentConfig?.split('-').slice(1).join('-');
                     const isTransformers = architecture === 'transformers';
                     const isDiffusors = architecture === 'diffusors';
-                    const isTritonLlm = architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm');
+                    const isTritonLlm = architecture === 'triton' && isTritonBackend(backend) && tritonIsLlm(backend);
                     if (!isTransformers && !isDiffusors && !isTritonLlm) return false;
                     const modelSource = promptAnswers.modelSource;
                     if (modelSource && modelSource !== 'huggingface') return false;

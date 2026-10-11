@@ -19,7 +19,14 @@ echo "Starting <%= modelServer %> server"
 <%- include('serve.d/llama-cpp/llama-cpp') %>
 <% } else { %>
 
-<% if (typeof modelSource !== 'undefined' && modelSource !== 'huggingface') { %>
+<%# download_model_from_s3 is ALWAYS defined for wrapper-path engines (vllm/
+    sglang/tensorrt-llm). It must NOT be gated on the generate-time `modelSource`:
+    a project generated with the default huggingface source can be staged to S3
+    at DEPLOY time via do/stage, which sets MODEL_SOURCE=s3 + MODEL_ARTIFACT_URI
+    in the pod env. resolve_model()'s s3 branch (always emitted) calls this
+    function, so gating the definition produced a `download_model_from_s3:
+    command not found` crash whenever a huggingface-generated project was later
+    staged to S3. The function is inert unless MODEL_SOURCE=s3 at runtime. %>
 # ---------------------------------------------------------------------------
 # download_model_from_s3 — Download model artifacts from S3 to a local path
 # ---------------------------------------------------------------------------
@@ -37,8 +44,21 @@ download_model_from_s3() {
     echo "Downloading model from ${s3_uri} to ${dest_path}..." >&2
     mkdir -p "${dest_path}"
 
+    # NOTE: `aws s3 cp/sync` write their PROGRESS METER TO STDOUT. This function is
+    # called from resolve_model(), whose stdout is captured by $(...) to yield the
+    # resolved model path. If any aws progress leaks to stdout it is concatenated
+    # into that path and then exported into the engine's model env var (e.g.
+    # SGLANG_MODEL_PATH), producing a multi-kilobyte, multi-line env value. A large
+    # enough value exceeds the kernel's per-string arg limit (MAX_ARG_STRLEN, 128
+    # KiB) and makes EVERY subsequent execve fail with E2BIG ("Argument list too
+    # long") — env, grep, python, and the server binary itself — bricking startup.
+    # The bug is model-size probabilistic (a long sync dumps a long progress blob),
+    # which is why it surfaced on a 96-shard model and not smaller ones. Two guards:
+    #   1) --no-progress --only-show-errors silences the meter at the source.
+    #   2) resolve_model() redirects this function's stdout to stderr at the call
+    #      site, so the ONLY thing left on stdout is the deliberate path echo.
     if [[ "$s3_uri" == *.tar.gz ]] || [[ "$s3_uri" == *.tgz ]]; then
-        if ! aws s3 cp "$s3_uri" /tmp/model_archive.tar.gz; then
+        if ! aws s3 cp --no-progress --only-show-errors "$s3_uri" /tmp/model_archive.tar.gz; then
             echo "Error: Failed to download tarball from ${s3_uri}" >&2
             return 1
         fi
@@ -49,12 +69,12 @@ download_model_from_s3() {
         fi
         rm -f /tmp/model_archive.tar.gz
     elif [[ "$s3_uri" == */ ]] || ! aws s3 ls "$s3_uri" 2>/dev/null | grep -q "^[0-9]"; then
-        if ! aws s3 sync "$s3_uri" "$dest_path"; then
+        if ! aws s3 sync --no-progress --only-show-errors "$s3_uri" "$dest_path"; then
             echo "Error: Failed to sync from ${s3_uri}" >&2
             return 1
         fi
     else
-        if ! aws s3 cp "$s3_uri" "$dest_path/"; then
+        if ! aws s3 cp --no-progress --only-show-errors "$s3_uri" "$dest_path/"; then
             echo "Error: Failed to copy ${s3_uri}" >&2
             return 1
         fi
@@ -64,7 +84,6 @@ download_model_from_s3() {
     duration=$(( $(date +%s) - start_time ))
     echo "Download complete: ${s3_uri} → ${dest_path} (${duration}s)" >&2
 }
-<% } %>
 
 # ---------------------------------------------------------------------------
 # Model Loading Adapter — resolve model based on MODEL_SOURCE env var
@@ -88,7 +107,12 @@ resolve_model() {
             return
             ;;
         s3|registry)
-            if [ -d "$LOCAL_MODEL_PATH" ] && [ "$(ls -A $LOCAL_MODEL_PATH 2>/dev/null)" ]; then
+            # Non-empty check WITHOUT expanding the directory listing. The old
+            # `[ "$(ls -A "$dir")" ]` captured every filename into one shell word —
+            # fine for a handful of files, but a model with its .cache/huggingface
+            # tree can hold thousands, making that an unnecessarily huge string.
+            # `find ... -print -quit` stops at the first entry: O(1), no big word.
+            if [ -d "$LOCAL_MODEL_PATH" ] && [ -n "$(find "$LOCAL_MODEL_PATH" -mindepth 1 -print -quit 2>/dev/null)" ]; then
                 echo "Using pre-mounted model artifacts at $LOCAL_MODEL_PATH" >&2
                 echo "$LOCAL_MODEL_PATH"
                 return
@@ -156,7 +180,12 @@ except:
                 echo "Error: ${MODEL_SOURCE} model requires artifact URI or pre-mounted artifacts at $LOCAL_MODEL_PATH" >&2
                 exit 1
             fi
-            if ! download_model_from_s3 "$MODEL_ARTIFACT_URI" "$LOCAL_MODEL_PATH"; then
+            # Redirect the downloader's STDOUT to stderr (1>&2) so NOTHING it (or
+            # its aws children) prints can pollute resolve_model's captured stdout.
+            # resolve_model runs inside $(...) and its stdout IS the resolved path;
+            # the only line that may reach stdout is the deliberate echo below.
+            # Belt-and-suspenders with --no-progress in download_model_from_s3.
+            if ! download_model_from_s3 "$MODEL_ARTIFACT_URI" "$LOCAL_MODEL_PATH" 1>&2; then
                 echo "Error: Failed to download model from ${MODEL_ARTIFACT_URI}" >&2
                 exit 1
             fi

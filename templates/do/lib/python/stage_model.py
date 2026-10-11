@@ -27,13 +27,21 @@ echo "Model: ${MODEL_ID}"
 echo "Target: ${S3_OUTPUT_URI}"
 echo ""
 
-# Install dependencies
-echo "Installing huggingface_hub and hf_transfer..."
-pip install -q huggingface_hub hf_transfer 2>/dev/null || true
+# Install dependencies.
+# IMPORTANT: do NOT upgrade huggingface_hub. The DLC ships a working copy, and
+# reinstalling/upgrading it has pulled an httpx2-based build whose streaming
+# decoder is incompatible with the image's compression extension, crashing the
+# download with "TypeError: process() takes no keyword arguments". So install
+# huggingface_hub ONLY if it is genuinely missing (never upgrade the baked-in
+# version), and add hf_transfer only if absent.
+echo "Ensuring huggingface_hub + hf_transfer are available (no upgrade)..."
+python3 -c "import huggingface_hub" 2>/dev/null || pip install -q huggingface_hub 2>/dev/null || true
+python3 -c "import hf_transfer" 2>/dev/null || pip install -q hf_transfer 2>/dev/null || true
 
-# Enable fast parallel downloads only if hf_transfer is available
+# Enable fast parallel downloads only if hf_transfer is importable.
 if python3 -c "import hf_transfer" 2>/dev/null; then
     export HF_XET_HIGH_PERFORMANCE=1
+    export HF_HUB_ENABLE_HF_TRANSFER=1
 else
     echo "hf_transfer not available - using standard download"
 fi
@@ -52,30 +60,65 @@ fi
 echo ""
 echo "Downloading model: ${MODEL_ID}"
 
-# When a token is provided, ALWAYS use the Python API directly — the 'hf' CLI
-# and xet transfer have inconsistent token handling across versions.
-# For unauthenticated models, the CLI is fine.
-if [ -n "${HF_TOKEN:-}" ]; then
-    python3 -c "
+# Download via the Python API.
+#
+# ROOT CAUSE (observed in the DLC image): huggingface_hub v2.x switched its HTTP
+# backend to `httpx2`, whose streaming response decoder calls the compression
+# object's `.process(data, output_buffer_limit=...)` with a keyword argument the
+# image's (older) brotli/zstd extension does not accept — crashing EVERY download
+# with "TypeError: process() takes no keyword arguments". This is on the normal
+# streaming path, not the fast/xet path, so toggling hf_transfer does not help.
+#
+# FIX: make the Hub send an UNCOMPRESSED response body (Accept-Encoding: identity)
+# so the broken decompressor is never invoked. We install a client factory that
+# forces that header (the huggingface_hub v2 extension point), falling back to a
+# session-header hook on v1.x; if neither hook is present the download still runs.
+python3 - <<'PYEOF'
+import os
 from huggingface_hub import snapshot_download
-snapshot_download('${MODEL_ID}', local_dir='/opt/ml/processing/model', token='${HF_TOKEN}')
-"
-else
-    # Unauthenticated path: use 'hf' CLI if available, else Python API
-    DOWNLOAD_CMD=""
-    if command -v hf &>/dev/null; then
-        DOWNLOAD_CMD="hf"
-    fi
 
-    if [ -n "${DOWNLOAD_CMD}" ]; then
-        ${DOWNLOAD_CMD} download ${MODEL_ID} --local-dir /opt/ml/processing/model
-    else
-        python3 -c "
-from huggingface_hub import snapshot_download
-snapshot_download('${MODEL_ID}', local_dir='/opt/ml/processing/model')
-"
-    fi
-fi
+model_id = os.environ["MODEL_ID"]
+token = os.environ.get("HF_TOKEN") or None
+local_dir = "/opt/ml/processing/model"
+
+# Force uncompressed responses to dodge the httpx2 decoder incompatibility.
+_forced = False
+try:
+    # huggingface_hub v2.x: install a client whose default headers disable
+    # response compression (see the v2 migration guide / set_client_factory).
+    from huggingface_hub.utils import httpx as _hf_httpx  # noqa: F401
+    from huggingface_hub.utils import set_client_factory
+
+    def _client_factory(**kwargs):
+        headers = dict(kwargs.pop("headers", {}) or {})
+        headers["Accept-Encoding"] = "identity"
+        return _hf_httpx.Client(headers=headers, **kwargs)
+
+    set_client_factory(_client_factory)
+    _forced = True
+    print("Forcing Accept-Encoding: identity via huggingface_hub v2 client factory.")
+except Exception as e:
+    print(f"v2 client factory unavailable ({type(e).__name__}); trying v1 session hook.")
+
+if not _forced:
+    try:
+        # huggingface_hub v1.x (requests-based): add the header to the shared session.
+        from huggingface_hub.utils import _http as _hf_http
+        _orig_get_session = _hf_http.get_session
+
+        def _patched_get_session():
+            s = _orig_get_session()
+            s.headers["Accept-Encoding"] = "identity"
+            return s
+
+        _hf_http.get_session = _patched_get_session
+        _forced = True
+        print("Forcing Accept-Encoding: identity via huggingface_hub v1 session hook.")
+    except Exception as e:
+        print(f"v1 session hook unavailable ({type(e).__name__}); proceeding without override.")
+
+snapshot_download(model_id, local_dir=local_dir, token=token)
+PYEOF
 
 echo ""
 echo "Download complete"

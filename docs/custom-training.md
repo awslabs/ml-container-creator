@@ -8,7 +8,8 @@ ML Container Creator includes a `do/train` command for **unmanaged, user-customi
     | **Infrastructure** | Managed (serverless) | You choose instance type |
     | **Training code** | SageMaker's built-in trainers | Your code (with boilerplate templates) |
     | **Customization** | Hyperparameters only | Full training loop control |
-    | **Techniques** | SFT, DPO, RLAIF, RLVR | SFT, DPO + any custom technique |
+    | **Techniques** | SFT, DPO, RLAIF, RLVR | SFT, DPO, GRPO + any custom technique |
+    | **Reinforcement learning** | Managed (RLAIF/RLVR) — reward is a registered evaluator asset (ARN) | Self-managed (GRPO) — reward is an in-process Python callable you write |
     | **Lifecycle** | Full (adapter → benchmark → register) | Full (same hooks, `TRAIN_*` namespace) |
     | **Comparison** | Can compare results side-by-side via `do/benchmark` | Same |
 
@@ -61,6 +62,12 @@ training/
 │   ├── train.py             ← TRL DPOTrainer + PEFT LoRA
 │   ├── accelerate_config.yaml
 │   └── defaults.yaml
+├── grpo/
+│   ├── train.py             ← TRL GRPOTrainer + PEFT LoRA
+│   ├── reward_example.py    ← in-process reward functions (edit this)
+│   ├── accelerate_config.yaml
+│   ├── defaults.yaml
+│   └── README.md
 └── custom/
     └── train.py             ← Your own training logic (skeleton)
 ```
@@ -102,6 +109,68 @@ Default hyperparameters (from `training/dpo/defaults.yaml`):
 | `max_length` | 1024 | Max combined sequence length |
 | `chosen_field` | "chosen" | Column name for preferred response |
 | `rejected_field` | "rejected" | Column name for dispreferred response |
+
+### GRPO (Group Relative Policy Optimization)
+
+```bash
+./do/train --technique grpo --dataset "hf://trl-lib/tldr"
+```
+
+GRPO is **self-managed reinforcement learning**: it samples several completions
+per prompt, scores each with your **in-process reward function(s)**, and updates
+the policy from the group-relative advantage (the sampled group is its own
+baseline — no separate value/critic model). It needs a **prompt dataset** (a
+`prompt` column of strings; GRPO generates its own completions), not
+prompt/completion or chosen/rejected pairs.
+
+!!! warning "Two different things both called a 'reward function'"
+    GRPO's reward is an **in-process Python callable** you write in
+    `training/grpo/reward_example.py` — it runs inside the training job, with no
+    managed service in the loop. This is the opposite of the managed RL path on
+    `do/tune` (BL117), whose reward is a **separately-registered SageMaker
+    evaluator asset** (a Lambda, referenced by ARN). Same term, different
+    mechanism: pick `do/train --technique grpo` when you want to **own and edit
+    the reward code**; pick `do/tune` when you want SageMaker to run a managed
+    RLVR/RLAIF/MTRL customization against a registered evaluator.
+
+**The reward-function contract** (edit `training/grpo/reward_example.py`):
+
+```python
+def my_reward(completions, prompts=None, **kwargs) -> list[float]:
+    # one float per completion, higher = better; same order as `completions`
+    return [score(c) for c in completions]
+```
+
+- `completions` — the sampled completions (strings for a plain prompt dataset).
+- `prompts` — the prompts they were sampled from (optional).
+- `**kwargs` — every other dataset column by name (e.g. a `solution` column →
+  `kwargs["solution"]`). **Required** in the signature even if unused.
+
+List your reward callables in `REWARD_FUNCS`; GRPO sums them. The shipped
+`length_reward` + `format_reward` are placeholders to show the contract — replace
+them. Editing the recipe is the intended super-user workflow, like `custom/`.
+
+Default hyperparameters (from `training/grpo/defaults.yaml`):
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `num_generations` | 8 | Completions sampled per prompt (the "group"; ≥ 2) |
+| `beta` | 0.04 | KL coefficient against the reference policy |
+| `max_completion_length` | 256 | Max new tokens per sampled completion |
+| `max_prompt_length` | 512 | Prompts longer than this are left-truncated |
+| `learning_rate` | 1e-6 | Learning rate |
+| `epochs` | 1 | Training epochs |
+| `batch_size` | 1 | Per-device prompt batch size |
+| `prompt_field` | "prompt" | Dataset column holding the prompt text |
+
+!!! warning "GRPO needs an adequate GPU instance"
+    GRPO runs on-policy generation **and** training in the same job and holds a
+    reference policy for the KL term — do **not** run it on CPU or an
+    under-provisioned instance. A single `ml.g5.xlarge` (1× A10G, 24 GB) is the
+    floor for a small (≤ 3B) policy with LoRA and short completions; larger
+    policies, longer completions, or a bigger `num_generations` group want a
+    multi-GPU instance such as `ml.g5.12xlarge`. Set the instance in
+    `training/config.yaml`.
 
 ### Custom
 

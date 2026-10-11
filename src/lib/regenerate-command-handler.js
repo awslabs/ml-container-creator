@@ -58,6 +58,14 @@ const SHARED_RUNTIME_VARS = [
     'VLLM_TRUST_REMOTE_CODE',
     // Manual runtime opt-out for architectures that don't support LoRA (BL127).
     'HP_LORA_ENABLED',
+    // Written by do/stage: the S3 URI of the staged model weights. MODEL_NAME is
+    // preserved as the HF id and re-derived from saved answers on regenerate, but
+    // STAGED_MODEL_PATH is a RUNTIME pointer with no answer to restore it from —
+    // so without preserving it here, `mcc regenerate` would silently drop the S3
+    // staging and every subsequent deploy would fall back to pulling from
+    // HuggingFace. Cross-cutting (used by eks + hyperpod-eks model-source
+    // resolution), not per-target and not a serve-engine dimension.
+    'STAGED_MODEL_PATH',
     // Written by do/draft set
     'HP_SPECULATIVE_ALGORITHM',
     'HP_SPECULATIVE_MODEL',
@@ -213,10 +221,26 @@ export default class RegenerateCommandHandler extends BaseCommandHandler {
 
         const installedVersion = getInstalledVersion();
 
-        // Check if regeneration is needed
-        if (projectVersion === installedVersion && !this.force) {
+        // Dev-checkout detection: when the generator runs from a git working tree
+        // (not an installed semver release), the version string does NOT track
+        // template CONTENT — edits to templates/ don't bump package.json. In that
+        // mode a version-match short-circuit would silently skip real changes
+        // (the "regenerate didn't surface my edits" trap), so we always regenerate.
+        const isDevCheckout = existsSync(join(GENERATOR_ROOT, '.git'));
+
+        // Check if regeneration is needed. The version guard is an optimization to
+        // skip redundant work for an INSTALLED generator; it is bypassed by --force
+        // and by a dev checkout (where version ≠ content).
+        if (projectVersion === installedVersion && !this.force && !isDevCheckout) {
             console.log(`✅ Already up to date (v${installedVersion})`);
+            console.log('   (Templates are regenerated only when the generator version differs.');
+            console.log('    Run `mcc regenerate --force` to re-apply the current templates anyway.)');
             return;
+        }
+        if (isDevCheckout && projectVersion === installedVersion && !this.force) {
+            console.log('ℹ️  Dev checkout detected (generator has a .git working tree) — regenerating');
+            console.log(`   despite matching version v${installedVersion}, since templates may have`);
+            console.log('   changed without a version bump.');
         }
 
         console.log('\n🔄 Regenerating project...');

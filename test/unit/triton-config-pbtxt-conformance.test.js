@@ -24,6 +24,7 @@ import ejs from 'ejs';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isLlm as tritonIsLlm, isKnownBackend as isTritonBackend } from '../../src/lib/triton-backend-reader.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_TEMPLATE_PATH = resolve(__dirname, '../../templates/triton/config.pbtxt');
@@ -32,7 +33,10 @@ const CATALOG_PATH = resolve(__dirname, '../../servers/lib/catalogs/triton-backe
 const TRITON_BACKENDS = JSON.parse(readFileSync(CATALOG_PATH, 'utf8'));
 
 // Render config.pbtxt the way src/app.js _generateTritonFiles does: backend +
-// modelName (+ modelFormat for format-bearing backends).
+// modelName (+ modelFormat for format-bearing backends) PLUS the catalog-derived
+// `isLlmBackend` predicate (BL119 — the template branches on it instead of a
+// hardcoded vllm/tensorrtllm name list). Deriving it here from the same reader the
+// generator uses makes this a true conformance check of that derivation.
 function renderConfig(overrides = {}) {
     const vars = {
         backend: 'fil',
@@ -40,6 +44,8 @@ function renderConfig(overrides = {}) {
         modelFormat: null,
         ...overrides
     };
+    const backend = vars.backend;
+    vars.isLlmBackend = isTritonBackend(backend) && tritonIsLlm(backend);
     return ejs.render(CONFIG_TEMPLATE, vars);
 }
 

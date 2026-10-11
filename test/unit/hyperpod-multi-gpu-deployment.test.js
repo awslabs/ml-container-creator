@@ -76,14 +76,22 @@ describe('H2: Multi-GPU Serving — InferenceEndpointConfig CRD rendering', () =
         });
     });
 
-    describe('Tensor parallel size wiring', () => {
-        it('VLLM_TENSOR_PARALLEL_SIZE matches HP_GPU_COUNT', () => {
+    describe('Tensor parallel size wiring (ADR-010 Tier-1)', () => {
+        it('worker env TP is DERIVED via the __TIER1_ENVVARS__ marker, not a hardcoded line', () => {
+            // ADR-010: VLLM_TENSOR_PARALLEL_SIZE is no longer a hardcoded worker-env
+            // line. The deploy driver resolves TP (= GPU count) through the active
+            // engine's capability_map and splices it at the Tier-1 marker, so the
+            // generated CRD carries the marker, not an engine-specific TP line.
             const output = renderTemplate({ HP_GPU_COUNT: '4' });
-            // BL096: TP size resolves at deploy time via ${HP_GPU_COUNT}; the
-            // generation-time default mirrors HP_GPU_COUNT.
-            const tpIdx = output.indexOf('VLLM_TENSOR_PARALLEL_SIZE');
-            const after = output.slice(tpIdx, tpIdx + 80);
-            assert.ok(after.includes('value: "${HP_GPU_COUNT:-4}"'), 'TP size should track GPU count');
+            assert.ok(output.includes('__TIER1_ENVVARS__'),
+                'CRD must carry the Tier-1 marker for deploy-time engine-config derivation');
+            // The GPU COUNT still drives resource sizing via ${HP_GPU_COUNT} (that
+            // is a resources line, not an engine env var) …
+            assert.ok(output.includes('nvidia.com/gpu: "${HP_GPU_COUNT:-4}"'),
+                'GPU resource request still tracks HP_GPU_COUNT');
+            // … but the engine TP env line is no longer hardcoded in the template.
+            assert.ok(!/- name: VLLM_TENSOR_PARALLEL_SIZE/.test(output),
+                'no hardcoded VLLM_TENSOR_PARALLEL_SIZE worker-env line (Tier-1 derived)');
         });
     });
 

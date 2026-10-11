@@ -94,10 +94,17 @@ def _resolve_dataset_name(dataset_name):
 
 
 def _resolve_evaluator_name(evaluator_name):
-    """Resolve a registered evaluator name to type and ARN/URI via .register_helper.py.
+    """Resolve a registered evaluator name to its type, source reference and ARN.
 
-    Returns (evaluator_type, arn_or_uri) tuple.
-    evaluator_type is "lambda" for RLVR or "model" for RLAIF.
+    BL117: evaluators are native sagemaker.ai_registry assets. Returns
+    ``(evaluator_type, reference, arn)`` where ``evaluator_type`` is
+    ``"reward_function"`` (RLVR/MTRL — register with ``do/register evaluator``) or
+    ``"reward_prompt"`` (RLAIF — register with ``do/register prompt``),
+    ``reference`` is the Lambda ARN or S3 prompt URI the native asset points at,
+    and ``arn`` is the hub-content evaluator ARN. RLAIF ``reward_prompt`` needs
+    the hub-content ARN (the SDK validates it against
+    ^arn:aws:sagemaker:...:hub-content/<hub>/JsonDoc/<name>/<ver>$ and takes the
+    ARN branch); the S3 ``reference`` fails that validation.
     """
     import subprocess
 
@@ -107,7 +114,8 @@ def _resolve_evaluator_name(evaluator_name):
     if not os.path.exists(helper_path):
         _error_exit(
             f"Cannot resolve evaluator '{evaluator_name}': .register_helper.py not found. "
-            f"Register evaluators first with: ./do/register --evaluator"
+            f"Register a reward function with `./do/register evaluator` or a reward "
+            f"prompt with `./do/register prompt`."
         )
 
     try:
@@ -122,8 +130,10 @@ def _resolve_evaluator_name(evaluator_name):
 
     if result.returncode != 0:
         _error_exit(
-            f"Evaluator '{evaluator_name}' not found in registry. "
-            f"Register it first: ./do/register --evaluator --evaluator-name {evaluator_name} ..."
+            f"Evaluator '{evaluator_name}' not found. Register a reward function with "
+            f"`./do/register evaluator {evaluator_name} --arn <lambda-arn>` (RLVR/MTRL) "
+            f"or a reward prompt with `./do/register prompt {evaluator_name} "
+            f"--prompt <s3-uri>` (RLAIF)."
         )
 
     # Parse JSON output from resolve-evaluator
@@ -137,20 +147,23 @@ def _resolve_evaluator_name(evaluator_name):
 
     if "error" in output:
         _error_exit(
-            f"Evaluator '{evaluator_name}' not found in registry: {output['error']}. "
-            f"Register it first: ./do/register --evaluator --evaluator-name {evaluator_name} ..."
+            f"Evaluator '{evaluator_name}' not found: {output['error']}. Register a "
+            f"reward function with `./do/register evaluator` or a reward prompt with "
+            f"`./do/register prompt`."
         )
 
     ev_type = output.get("type", "")
-    arn_or_uri = output.get("arn_or_uri", "")
+    # Native resolve returns `reference`; tolerate the legacy `arn_or_uri` field.
+    reference = output.get("reference") or output.get("arn_or_uri") or ""
+    arn = output.get("arn") or ""
 
-    if not arn_or_uri:
+    if not reference and not arn:
         _error_exit(
-            f"Evaluator '{evaluator_name}' resolved but has no ARN/URI. "
-            f"Re-register with: ./do/register --evaluator --evaluator-name {evaluator_name} ..."
+            f"Evaluator '{evaluator_name}' resolved but has no source reference. "
+            f"Re-register it with `./do/register evaluator` or `./do/register prompt`."
         )
 
-    return ev_type, arn_or_uri
+    return ev_type, reference, arn
 
 
 def cmd_resolve(args):

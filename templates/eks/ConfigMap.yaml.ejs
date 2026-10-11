@@ -16,6 +16,27 @@ metadata:
     app: <%= projectName %>
     managed-by: ml-container-creator
 data:
+<% if (typeof tier1Env !== 'undefined' && Array.isArray(tier1Env) && tier1Env.length) { %>
+  # ── Tier-1 engine config (ADR-010), DERIVED from serve.d/<engine>/manifest.json
+  # capability_map by the deploy driver (serve_manifest.py resolve_capability_vars)
+  # and injected here as resolved {key,value} pairs. Carries ONLY the active
+  # engine's keys — no cross-engine leak — and already honors value-shape
+  # (boolean caps emit "true" → bare flag; unset valued caps are omitted) and the
+  # LoRA companion contract (a bare --enable-lora is never emitted).
+<% tier1Env.forEach(function (e) { -%>
+  <%= e.key %>: "<%= e.value %>"
+<% }); -%>
+<% if (typeof tier2Env !== 'undefined' && Array.isArray(tier2Env) && tier2Env.length) { -%>
+  # ── Tier-2 pass-through (ADR-010): user-set <PREFIX>* vars forwarded verbatim,
+  # with ZERO MLCC enumeration. Set e.g. VLLM_BATCH_SIZE / SGLANG_* in do/config.
+<% tier2Env.forEach(function (e) { -%>
+  <%= e.key %>: "<%= e.value %>"
+<% }); -%>
+<% } -%>
+<% } else { -%>
+  # ── Fallback render (resolver unavailable): engine-neutral ${VAR:-default}
+  # placeholders resolved by the deploy driver's envsubst pass. The preferred
+  # node+ejs path above derives these from the serve manifest instead.
   # Model identity — the engine reads its own key (VLLM_MODEL / SGLANG_MODEL_PATH).
   VLLM_MODEL: "${HP_MODEL_ID:-<%= typeof modelName !== 'undefined' ? modelName : '' %>}"
   SGLANG_MODEL_PATH: "${HP_MODEL_ID:-<%= typeof modelName !== 'undefined' ? modelName : '' %>}"
@@ -24,8 +45,7 @@ data:
   # Pass-through quantization (empty unless set in do/config).
   VLLM_QUANTIZATION: "${VLLM_QUANTIZATION:-}"
 <% if (typeof HP_LORA_ENABLED !== 'undefined' && HP_LORA_ENABLED === 'true') { %>
-  # LoRA adapter serving (BL115) — enabled by default for vLLM targets. The
-  # serve wrapper forwards VLLM_ENABLE_LORA=true as --enable-lora. Gated on
-  # HP_LORA_ENABLED so an explicit opt-out (HP_LORA_ENABLED=false) omits it.
+  # LoRA adapter serving (BL115) — gated on HP_LORA_ENABLED.
   VLLM_ENABLE_LORA: "true"
 <% } %>
+<% } -%>

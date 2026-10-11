@@ -1,0 +1,42 @@
+# Default hyperparameters for GRPO (Group Relative Policy Optimization) training.
+#
+# GRPO is a self-managed reinforcement-learning technique: it samples several
+# completions per prompt, scores each with an IN-PROCESS reward function you
+# author in reward_example.py, and updates the policy from the group-relative
+# advantage (the sampled group is its own baseline — there is no separate
+# value/critic model, and NO managed SageMaker evaluator in the loop).
+#
+# These are the lowest-priority defaults. Override via:
+#   1. CLI flags (--learning-rate, --epochs, --batch-size, --beta) — highest priority
+#   2. training/config.yaml hyperparameters section
+#   3. Interactive mode answers (written to config.yaml)
+#   4. These defaults — lowest priority
+#
+# GPU REQUIREMENT: GRPO does on-policy generation AND training in the same job,
+# so it needs an adequate GPU instance — do NOT run it on CPU or an
+# under-provisioned type. A single ml.g5.xlarge (1× A10G, 24 GB) is the floor for
+# a small (<=3B) policy with LoRA + short completions; larger policies, longer
+# completions, or a bigger num_generations group need a multi-GPU instance
+# (e.g. ml.g5.12xlarge = 4× A10G). Set the instance in training/config.yaml.
+
+# ── GRPO-specific (no existing --flag; configured here / via config.yaml) ──────
+num_generations: 8            # completions sampled per prompt (the "group"); the
+                              # group-relative baseline needs >= 2, 8 is a sane default.
+max_completion_length: 256    # max new tokens sampled per completion.
+max_prompt_length: 512        # prompts longer than this are left-truncated.
+prompt_field: prompt          # dataset column holding the prompt text.
+
+# ── Shared with the other recipes (consumed by the existing --flags) ───────────
+beta: 0.04                    # KL coefficient against the reference policy
+                              # (TRL GRPO default; --beta overrides).
+learning_rate: 1e-6           # --learning-rate overrides.
+epochs: 1                     # --epochs overrides.
+batch_size: 1                 # per-device prompt batch size; --batch-size overrides.
+                              # Effective sampling batch = batch_size * num_generations.
+gradient_accumulation_steps: 8
+warmup_ratio: 0.03
+
+# ── LoRA (parameter-efficient; keeps GRPO affordable on a single GPU) ──────────
+lora_r: 16                    # --lora-r overrides.
+lora_alpha: 32
+lora_dropout: 0.05

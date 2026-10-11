@@ -52,7 +52,7 @@ absence explicit — an engine says "I support none," it doesn't stay silent.
 |---|---|:---:|---|---|---|
 | vllm | `VLLM_` | ✓ | eagle3, eagle2, eagle, draft-model, ngram, mtp | — | consolidated `--speculative-config` JSON |
 | sglang | `SGLANG_` | ✓ | eagle3, eagle2, eagle, draft-model, mtp (no ngram) | `radix_attention` (RadixAttention; `SGLANG_ENABLE_RADIX_CACHE`) | discrete `--speculative-*` flags |
-| tensorrt-llm | `TRTLLM_` | ✗ (engine supports it; wrapper can't emit the structured `speculative_config` yet — v1.9) | — | — | positional model arg; prefix sourced from manifest. `dimension_map`: DTYPE / TENSOR_PARALLEL_SIZE / MAX_INPUT_LEN |
+| tensorrt-llm | `TRTLLM_` | ✓ | eagle3, draft-model, ngram, mtp | — | positional model arg; prefix sourced from manifest. Structured `speculative_config` YAML via `--extra_llm_api_options` (BL125). `dimension_map`: DTYPE / TENSOR_PARALLEL_SIZE / MAX_INPUT_LEN |
 | lmi | `OPTION_` | ✗ | — | `rolling_batch_backend` (pluggable backend; `OPTION_ROLLING_BATCH`) | DJL reads `OPTION_*` env vars; defers to base-image entrypoint (serving.properties). `dimension_map`: QUANTIZE / TENSOR_PARALLEL_DEGREE / MAX_MODEL_LEN |
 | llama-cpp | `SM_LLAMA_CPP_` | ✗ | — | `gpu_layers`, `threads`, `flash_attn` (`SM_LLAMA_CPP_N_GPU_LAYERS` / `_THREADS` / `_FLASH_ATTN`) | AWS DLC for llama.cpp serves GGUF via `llama-server`; the container OWNS its entrypoint and maps `SM_LLAMA_CPP_*` to args itself (no wrapper translation, like lmi/djl). CPU or GPU image. `dimension_map`: CTX_SIZE |
 

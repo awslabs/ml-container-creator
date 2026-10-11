@@ -372,9 +372,14 @@ describe('Functional Parity Checklist', function () {
 
             before(function () {
                 this.timeout(60000);
+                // No --model-format: the former value 'json' was never a valid FIL
+                // format (it rendered a config.pbtxt Triton cannot load), and BL119's
+                // --skip-prompts validation now rejects a model-format not in the
+                // backend's catalog modelFormats. triton-fil generates its model
+                // repository (config.pbtxt) without a forced format, which is what
+                // this parity check actually verifies.
                 result = runGenerator({
                     'deployment-config': 'triton-fil',
-                    'model-format': 'json',
                     'region': 'us-east-1',
                     'instance-type': 'ml.g5.xlarge'
                 });

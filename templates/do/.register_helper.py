@@ -7,7 +7,8 @@ from __future__ import annotations
 
 Subcommands: create-mpg, register-model, register-adapter, register-dataset,
              list-datasets, list-dataset-versions, register-evaluator,
-             list-adapters, list-models, get-version, resolve-dataset, resolve-evaluator
+             register-prompt, list-adapters, list-models, get-version,
+             resolve-dataset, resolve-evaluator
 All output is JSON on stdout for bash consumption.
 """
 
@@ -32,20 +33,21 @@ from register_model import (  # noqa: E402
     _check_ai_registry,
 )
 from register_dataset import (  # noqa: E402
-    cmd_register_dataset, cmd_register_evaluator,
+    cmd_register_dataset,
     cmd_discover_dataset, cmd_delete_dataset,
-    _get_hub_name_from_profile, _register_to_hub,
     _compute_content_hash, _get_latest_version, _increment_version,
-    _parse_technique_from_description, _list_hub_datasets,
     _count_newlines_streaming, _count_rows_parquet, _count_rows,
     _resolve_core_bucket, _build_custom_metadata, _build_sidecar_doc,
+)
+from register_evaluator import (  # noqa: E402
+    cmd_register_evaluator, cmd_register_prompt,
 )
 from register_list import (  # noqa: E402
     cmd_list_datasets, cmd_list_dataset_versions,
     cmd_list_adapters, cmd_list_models,
 )
 from register_resolve import (  # noqa: E402
-    cmd_resolve_dataset, cmd_resolve_evaluator, cmd_get_version,
+    cmd_resolve_dataset, cmd_resolve_evaluator, cmd_list_evaluators, cmd_get_version,
     _select_version,
 )
 
@@ -106,9 +108,10 @@ def main():
     dataset_parser.add_argument("--name", required=True, help="Dataset name (unique identifier)")
     dataset_parser.add_argument("--s3-uri", required=True, help="S3 URI of the dataset")
     dataset_parser.add_argument("--format", default="jsonl", choices=["jsonl", "parquet", "csv"], help="Dataset format")
-    dataset_parser.add_argument("--technique", default="benchmark", choices=["sft", "dpo", "rlaif", "rlvr", "benchmark"], help="Associated tuning technique (default: benchmark for AIPerf BYOD benchmark/eval datasets)")
+    dataset_parser.add_argument("--technique", default="benchmark", choices=["sft", "dpo", "rlvr", "rlaif", "mtrl", "benchmark"], help="Associated tuning technique (default: benchmark for AIPerf BYOD benchmark/eval datasets). sft/dpo/rlvr/rlaif/mtrl register natively in the AI Registry; rlaif/mtrl prompt corpora register under the RLVR member with the intended technique recorded in the sidecar.")
     dataset_parser.add_argument("--row-count", type=int, default=None, help="Number of rows in dataset")
     dataset_parser.add_argument("--column-schema", default=None, help="Column schema as JSON string")
+    dataset_parser.add_argument("--description", default=None, help="Human description shown in Studio Assets (the UI 'title' is the dataset name; there is no separate title field)")
     dataset_parser.add_argument("--project-name", default=None, help="Project name for context")
     dataset_parser.add_argument("--region", default=None, help="AWS region (for S3 hash computation)")
     dataset_parser.add_argument("--core-bucket", default=None, help="MLCC Core bucket for the S3 sidecar (defaults to $CORE_BUCKET)")
@@ -121,7 +124,7 @@ def main():
 
     # ── list-datasets ─────────────────────────────────────────────────────
     list_datasets_parser = subparsers.add_parser("list-datasets", help="List all registered datasets")
-    list_datasets_parser.add_argument("--technique", default=None, choices=["sft", "dpo", "rlaif", "rlvr", "benchmark"], help="Filter by tuning technique")
+    list_datasets_parser.add_argument("--technique", default=None, choices=["sft", "dpo", "rlvr", "rlaif", "mtrl", "benchmark"], help="Filter by tuning technique")
     list_datasets_parser.add_argument("--source", choices=["remote", "local", "all"], default="all", help="Dataset source to list")
     list_datasets_parser.add_argument("--region", default=None, help="AWS region")
     list_datasets_parser.add_argument("--core-bucket", default=None, help="MLCC Core bucket (defaults to $CORE_BUCKET)")
@@ -147,14 +150,39 @@ def main():
     delete_parser.add_argument("--region", default=None, help="AWS region")
     delete_parser.add_argument("--core-bucket", default=None, help="MLCC Core bucket (defaults to $CORE_BUCKET)")
 
-    # ── register-evaluator ────────────────────────────────────────────────
-    evaluator_parser = subparsers.add_parser("register-evaluator", help="Register an evaluator into the local registry")
+    # ── register-evaluator (REWARD_FUNCTION / code-based, RLVR+MTRL) ───────
+    evaluator_parser = subparsers.add_parser(
+        "register-evaluator",
+        help="Register a code-based reward-function evaluator (native AI Registry)")
     evaluator_parser.add_argument("--name", required=True, help="Evaluator name (unique identifier)")
-    evaluator_parser.add_argument("--type", required=True, choices=["lambda", "model"], help="Evaluator type", dest="eval_type")
-    evaluator_parser.add_argument("--arn-or-uri", required=True, help="Lambda ARN (RLVR) or model S3 URI (RLAIF)")
-    evaluator_parser.add_argument("--technique", required=True, choices=["rlvr", "rlaif"], help="Associated technique")
-    evaluator_parser.add_argument("--description", default="", help="Evaluator description")
+    evaluator_parser.add_argument("--arn", default=None, help="ARN of an existing reward-function Lambda (primary path)")
+    # Back-compat: the old stub took --arn-or-uri + --type lambda|model. Keep
+    # --arn-or-uri as a hidden alias for --arn; do/register maps --type aliases.
+    evaluator_parser.add_argument("--arn-or-uri", default=None, help=argparse.SUPPRESS)
+    evaluator_parser.add_argument("--from-sample", dest="from_sample", action="store_true", default=False,
+                                  help="Materialize an editable reward-function sample to edit, then register (--finalize)")
+    evaluator_parser.add_argument("--sample-id", dest="sample_id", default=None,
+                                  help="Which sample to materialize (default: rlvr-custom)")
+    evaluator_parser.add_argument("--finalize", action="store_true", default=False,
+                                  help="With --from-sample: register the edited local reward function (managed-Lambda path)")
+    evaluator_parser.add_argument("--force", action="store_true", default=False,
+                                  help="With --from-sample: overwrite an existing materialized sample")
+    evaluator_parser.add_argument("--technique", default="rlvr", choices=["rlvr", "mtrl"],
+                                  help="Associated technique (rlvr or mtrl; both use a code-based reward function)")
+    evaluator_parser.add_argument("--description", default="", help="Evaluator description (shown in Studio Assets)")
+    evaluator_parser.add_argument("--region", default=None, help="AWS region")
     evaluator_parser.add_argument("--project-name", default=None, help="Project name for context")
+
+    # ── register-prompt (REWARD_PROMPT / LLM-as-judge, RLAIF) ──────────────
+    prompt_parser = subparsers.add_parser(
+        "register-prompt",
+        help="Register a reward prompt (RLAIF LLM-as-judge) as a native AI Registry evaluator")
+    prompt_parser.add_argument("--name", required=True, help="Prompt evaluator name (unique identifier)")
+    prompt_parser.add_argument("--prompt", default=None, help="S3 URI of the reward prompt file")
+    prompt_parser.add_argument("--arn-or-uri", default=None, help=argparse.SUPPRESS)  # back-compat alias
+    prompt_parser.add_argument("--description", default="", help="Prompt description (shown in Studio Assets)")
+    prompt_parser.add_argument("--region", default=None, help="AWS region")
+    prompt_parser.add_argument("--project-name", default=None, help="Project name for context")
 
     # ── list-adapters ─────────────────────────────────────────────────────
     list_adapters_parser = subparsers.add_parser("list-adapters", help="List adapter versions from MPG")
@@ -187,6 +215,14 @@ def main():
     # ── resolve-evaluator ─────────────────────────────────────────────────
     resolve_evaluator_parser = subparsers.add_parser("resolve-evaluator", help="Resolve a registered evaluator by name")
     resolve_evaluator_parser.add_argument("--name", required=True, help="Evaluator name to resolve")
+    resolve_evaluator_parser.add_argument("--region", default=None, help="AWS region")
+
+    # ── list-evaluators ───────────────────────────────────────────────────
+    list_evaluators_parser = subparsers.add_parser("list-evaluators", help="List registered evaluators (reward functions / prompts)")
+    list_evaluators_parser.add_argument(
+        "--evaluator-type", default=None, choices=["reward_function", "reward_prompt"],
+        help="Filter by type (reward_function for RLVR/MTRL, reward_prompt for RLAIF)")
+    list_evaluators_parser.add_argument("--region", default=None, help="AWS region")
 
     # ── Parse and dispatch ────────────────────────────────────────────────
     args = parser.parse_args()
@@ -211,11 +247,13 @@ def main():
         "discover-dataset": cmd_discover_dataset,
         "delete-dataset": cmd_delete_dataset,
         "register-evaluator": cmd_register_evaluator,
+        "register-prompt": cmd_register_prompt,
         "list-adapters": cmd_list_adapters,
         "list-models": cmd_list_models,
         "get-version": cmd_get_version,
         "resolve-dataset": cmd_resolve_dataset,
         "resolve-evaluator": cmd_resolve_evaluator,
+        "list-evaluators": cmd_list_evaluators,
     }
 
     handler = command_map.get(args.command)

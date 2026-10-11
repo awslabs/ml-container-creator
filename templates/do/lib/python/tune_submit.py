@@ -47,11 +47,17 @@ def cmd_submit(args):
     # ── Resolve --evaluator-name from registry (AC-2c.3, AC-2c.4) ────────────
     # --reward-function / --reward-prompt win if provided (backward compatible override)
     if args.evaluator_name and not args.reward_function and not args.reward_prompt:
-        ev_type, ev_arn_or_uri = _resolve_evaluator_name(args.evaluator_name)
-        if ev_type == "lambda":
-            args.reward_function = ev_arn_or_uri
+        ev_type, ev_reference, ev_arn = _resolve_evaluator_name(args.evaluator_name)
+        # BL117: native evaluator types are reward_function (RLVR/MTRL) and
+        # reward_prompt (RLAIF). Tolerate the legacy lambda/model labels.
+        if ev_type in ("reward_function", "lambda"):
+            # RLVR custom_reward_function → the Lambda / hub-content ARN reference.
+            args.reward_function = ev_reference
         else:
-            args.reward_prompt = ev_arn_or_uri
+            # RLAIF reward_prompt → the hub-content evaluator ARN (NOT the S3 URI,
+            # which fails the SDK's hub-content ARN validation). Fall back to the
+            # reference only if no ARN was resolved.
+            args.reward_prompt = ev_arn or ev_reference
 
     _check_sagemaker_sdk()
 
@@ -63,24 +69,30 @@ def cmd_submit(args):
         from sagemaker.train.sft_trainer import SFTTrainer
         from sagemaker.train.dpo_trainer import DPOTrainer
         from sagemaker.train.common import TrainingType
+        # RFT techniques have DEDICATED trainers (sagemaker>=3.x). They are NOT
+        # SFTTrainer — SFTTrainer accepts **kwargs and SILENTLY DROPS any
+        # evaluator/reward config, which produced reward-less plain-SFT jobs that
+        # looked like RLAIF/RLVR but trained with no reward signal. Each RFT
+        # trainer takes the reward via a TYPE-SPECIFIC kwarg (see _rft_reward_kwargs).
+        from sagemaker.train.rlaif_trainer import RLAIFTrainer
+        from sagemaker.train.rlvr_trainer import RLVRTrainer
+        from sagemaker.train.multi_turn_rl_trainer import MultiTurnRLTrainer
     except Exception:
-        try:
-            from sagemaker.modules.train.sft_trainer import SFTTrainer
-            from sagemaker.modules.train.dpo_trainer import DPOTrainer
-            from sagemaker.modules.train.common import TrainingType
-        except Exception:
-            _error_exit(
-                "SFTTrainer not found. Requires sagemaker>=3.0. "
-                "Install: pip install --upgrade 'sagemaker>=3.0'"
-            )
+        _error_exit(
+            "Managed-customization trainers not found. Requires sagemaker>=3.x "
+            "with sagemaker.train.{sft,dpo,rlaif,rlvr,multi_turn_rl}_trainer. "
+            "Install: pip install --upgrade 'sagemaker>=3.0'"
+        )
 
-    # Technique → Trainer class mapping
+    # Technique → Trainer class mapping. RFT techniques use their DEDICATED
+    # trainer (not SFTTrainer) so the reward evaluator is actually wired into the
+    # SageMaker job rather than silently dropped.
     TRAINER_MAP = {
         "sft": SFTTrainer,
         "dpo": DPOTrainer,
-        # RLAIF and RLVR use SFTTrainer with evaluator config
-        "rlaif": SFTTrainer,
-        "rlvr": SFTTrainer,
+        "rlaif": RLAIFTrainer,
+        "rlvr": RLVRTrainer,
+        "mtrl": MultiTurnRLTrainer,
     }
 
     technique = args.technique
@@ -128,6 +140,61 @@ def cmd_submit(args):
                 "training_dataset": args.dataset_s3_uri,
                 "s3_output_path": output_path,
             }
+
+            # RFT reward wiring (the whole point of RLAIF/RLVR/MTRL). Each dedicated
+            # trainer takes the reward via its OWN kwarg — there is no shared
+            # evaluator_config, and SFTTrainer would silently drop one. Pass the
+            # type-specific kwarg so the reward is actually in the job spec:
+            #   RLAIF -> RLAIFTrainer(reward_prompt=<hub-content evaluator ARN>)
+            #   RLVR  -> RLVRTrainer(custom_reward_function=<lambda arn>)
+            # (MTRL uses an agent_env, resolved separately; not a simple reward.)
+            if technique == "rlaif":
+                if not args.reward_prompt:
+                    _error_exit(
+                        "RLAIF requires a reward prompt. Register one with "
+                        "`do/register prompt` and pass --evaluator-name, or pass "
+                        "--reward-prompt <hub-content-arn> directly.",
+                        code="MISSING_REWARD_PROMPT",
+                    )
+                trainer_kwargs["reward_prompt"] = args.reward_prompt
+            elif technique == "rlvr":
+                if not args.reward_function:
+                    _error_exit(
+                        "RLVR requires a reward function. Register one with "
+                        "`do/register evaluator` and pass --evaluator-name, or pass "
+                        "--reward-function <lambda-arn> directly.",
+                        code="MISSING_REWARD_FUNCTION",
+                    )
+                trainer_kwargs["custom_reward_function"] = args.reward_function
+                # RLVRTrainer runs a pre-submit reward-function smoke test that
+                # reads the training dataset expecting .jsonl (load_file_content
+                # extension=".jsonl"). But the managed verl trainer REQUIRES
+                # parquet (RLHFDataset), so the training dataset is parquet and
+                # that validation hard-fails: "File must have .jsonl extension".
+                # Skip the pre-submit validation — the reward function still runs
+                # during training; we only lose a client-side smoke test that is
+                # incompatible with the parquet dataset the trainer itself needs.
+                trainer_kwargs["skip_reward_validation"] = True
+            elif technique == "mtrl":
+                # MTRL is agent-based: MultiTurnRLTrainer requires an agent_env
+                # (a CustomAgentLambda / its ARN) that runs the rollout and computes
+                # the reward itself — there is NO reward_prompt/custom_reward_function.
+                # Its __init__ signature also differs: it does NOT accept
+                # training_type, and names the MPG `output_model_package_group`
+                # (not `model_package_group`). So reshape trainer_kwargs for mtrl.
+                if not getattr(args, "agent_env", None):
+                    _error_exit(
+                        "MTRL requires an agent environment. Provide a CustomAgentLambda "
+                        "ARN with --agent-env (there is no reward function/prompt for mtrl).",
+                        code="MISSING_AGENT_ENV",
+                    )
+                trainer_kwargs = {
+                    "model": args.model_id,
+                    "agent_env": args.agent_env,
+                    "training_dataset": args.dataset_s3_uri,
+                    "s3_output_path": output_path,
+                }
+
             # Accept EULA for gated models (e.g., Meta Llama)
             # SDK v3.12+ accepts accept_eula as a constructor parameter
             if args.accept_eula:
@@ -153,7 +220,12 @@ def cmd_submit(args):
             except ImportError:
                 # sagemaker-core not available — skip MPG creation, let trainer handle it
                 pass
-            trainer_kwargs["model_package_group"] = mpg_name
+            # MTRL's MultiTurnRLTrainer names the MPG `output_model_package_group`;
+            # the other trainers use `model_package_group`.
+            if technique == "mtrl":
+                trainer_kwargs["output_model_package_group"] = mpg_name
+            else:
+                trainer_kwargs["model_package_group"] = mpg_name
 
             trainer = trainer_cls(**trainer_kwargs)
             trainer.role = args.role_arn
@@ -205,12 +277,22 @@ def cmd_submit(args):
             if hyperparameters:
                 trainer_kwargs["hyperparameters"] = hyperparameters
 
-            # Add evaluator config for RLVR/RLAIF techniques
-            if technique in ("rlvr", "rlaif"):
-                if args.reward_function:
-                    trainer_kwargs["evaluator_config"] = {"reward_function_arn": args.reward_function}
-                elif args.reward_prompt:
-                    trainer_kwargs["evaluator_config"] = {"reward_prompt_s3_uri": args.reward_prompt}
+            # RFT reward wiring (SDK v2 path): the dedicated RFT trainers take a
+            # type-specific reward kwarg, same as the v3 path above. (No shared
+            # evaluator_config dict — that was silently ignored by SFTTrainer.)
+            if technique == "rlaif":
+                if not args.reward_prompt:
+                    _error_exit("RLAIF requires a reward prompt (--evaluator-name, or --reward-prompt <hub-content-arn>).",
+                                code="MISSING_REWARD_PROMPT")
+                trainer_kwargs["reward_prompt"] = args.reward_prompt
+            elif technique == "rlvr":
+                if not args.reward_function:
+                    _error_exit("RLVR requires a reward function (--evaluator-name or --reward-function).",
+                                code="MISSING_REWARD_FUNCTION")
+                trainer_kwargs["custom_reward_function"] = args.reward_function
+                # Skip the pre-submit reward smoke test: it reads the dataset as
+                # .jsonl, but the managed trainer needs parquet (see v3 path note).
+                trainer_kwargs["skip_reward_validation"] = True
 
             # Accept EULA for gated models (e.g., Meta Llama)
             if args.accept_eula:

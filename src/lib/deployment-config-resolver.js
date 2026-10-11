@@ -12,7 +12,7 @@
 
 /**
  * Canonical mapping from deployment-config strings to structured parts.
- * 2 http + 5 transformers + 7 triton + 1 diffusors + 1 marketplace = 16 total configs.
+ * 2 http + 6 transformers + 7 triton + 1 diffusors = 16 total configs.
  */
 const CANONICAL_CONFIGS = new Map([
     // HTTP architecture (2)
@@ -37,10 +37,7 @@ const CANONICAL_CONFIGS = new Map([
     ['triton-python',           { architecture: 'triton',       backend: 'python',        engine: null }],
 
     // Diffusors architecture (1)
-    ['diffusors-vllm-omni',     { architecture: 'diffusors',    backend: 'vllm-omni',     engine: null }],
-
-    // Marketplace architecture (1) — no backend, vendor controls the container
-    ['marketplace',             { architecture: 'marketplace',  backend: null,            engine: null }]
+    ['diffusors-vllm-omni',     { architecture: 'diffusors',    backend: 'vllm-omni',     engine: null }]
 ]);
 
 export default class DeploymentConfigResolver {

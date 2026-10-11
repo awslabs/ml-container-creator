@@ -27,7 +27,6 @@ templates/
 ├── diffusors/              # Diffusors-specific Dockerfile + serve scripts
 ├── do/                     # Lifecycle scripts (build, deploy, test, tune, etc.)
 ├── hyperpod/               # HyperPod EKS manifests + scripts
-├── marketplace/            # Marketplace-specific config/deploy/test overlays
 ├── sample_model/           # Sample sklearn/xgboost/tensorflow model training
 ├── test/                   # Test scripts
 └── triton/                 # Triton-specific Dockerfile + model repository
@@ -194,7 +193,6 @@ The `writeProject()` function in `src/app.js` handles five architectures. After 
 | `transformers` | code/serve (from `serve.d/<engine>/<engine>.ejs`) | model_handler.py, serve.py, start_server.py, flask/, nginx-predictors.conf | The serve-engine wrapper is included into `code/serve` from the engine's plugin dir. |
 | `triton` | — | All http + transformers code files | Overlays triton/Dockerfile, generates model_repository/config.pbtxt |
 | `diffusors` | — | All http + transformers code files | Overlays diffusors/Dockerfile, serve, start_server.sh, patch_image_api.py |
-| `marketplace` | — | Almost everything (no container) | Overlays marketplace/config, deploy, test |
 
 Both plugin trees (`code/serve.d/**` and `code/predictors.d/**`) are excluded from
 the generated output by ignore globs — they are consumed at generation time, not
@@ -236,7 +234,7 @@ These variables are available in all templates via the `templateVars` context:
 |---|---|---|
 | `projectName` | string | Project name (e.g., `my-llm`) |
 | `deploymentConfig` | string | Full config string (e.g., `transformers-vllm`) |
-| `architecture` | string | `http`, `transformers`, `triton`, `diffusors`, `marketplace` |
+| `architecture` | string | `http`, `transformers`, `triton`, `diffusors` |
 | `backend` | string | Backend server (e.g., `vllm`, `flask`, `fil`) |
 | `framework` | string | Derived framework (`transformers`, `http`) |
 | `modelServer` | string | Alias for backend |
@@ -289,7 +287,7 @@ These variables are available in all templates via the `templateVars` context:
 
 ## Adding a New Deployment Configuration
 
-A deployment configuration is a string like `transformers-vllm` or `triton-fil` that bundles an architecture and a backend. There are currently **15 selectable configs** (2 HTTP + 5 Transformers + 7 Triton + 1 Diffusors). The resolver still carries a dormant `marketplace` mapping, but marketplace is deprecated and hard-refused at the generator entry point (see `src/lib/marketplace-refusal.js`) — it is no longer in the CLI enum and is scheduled for removal next release.
+A deployment configuration is a string like `transformers-vllm` or `triton-fil` that bundles an architecture and a backend. There are currently **16 selectable configs** (2 HTTP + 6 Transformers + 7 Triton + 1 Diffusors). (A deprecated `marketplace` config was removed; `--deployment-config=marketplace` and the `marketplace://` model-name prefix are still hard-refused at the generator entry point — see `src/lib/marketplace-refusal.js`.)
 
 To add one, touch these files:
 

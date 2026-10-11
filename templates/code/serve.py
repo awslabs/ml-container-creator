@@ -101,6 +101,11 @@ async def invocations(request: Request):
         raise HTTPException(status_code=500, detail={'error': str(e)})
 <% } %>
 
+# Local-development convenience ONLY. The container never runs this file as
+# __main__ — its ENTRYPOINT is start_server.py, which launches gunicorn
+# (wsgi:application) for flask or uvicorn (serve:app) for fastapi. This block
+# lets you run `python serve.py` on your workstation to smoke-test the app
+# without a WSGI/ASGI server; it has no effect on the deployed image.
 if __name__ == '__main__':
 <% if (modelServer === 'flask') { %>
     app = create_app()

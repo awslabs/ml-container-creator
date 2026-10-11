@@ -33,6 +33,11 @@ spec:
         framework: <%= framework %>
         managed-by: ml-container-creator
     spec:
+      # IRSA: the pod runs under the MLCC inference ServiceAccount, which
+      # do/deploy.d/eks annotates with the bootstrap-provisioned
+      # mlcc-<profile>-eks-inference-role so code/serve can `aws s3 sync` a staged
+      # model. Resolved at deploy time; defaults to the fixed SA name.
+      serviceAccountName: "${EKS_INFERENCE_SA:-mlcc-eks-inference-sa}"
       containers:
         - name: <%= projectName %>
           image: ${ECR_IMAGE}
@@ -49,6 +54,12 @@ spec:
             # "s3" pulls the staged model from S3; "huggingface" pulls MODEL_NAME.
             - name: MODEL_SOURCE
               value: "${HP_MODEL_SOURCE:-huggingface}"
+            # MODEL_ARTIFACT_URI is the staged S3 URI the pod downloads at startup
+            # (plain EKS has no model-mounting operator). code/serve's s3 branch
+            # requires it; empty for the huggingface source. Emitted unconditionally
+            # with an empty default so envsubst fills it only when staged.
+            - name: MODEL_ARTIFACT_URI
+              value: "${HP_MODEL_ARTIFACT_URI:-}"
             # HF_TOKEN injected from the hf-token-secret K8s Secret (optional=true
             # so the pod still starts for public models / staged S3 weights).
             - name: HF_TOKEN
@@ -62,5 +73,69 @@ spec:
               cpu: "${HP_CPU_REQUEST:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 4) %>}"
               memory: "${HP_MEM_REQUEST:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 16) %>Gi}"
               nvidia.com/gpu: "${HP_GPU_COUNT:-<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>}"
+<% if (typeof modelHostPath === 'undefined' || !modelHostPath) { %>
+              # Ephemeral storage for the model that code/serve pulls to
+              # /opt/ml/model at startup — SOURCE-AGNOSTIC: an S3 `aws s3 sync` AND
+              # a HuggingFace download land there identically. Without a request the
+              # scheduler reserves nothing and the kubelet evicts the pod as a
+              # greedy ephemeral-storage consumer once the download fills the node
+              # (the "request is 0 … was using NNGi" eviction loop). Derived
+              # HP_GPU_COUNT*20Gi as a catalog-free proxy for model size (bigger
+              # model ⇒ more GPUs ⇒ more weight bytes); override with
+              # HP_EPHEMERAL_STORAGE for models that don't fit the heuristic.
+              # NOTE: only emitted on the emptyDir path. When the model lands on a
+              # hostPath NVMe mount (HP_MODEL_HOSTPATH), it does NOT draw from node
+              # ephemeral-storage, so no request is set — requesting hundreds of Gi
+              # against a small root volume would make the pod unschedulable.
+              ephemeral-storage: "${HP_EPHEMERAL_STORAGE:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 20) %>Gi}"
+<% } %>
             limits:
               nvidia.com/gpu: "${HP_GPU_COUNT:-<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>}"
+<% if (typeof modelHostPath === 'undefined' || !modelHostPath) { %>
+              # Limit = request so the pod is Guaranteed for ephemeral-storage and
+              # cannot exceed what the scheduler reserved.
+              ephemeral-storage: "${HP_EPHEMERAL_STORAGE:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 20) %>Gi}"
+<% } %>
+          volumeMounts:
+            - name: model-store
+              mountPath: /opt/ml/model
+            # NCCL uses POSIX shared memory (/dev/shm) for intra-node, cross-GPU
+            # transport when a model is tensor-parallel across multiple GPUs in one
+            # pod. Kubernetes defaults /dev/shm to 64Mi, which NCCL cannot work with:
+            # ncclCommInitRank fails with "unhandled system error" and the TP ranks
+            # crash at startup. Back /dev/shm with a RAM-medium emptyDir so NCCL has
+            # room to form the communicator. Harmless for single-GPU (TP=1) deploys.
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: model-store
+<% if (typeof modelHostPath !== 'undefined' && modelHostPath) { %>
+          # Model lands on a pre-mounted node-local NVMe volume (e.g. the SageMaker
+          # DLAMI instance-store at /opt/dlami/nvme), NOT the node's small EBS root.
+          # Set HP_MODEL_HOSTPATH to the NVMe mount base; the deploy driver appends
+          # the project name. This path is for nodes whose large instance-store is
+          # mounted but NOT wired into kubelet's ephemeral-storage root — common on
+          # HyperPod/DLAMI GPU nodes where the EBS root is ~100 GB but TBs of NVMe
+          # sit at /opt/dlami/nvme. Avoids the DiskPressure/eviction the emptyDir
+          # path hits for large models (Kimi-K3, 70B+).
+          hostPath:
+            path: "${HP_MODEL_HOSTPATH}/<%= projectName %>"
+            type: DirectoryOrCreate
+<% } else { %>
+          # Default: a bounded emptyDir. Disk is accounted against the sizeLimit and
+          # the ephemeral-storage reservation above (node root volume). Fine for
+          # models that fit the node's ephemeral-storage; large models need the
+          # hostPath NVMe path (HP_MODEL_HOSTPATH) or a PVC/CSI mount (v1.10).
+          emptyDir:
+            sizeLimit: "${HP_EPHEMERAL_STORAGE:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 20) %>Gi}"
+<% } %>
+        # RAM-backed /dev/shm for NCCL (multi-GPU tensor-parallel transport). Sized
+        # at HP_GPU_COUNT*8Gi by default (a catalog-free proxy: more GPUs ⇒ more
+        # cross-rank shared-memory buffers), overridable via HP_SHM_SIZE. Drawn from
+        # node RAM — keep it well under the instance's memory. The 64Mi K8s default
+        # is far too small and makes ncclCommInitRank fail with "unhandled system
+        # error" on any TP>1 model (e.g. Kimi-K3 at --tp-size 8).
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: "${HP_SHM_SIZE:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 8) %>Gi}"

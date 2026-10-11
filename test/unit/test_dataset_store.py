@@ -189,7 +189,7 @@ class TestSidecarWrite:
         with patch.object(dataset_store, "_get_s3_client", return_value=fake), \
              patch.object(register_dataset, "_compute_content_hash", return_value="hash-v1"), \
              patch.object(register_dataset, "_count_rows", return_value=100), \
-             patch.object(register_dataset, "_get_hub_name_from_profile", return_value=None), \
+             patch.object(register_dataset, "_register_dataset_native", return_value=(None, None)), \
              _NoLocalRegistry():
             with pytest.raises(SystemExit):
                 register_dataset.cmd_register_dataset(_reg_args())
@@ -215,7 +215,7 @@ class TestSidecarWrite:
         with patch.object(dataset_store, "_get_s3_client", return_value=fake), \
              patch.object(register_dataset, "_compute_content_hash", return_value="h"), \
              patch.object(register_dataset, "_count_rows", return_value=1), \
-             patch.object(register_dataset, "_get_hub_name_from_profile", return_value=None):
+             patch.object(register_dataset, "_register_dataset_native", return_value=(None, None)):
             with pytest.raises(SystemExit):
                 register_dataset.cmd_register_dataset(args)
 
@@ -232,7 +232,7 @@ class TestSidecarWrite:
         with patch.object(dataset_store, "_get_s3_client", return_value=fake), \
              patch.object(register_dataset, "_compute_content_hash", return_value="h"), \
              patch.object(register_dataset, "_count_rows", return_value=1), \
-             patch.object(register_dataset, "_get_hub_name_from_profile", return_value=None):
+             patch.object(register_dataset, "_register_dataset_native", return_value=(None, None)):
             with pytest.raises(SystemExit):
                 register_dataset.cmd_register_dataset(args)
         doc = json.loads(fake.put_calls[0]["Body"])
@@ -243,6 +243,35 @@ class TestSidecarWrite:
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(SystemExit):
                 register_dataset.cmd_register_dataset(args)
+
+    def test_native_failure_is_non_fatal_sidecar_still_written(self, capsys):
+        """BL123 Req 1.5: a native AI Registry failure must NOT break the sidecar.
+
+        Exercises the real _register_dataset_native wrapper (not stubbed) with the
+        underlying ai_registry_native.register_dataset_native raising a generic
+        error. The sidecar — the durable record the user asked for — must still be
+        written and the command must still succeed.
+        """
+        import ai_registry_native
+        fake = FakeS3()
+        with patch.object(dataset_store, "_get_s3_client", return_value=fake), \
+             patch.object(register_dataset, "_compute_content_hash", return_value="hash-v1"), \
+             patch.object(register_dataset, "_count_rows", return_value=100), \
+             patch.object(ai_registry_native, "resolve_training_role", return_value="arn:role"), \
+             patch.object(ai_registry_native, "resolve_domain_id", return_value="d-1"), \
+             patch.object(ai_registry_native, "register_dataset_native",
+                          side_effect=RuntimeError("boom from SDK")), \
+             _NoLocalRegistry():
+            with pytest.raises(SystemExit):
+                register_dataset.cmd_register_dataset(_reg_args())
+
+        # Sidecar persisted despite the native failure.
+        assert len(fake.put_calls) == 1
+        doc = json.loads(fake.put_calls[0]["Body"])
+        assert doc["name"] == "calib"
+        assert doc["versions"][0]["version"] == "1.0.0"
+        # Native ARN not backfilled (native layer failed), sidecar is otherwise whole.
+        assert doc["versions"][0].get("arn") in (None, "")
 
 
 # ── Property 5: idempotent versioning ─────────────────────────────────────────
@@ -267,7 +296,7 @@ class TestIdempotentVersioning:
         with patch.object(dataset_store, "_get_s3_client", return_value=fake), \
              patch.object(register_dataset, "_compute_content_hash", return_value="same"), \
              patch.object(register_dataset, "_count_rows", return_value=100), \
-             patch.object(register_dataset, "_get_hub_name_from_profile", return_value=None):
+             patch.object(register_dataset, "_register_dataset_native", return_value=(None, None)):
             with pytest.raises(SystemExit):
                 register_dataset.cmd_register_dataset(_reg_args())
         # No new sidecar written for unchanged content.
@@ -280,7 +309,7 @@ class TestIdempotentVersioning:
         with patch.object(dataset_store, "_get_s3_client", return_value=fake), \
              patch.object(register_dataset, "_compute_content_hash", return_value="new"), \
              patch.object(register_dataset, "_count_rows", return_value=200), \
-             patch.object(register_dataset, "_get_hub_name_from_profile", return_value=None):
+             patch.object(register_dataset, "_register_dataset_native", return_value=(None, None)):
             with pytest.raises(SystemExit):
                 register_dataset.cmd_register_dataset(_reg_args())
         assert len(fake.put_calls) == 1
@@ -294,7 +323,7 @@ class TestIdempotentVersioning:
         with patch.object(dataset_store, "_get_s3_client", return_value=fake), \
              patch.object(register_dataset, "_compute_content_hash", return_value="same"), \
              patch.object(register_dataset, "_count_rows", return_value=100), \
-             patch.object(register_dataset, "_get_hub_name_from_profile", return_value=None):
+             patch.object(register_dataset, "_register_dataset_native", return_value=(None, None)):
             with pytest.raises(SystemExit):
                 register_dataset.cmd_register_dataset(_reg_args(force=True))
         assert len(fake.put_calls) == 1
@@ -400,8 +429,7 @@ class TestListDatasets:
         argkw.setdefault("technique", None)
         args = Namespace(source="all", region="us-west-2", core_bucket=CORE_BUCKET,
                          **argkw)
-        with patch.object(dataset_store, "_get_s3_client", return_value=fake), \
-             patch.object(register_list, "_get_hub_name_from_profile", return_value=None):
+        with patch.object(dataset_store, "_get_s3_client", return_value=fake):
             with pytest.raises(SystemExit):
                 register_list.cmd_list_datasets(args)
 

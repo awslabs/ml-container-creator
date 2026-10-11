@@ -123,6 +123,33 @@ directly work via a `kubectl` port-forward (same mechanism as `hyperpod-eks`):
   harness is SageMaker-managed-inference specific). These print a clear message and
   exit with code `3`.
 
+#### Large models and multi-GPU on plain EKS
+
+Unlike `hyperpod-eks`, the plain `eks` target has no operator to mount model
+storage, grant the pod an IAM identity, or size shared memory. The pod does these
+itself, and for a large or multi-GPU model you must set a few knobs in `do/config`.
+These default to safe values for small single-GPU models; set them explicitly when
+a model does not fit the defaults. All are optional overrides — nothing is
+hardcoded per model.
+
+| `do/config` var | Purpose | Default |
+|---|---|---|
+| `EKS_INFERENCE_ROLE_ARN` | IAM role ARN the pod's ServiceAccount is annotated with (IRSA), so `code/serve` can `aws s3 sync` an S3-staged model. Required when `MODEL_SOURCE=s3`. | — (SA annotated only if set) |
+| `HP_MODEL_HOSTPATH` | Base path of a pre-mounted node-local NVMe volume (e.g. the DLAMI instance-store at `/opt/dlami/nvme`). When set, the model volume is a `hostPath` at `<base>/<project>` instead of an `emptyDir` on the node root. Use for models too large for the node's EBS root (the driver otherwise evicts the pod under DiskPressure). | unset → bounded `emptyDir` on node root |
+| `HP_EPHEMERAL_STORAGE` | `ephemeral-storage` request/limit for the `emptyDir` model path (ignored on the `hostPath` path, which does not draw from it). | `HP_GPU_COUNT × 20Gi` |
+| `HP_SHM_SIZE` | Size of the RAM-backed `/dev/shm` the Deployment mounts for NCCL. Multi-GPU tensor-parallel models need more than the Kubernetes default of 64Mi, or NCCL fails to initialize. | `HP_GPU_COUNT × 8Gi` |
+
+The serving container reads its model from `/opt/ml/model` regardless of which
+volume backs it, and derives tensor-parallel degree from `HP_GPU_COUNT`
+(overridable per engine, e.g. `VLLM_TENSOR_PARALLEL_SIZE`).
+
+!!! note "Engine-specific pass-through"
+    Arbitrary engine flags are set via the engine's env-var prefix in `do/config`
+    (e.g. `SGLANG_MEM_FRACTION_STATIC`, `SGLANG_TRUST_REMOTE_CODE`) and forwarded to
+    the server verbatim (ADR-010 Tier-2 pass-through). Note: `mcc regenerate`
+    currently preserves only the vars it knows about — re-add any hand-set
+    `<PREFIX>*` engine knobs after a regenerate.
+
 ## Deploy-time workflow
 
 Deployment configuration is chosen at deploy time, not at generation time. On the first `./do/deploy` for a freshly generated project (empty `DEPLOYMENT_TARGET`), the script runs a short interactive prompt flow with fresh recommendations from the instance-sizer and cluster-picker MCP servers:

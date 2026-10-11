@@ -129,6 +129,36 @@ describe('Feature: model-server-loading-adapter — serve script example-based t
                 'download_model_from_s3 must log errors to stderr'
             );
         });
+
+        // ── Regression: aws progress must not pollute the captured model path ──
+        // resolve_model() returns the model path on STDOUT via $(...), and that
+        // value is exported into the engine's model env var (e.g. SGLANG_MODEL_PATH).
+        // `aws s3 cp/sync` write their progress meter to STDOUT; if it leaks, the
+        // env var becomes a multi-KB blob and every subsequent execve fails with
+        // E2BIG ("Argument list too long"), bricking server startup. Two guards
+        // must both be present:
+        //   1) every `aws s3 cp/sync` silences progress at the source, and
+        //   2) resolve_model redirects the downloader's stdout to stderr so only
+        //      the deliberate path echo survives the capture.
+        it('suppresses aws progress on every s3 cp/sync (E2BIG regression)', () => {
+            // Match real invocations only (anchored at line start after indent),
+            // not prose in comments that happens to mention `aws s3 cp/sync`.
+            const awsCmds = s3Rendered.match(/^\s*(?:if ! )?aws s3 (?:cp|sync) [^\n]*/gm) || [];
+            assert.ok(awsCmds.length >= 3, `expected cp + sync + tarball cp (found ${awsCmds.length})`);
+            for (const cmd of awsCmds) {
+                assert.ok(
+                    cmd.includes('--no-progress') && cmd.includes('--only-show-errors'),
+                    `aws s3 call must silence progress to avoid polluting the captured model path: ${cmd}`
+                );
+            }
+        });
+
+        it('redirects the downloader stdout to stderr in resolve_model (E2BIG regression)', () => {
+            assert.ok(
+                /download_model_from_s3 "\$MODEL_ARTIFACT_URI" "\$LOCAL_MODEL_PATH" 1>&2/.test(s3Rendered),
+                'resolve_model must call download_model_from_s3 with stdout redirected to stderr (1>&2) so aws output cannot leak into the captured model path'
+            );
+        });
     });
 
     // ── Old prefix-stripping block removal ───────────────────────────────────
@@ -241,9 +271,16 @@ describe('Feature: model-server-loading-adapter — serve script example-based t
                         artifactUri: 's3://bucket/model/'
                     });
                     // The resolve_model function checks for pre-mounted artifacts
+                    // via a non-empty-directory test on LOCAL_MODEL_PATH. Assert the
+                    // BEHAVIOR (an emptiness check against the model dir) rather than
+                    // a specific implementation string: the check uses a
+                    // listing-free `find ... -print -quit` instead of expanding the
+                    // directory with `ls -A`, so a huge model dir (K3 + its
+                    // .cache/huggingface tree) is not inflated into a giant shell
+                    // word.
                     assert.ok(
-                        rendered.includes('ls -A $LOCAL_MODEL_PATH'),
-                        'Must check if LOCAL_MODEL_PATH has existing artifacts'
+                        /find "\$LOCAL_MODEL_PATH" -mindepth 1 -print -quit/.test(rendered),
+                        'Must check if LOCAL_MODEL_PATH has existing artifacts without expanding the listing'
                     );
                     assert.ok(
                         rendered.includes('Using pre-mounted model artifacts'),
@@ -258,14 +295,20 @@ describe('Feature: model-server-loading-adapter — serve script example-based t
 
     describe('download_model_from_s3 function presence (Req 12.1)', () => {
 
-        it('huggingface source does NOT define download_model_from_s3', () => {
+        it('huggingface source STILL defines download_model_from_s3 for a wrapper engine (ADR-010)', () => {
+            // ADR-010: the download function is modelSource-INDEPENDENT for
+            // wrapper-path engines. A huggingface-generated project can be staged
+            // to S3 at deploy time (do/stage → MODEL_SOURCE=s3), and
+            // resolve_model()'s always-emitted s3 branch calls this function —
+            // gating its definition caused a `download_model_from_s3: command not
+            // found` crash. It is inert unless MODEL_SOURCE=s3 at runtime.
             const rendered = renderServe({
                 modelSource: 'huggingface',
                 modelServer: 'vllm'
             });
             assert.ok(
-                !rendered.includes('download_model_from_s3()'),
-                'HuggingFace source must not define download_model_from_s3'
+                rendered.includes('download_model_from_s3()'),
+                'Wrapper engine must define download_model_from_s3 regardless of generate-time source'
             );
         });
 

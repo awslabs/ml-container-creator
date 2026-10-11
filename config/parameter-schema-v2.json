@@ -338,7 +338,8 @@
                 "when": "architecture === 'transformers' && ['vllm','sglang','djl'].includes(modelServer)"
             },
             "serverMapping": {
-                "envVar": "VLLM_ENABLE_LORA",
+                "capability": "lora_enable",
+                "derivedFrom": "serve.d/<engine>/manifest.json capability_map",
                 "booleanFlag": true
             },
             "deprecated": false,
@@ -382,7 +383,8 @@
                 "when": "enableLora === true"
             },
             "serverMapping": {
-                "envVar": "VLLM_MAX_LORAS"
+                "capability": "lora_max",
+                "derivedFrom": "serve.d/<engine>/manifest.json capability_map"
             },
             "deprecated": false,
             "since": "0.5.0"
@@ -425,7 +427,8 @@
                 "when": "enableLora === true"
             },
             "serverMapping": {
-                "envVar": "VLLM_MAX_LORA_RANK"
+                "capability": "lora_max_rank",
+                "derivedFrom": "serve.d/<engine>/manifest.json capability_map"
             },
             "deprecated": false,
             "since": "0.5.0"

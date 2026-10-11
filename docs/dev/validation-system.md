@@ -27,8 +27,7 @@ SchemaValidationEngine     ← Orchestrator
          │     ├── Role ARN Format
          │     ├── CUDA Compatibility
          │     ├── Model Type / Instance Alignment
-         │     ├── KV Cache Memory Fit
-         │     └── Marketplace Compatibility
+         │     └── KV Cache Memory Fit
          │
          └── Smart Validators (only when --smart is enabled)
                └── (Future: MCP-based validators)
@@ -175,7 +174,6 @@ The `CrossCuttingChecker` (`src/lib/cross-cutting-checker.js`) validates consist
 | **CUDA Compatibility** | Base image CUDA major version intersects instance's supported CUDA versions | error |
 | **Model Type / Instance Alignment** | Predictor models shouldn't use GPU instances (cost warning) | warning |
 | **KV Cache Memory Fit** | Estimated VRAM (weights + KV cache + overhead) fits in instance total GPU memory | warning |
-| **Marketplace Compatibility** | Model package ARN format, subscription status, instance support, LoRA incompatibility | error/warning |
 
 ### Example findings:
 

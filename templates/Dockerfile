@@ -258,14 +258,26 @@ ENV VLLM_MAX_LORAS=<%= maxLoras %>
 ENV VLLM_MAX_LORA_RANK=<%= maxLoraRank %>
 ENV VLLM_ALLOW_RUNTIME_LORA_UPDATING=true
 <% } %>
-<% if (enableLora && modelServer === 'sglang') { %>
-# LoRA adapter serving configuration
-ENV SGLANG_ENABLE_LORA=true
-ENV SGLANG_MAX_LORAS=<%= maxLoras %>
-<% } %>
+<%# SGLang LoRA is intentionally NOT enabled at image-build time. Unlike vLLM
+    (where a bare --enable-lora is a valid no-op until an adapter is hot-loaded),
+    SGLang REQUIRES --enable-lora to be accompanied by --max-lora-rank and
+    --lora-target-modules (or an initial --lora-paths). Those depend on a specific
+    adapter, which is not known when the base image is built — so baking
+    SGLANG_ENABLE_LORA=true produces a bare --enable-lora that aborts the server
+    on startup ("you need to specify both --max-lora-rank and
+    --lora-target-modules"). MLCC's SGLang adapter load/unload path is also not yet
+    implemented (code/adapter_sidecar.py), so there is nothing to enable it for.
+    Serve the base model cleanly here; wire SGLang LoRA at adapter-attach time when
+    the companion values are known. (vLLM LoRA is baked above and is valid bare.) %>
 
-<% if (typeof modelSource !== 'undefined' && modelSource && modelSource !== 'huggingface' && modelServer !== 'lmi' && modelServer !== 'djl' && modelServer !== 'llama-cpp') { %>
-# Install AWS CLI for S3 model downloads
+<%# AWS CLI is installed for ALL wrapper-path engines (vllm/sglang/tensorrt-llm),
+    NOT gated on the generate-time modelSource: a huggingface-generated project
+    can be staged to S3 at deploy time (do/stage → MODEL_SOURCE=s3), and
+    code/serve's download_model_from_s3 then needs `aws s3`. Model-B engines
+    (lmi/djl/llama-cpp) load the model via their DLC and never call this path, so
+    they are excluded. %>
+<% if (modelServer !== 'lmi' && modelServer !== 'djl' && modelServer !== 'llama-cpp') { %>
+# Install AWS CLI for S3 model downloads (do/stage → MODEL_SOURCE=s3 at deploy time)
 RUN pip install --no-cache-dir awscli
 
 <% } %>

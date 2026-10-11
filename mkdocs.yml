@@ -116,6 +116,7 @@ nav:
           - ADR-007 do/ Script Contract Enforcement: adr/ADR-007-do-script-contract-enforcement.md
           - ADR-008 Deployment-Target Descriptor: adr/ADR-008-deployment-target-descriptor.md
           - ADR-009 Serve-Engine Capability Versioning: adr/ADR-009-serve-engine-capability-versioning.md
+          - ADR-010 K8s Engine-Config Injection: adr/ADR-010-k8s-engine-config-injection.md
       - Archive (point-in-time snapshots):
           - do/ Scripts — Wave 6 Changelog: architecture/do-scripts-wave6-changelog.md
           - Test Inventory: dev/test-inventory.md

@@ -281,3 +281,199 @@ def test_cli_effective_supported_algorithms_failopen_no_version():
     r = _run_cli("effective_supported_algorithms", "vllm")
     assert r.returncode == 0
     assert _json.loads(r.stdout) == serve_manifest.supported_algorithms("vllm")
+
+
+# ── ADR-010: capability_map + resolve_capability_vars (K8s engine-config) ──────
+# These mirror the Node reader (src/lib/serve-manifest-reader.js) exactly; the
+# deploy drivers (do/deploy.d/eks, do/deploy.d/hyperpod-eks) shell out to the
+# resolve_capability_vars CLI, so pin both the library behavior AND the CLI I/O.
+
+
+def test_capability_map_vllm_byte_identical_names():
+    # vLLM suffixes equal the historical hardcoded VLLM_* names (byte-identical).
+    caps = serve_manifest.capability_map("vllm")
+    assert caps["model"]["envVar"] == "VLLM_MODEL"
+    assert caps["tensor_parallel_degree"]["envVar"] == "VLLM_TENSOR_PARALLEL_SIZE"
+    assert caps["quantization"]["envVar"] == "VLLM_QUANTIZATION"
+    assert caps["lora_enable"]["envVar"] == "VLLM_ENABLE_LORA"
+    assert caps["lora_enable"]["valueType"] == "boolean"
+    assert caps["lora_enable"]["requires"] == []
+
+
+def test_capability_map_empty_for_engine_without_declaration():
+    # llama-cpp declares no capability_map → an explicit "no injected config".
+    assert serve_manifest.capability_map("llama-cpp") == {}
+
+
+def test_resolve_vllm_lora_bare():
+    out = serve_manifest.resolve_capability_vars(
+        "vllm", {"model": "m", "tensor_parallel_degree": "4", "lora_enable": "true"}
+    )
+    keys = [e["key"] for e in out["resolved"]]
+    assert "VLLM_ENABLE_LORA" in keys
+    assert out["skipped"] == []
+    lora = next(e for e in out["resolved"] if e["key"] == "VLLM_ENABLE_LORA")
+    assert lora["value"] == "true"  # boolean cap → KEY=true (wrapper drops the value)
+
+
+def test_resolve_sglang_lora_omitted_without_companions():
+    out = serve_manifest.resolve_capability_vars(
+        "sglang", {"model": "m", "tensor_parallel_degree": "4", "lora_enable": "true"}
+    )
+    keys = [e["key"] for e in out["resolved"]]
+    assert "SGLANG_ENABLE_LORA" not in keys  # never bare — would crash SGLang
+    assert len(out["skipped"]) == 1
+    assert out["skipped"][0]["capability"] == "lora_enable"
+    assert "lora_max_rank" in out["skipped"][0]["reason"]
+    assert "lora_target_modules" in out["skipped"][0]["reason"]
+
+
+def test_resolve_sglang_lora_emitted_with_companions():
+    out = serve_manifest.resolve_capability_vars(
+        "sglang",
+        {
+            "model": "m", "tensor_parallel_degree": "4", "lora_enable": "true",
+            "lora_max_rank": "16", "lora_target_modules": "q_proj,v_proj",
+        },
+    )
+    keys = [e["key"] for e in out["resolved"]]
+    assert "SGLANG_ENABLE_LORA" in keys
+    assert "SGLANG_MAX_LORA_RANK" in keys
+    assert "SGLANG_LORA_TARGET_MODULES" in keys
+    assert out["skipped"] == []
+
+
+def test_resolve_omits_unset_valued_capability():
+    # quantization unset → omitted (fixes the QUANTIZATION=none startup crash).
+    out = serve_manifest.resolve_capability_vars(
+        "vllm", {"model": "m", "tensor_parallel_degree": "4"}
+    )
+    keys = [e["key"] for e in out["resolved"]]
+    assert "VLLM_QUANTIZATION" not in keys
+
+
+def test_resolve_no_cross_engine_leak():
+    v = serve_manifest.resolve_capability_vars("vllm", {"model": "m", "tensor_parallel_degree": "4"})
+    assert all(e["key"].startswith("VLLM_") for e in v["resolved"])
+    s = serve_manifest.resolve_capability_vars("sglang", {"model": "m", "tensor_parallel_degree": "4"})
+    assert all(e["key"].startswith("SGLANG_") for e in s["resolved"])
+
+
+def test_cli_capability_map_vllm():
+    r = _run_cli("capability_map", "vllm")
+    assert r.returncode == 0
+    caps = _json.loads(r.stdout)
+    assert caps["lora_enable"]["envVar"] == "VLLM_ENABLE_LORA"
+
+
+def test_cli_resolve_capability_vars_sglang_omits_bare_lora():
+    values = _json.dumps({"model": "m", "tensor_parallel_degree": "4", "lora_enable": "true"})
+    r = _run_cli("resolve_capability_vars", "sglang", values)
+    assert r.returncode == 0
+    out = _json.loads(r.stdout)
+    keys = [e["key"] for e in out["resolved"]]
+    assert "SGLANG_ENABLE_LORA" not in keys
+    assert len(out["skipped"]) == 1
+
+
+def test_cli_resolve_capability_vars_bad_json_exit_2():
+    r = _run_cli("resolve_capability_vars", "vllm", "not-json")
+    assert r.returncode == 2
+
+
+def test_cli_resolve_capability_vars_unknown_engine_exit_3():
+    values = _json.dumps({"model": "m"})
+    r = _run_cli("resolve_capability_vars", "no-such-engine", values)
+    assert r.returncode == 3
+
+
+# ── ADR-010: OR-of-AND-groups companion contract (requires_any_of) ─────────────
+# Mirrors the JS resolver. SGLang declares the dynamic group; a synthetic engine
+# exercises the multi-group OR path. Written to a temp serve.d via serve_dir.
+
+import tempfile as _tempfile
+import shutil as _shutil
+import os as _os2
+
+
+def test_sglang_requires_any_of_single_group():
+    caps = serve_manifest.capability_map("sglang")
+    assert caps["lora_enable"]["requiresAnyOf"] == [["lora_max_rank", "lora_target_modules"]]
+    # Flat requires = the single group here.
+    assert sorted(caps["lora_enable"]["requires"]) == ["lora_max_rank", "lora_target_modules"]
+
+
+def test_sglang_min_version_at_least_0_5_0():
+    mv = serve_manifest.min_version("sglang")
+    assert mv is not None
+    maj, minor, _ = (int(x) for x in mv.split("."))
+    assert (maj, minor) >= (0, 5), f"sglang min_version must be >= 0.5.0, got {mv}"
+
+
+def _write_or_engine(root):
+    eng = "orengine"
+    _os2.makedirs(_os2.path.join(root, eng), exist_ok=True)
+    manifest = {
+        "engine": eng,
+        "env_var_prefix": "ORE_",
+        "supported_algorithms": [],
+        "capability_map": {
+            "model": {"suffix": "MODEL", "value_type": "valued"},
+            "lora_enable": {
+                "suffix": "ENABLE_LORA", "value_type": "boolean",
+                "requires_any_of": [["lora_max_rank", "lora_target_modules"], ["lora_paths"]],
+            },
+            "lora_max_rank": {"suffix": "MAX_LORA_RANK", "value_type": "valued"},
+            "lora_target_modules": {"suffix": "LORA_TARGET_MODULES", "value_type": "valued"},
+            "lora_paths": {"suffix": "LORA_PATHS", "value_type": "valued"},
+        },
+    }
+    with open(_os2.path.join(root, eng, "manifest.json"), "w") as f:
+        _json.dump(manifest, f)
+    return eng
+
+
+def test_requires_any_of_first_group():
+    root = _tempfile.mkdtemp(prefix="mlcc-serve-or-")
+    try:
+        eng = _write_or_engine(root)
+        out = serve_manifest.resolve_capability_vars(
+            eng, {"model": "m", "lora_enable": "true", "lora_max_rank": "16", "lora_target_modules": "all"},
+            serve_dir=root,
+        )
+        keys = [e["key"] for e in out["resolved"]]
+        assert "ORE_ENABLE_LORA" in keys
+        assert out["skipped"] == []
+    finally:
+        _shutil.rmtree(root, ignore_errors=True)
+
+
+def test_requires_any_of_second_group():
+    root = _tempfile.mkdtemp(prefix="mlcc-serve-or-")
+    try:
+        eng = _write_or_engine(root)
+        out = serve_manifest.resolve_capability_vars(
+            eng, {"model": "m", "lora_enable": "true", "lora_paths": "s3://b/a"},
+            serve_dir=root,
+        )
+        keys = [e["key"] for e in out["resolved"]]
+        assert "ORE_ENABLE_LORA" in keys and "ORE_LORA_PATHS" in keys
+        assert out["skipped"] == []
+    finally:
+        _shutil.rmtree(root, ignore_errors=True)
+
+
+def test_requires_any_of_neither_group_omits():
+    root = _tempfile.mkdtemp(prefix="mlcc-serve-or-")
+    try:
+        eng = _write_or_engine(root)
+        out = serve_manifest.resolve_capability_vars(
+            eng, {"model": "m", "lora_enable": "true", "lora_max_rank": "16"},
+            serve_dir=root,
+        )
+        keys = [e["key"] for e in out["resolved"]]
+        assert "ORE_ENABLE_LORA" not in keys
+        assert len(out["skipped"]) == 1
+        assert "another supported companion group" in out["skipped"][0]["reason"]
+    finally:
+        _shutil.rmtree(root, ignore_errors=True)

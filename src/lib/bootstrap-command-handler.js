@@ -50,7 +50,7 @@ export default class BootstrapCommandHandler {
     _setupS3Buckets() { return this.provisioners._setupS3Buckets(); }
     _createS3Bucket(name, tags) { return this.provisioners._createS3Bucket(name, tags); }
     _verifyCliV2() { return this.provisioners._verifyCliV2(); }
-    _provisionAiRegistryHub(profileData) { return this.provisioners.provisionAiRegistryHub(profileData); }
+
 
     // ── ProfileManager delegations (backward compat for tests) ──────
 
@@ -1093,9 +1093,16 @@ export default class BootstrapCommandHandler {
             if (outputs.benchmark.GlueDatabase) profileData.ciGlueDatabase = outputs.benchmark.GlueDatabase;
         }
 
-        // registry → aiRegistryHubName
+        // registry → ModelPackageGroupName (BL123). The branded AiRegistryHubName
+        // output was retired (the native ai_registry hub is SDK-computed and not
+        // targetable); the registry module now provisions only the Model Package
+        // Group. A leftover `aiRegistryHubName` in an existing profile is tolerated
+        // and ignored (Req 9.3) — it is simply no longer written or read as a hub
+        // target.
         if (outputs.registry) {
-            if (outputs.registry.AiRegistryHubName) profileData.aiRegistryHubName = outputs.registry.AiRegistryHubName;
+            if (outputs.registry.ModelPackageGroupName) {
+                profileData.modelPackageGroupName = outputs.registry.ModelPackageGroupName;
+            }
         }
 
         // training → mlflowAppArn, trainingS3Bucket, adapterS3Bucket
@@ -1122,6 +1129,16 @@ export default class BootstrapCommandHandler {
             }
             if (outputs['hyperpod-cluster'].EksClusterArn) {
                 profileData.hyperpodEksClusterArn = outputs['hyperpod-cluster'].EksClusterArn;
+            }
+        }
+
+        // sagemaker-domain → domainId (BL123). The Studio domain id is passed as
+        // `domain_id` on ai_registry creates so native assets appear in Studio
+        // Assets. Absent when the sagemaker-domain module was not provisioned —
+        // native registration still works, just without the Studio @domain tag.
+        if (outputs['sagemaker-domain']) {
+            if (outputs['sagemaker-domain'].DomainId) {
+                profileData.domainId = outputs['sagemaker-domain'].DomainId;
             }
         }
     }

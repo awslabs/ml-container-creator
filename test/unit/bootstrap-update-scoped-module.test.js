@@ -31,7 +31,7 @@ function setupHandler(opts = {}) {
             provisionedModules: ['core', 'registry', 'benchmark'],
             moduleOutputs: {
                 core: { RoleArn: TEST_ROLE_ARN, EcrRepositoryName: 'ml-container-creator' },
-                registry: { AiRegistryHubName: `mlcc-registry-${TEST_ACCOUNT_ID}` },
+                registry: { ModelPackageGroupName: `mlcc-${TEST_ACCOUNT_ID}-models` },
                 benchmark: { BenchmarkBucket: `mlcc-benchmark-${TEST_ACCOUNT_ID}` }
             },
             roleArn: TEST_ROLE_ARN,

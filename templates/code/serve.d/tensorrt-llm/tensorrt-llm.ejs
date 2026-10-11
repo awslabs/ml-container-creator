@@ -5,14 +5,14 @@
 # Entrypoint: trtllm-serve serve MODEL [OPTIONS]
 # Port: 8081 (nginx proxies to 8080 for SageMaker)
 #
-# Speculative decoding: the manifest declares speculative_decoding:false. This is
-# a SCOPE statement, not a capability one — TensorRT-LLM itself DOES support
-# speculative decoding (EAGLE3, MTP, draft/target, NGram), but it is configured
-# through structured LLM-API config objects / a speculative_config JSON, NOT the
-# flat TRTLLM_* env→--flag conversion this wrapper performs. Wiring it (assemble
-# the speculative_config here + the hyperpod-eks algorithm path) is deferred to
-# v1.9 — see .kiro/specs/bl-v19-trtllm-speculative/. Declaring the algorithms
-# before that wiring exists would over-claim support the generator can't emit.
+# Speculative decoding (BL125): the manifest declares speculative_decoding:true.
+# TensorRT-LLM configures it through a structured speculative_config block in a
+# YAML file passed as --extra_llm_api_options, NOT the flat TRTLLM_* env→--flag
+# conversion this wrapper performs for the ordinary args. The speculative block
+# is assembled from the <PREFIX>SPECULATIVE_* env vars below (decoding_type is
+# TRT-LLM's enum: Eagle | DraftTarget | NGram | MTP, mapped from the MLCC name in
+# serve.d/tensorrt-llm/manifest.json algorithm_map). Emitted only when
+# <PREFIX>SPECULATIVE_ALGORITHM is set — non-speculative output is byte-identical.
 # ---------------------------------------------------------------------------
 
 <%# ADR-004: PREFIX is injected from serve.d/tensorrt-llm/manifest.json
@@ -22,6 +22,12 @@
     envVarPrefix. %>
 PREFIX="<%= (typeof envVarPrefix !== 'undefined' && envVarPrefix) ? envVarPrefix : 'TRTLLM_' %>"
 ARG_PREFIX="--"
+
+<%# _p mirrors PREFIX at generation time so the speculative env-var *names* below
+    (e.g. TRTLLM_SPECULATIVE_ALGORITHM) are emitted from the manifest-sourced
+    prefix rather than a hardcoded literal, keeping the rendered names in lockstep
+    with env_var_prefix (same pattern as vllm.ejs / sglang.ejs). %>
+<% const _p = (typeof envVarPrefix !== 'undefined' && envVarPrefix) ? envVarPrefix : 'TRTLLM_'; %>
 
 # The <PREFIX>MODEL var is the positional model argument, not a --flag.
 EXCLUDE_VARS=("${PREFIX}MODEL")
@@ -43,6 +49,16 @@ for var in "${env_vars[@]}"; do
     done
     if [ "$skip" = true ]; then continue; fi
 
+    # Speculative decoding is NOT a flat --flag on trtllm-serve: it is a
+    # structured speculative_config block supplied via --extra_llm_api_options
+    # <yaml>. Its component env vars are assembled below, so never forward them
+    # as individual --flags here (mirrors vllm.ejs / sglang.ejs).
+    case "${key}" in
+        <%= _p %>SPECULATIVE_ALGORITHM|<%= _p %>SPECULATIVE_MODEL|<%= _p %>SPECULATIVE_NUM_TOKENS|<%= _p %>SPECULATIVE_MAX_MATCHING_NGRAM_SIZE)
+            continue
+            ;;
+    esac
+
     # Remove prefix, convert to lowercase, replace underscores with dashes
     arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
 
@@ -54,6 +70,51 @@ for var in "${env_vars[@]}"; do
         SERVER_ARGS+=("$value")
     fi
 done
+
+# ---------------------------------------------------------------------------
+# Speculative decoding (BL125) — TensorRT-LLM structured speculative_config.
+#
+# Unlike vLLM's single --speculative-config JSON flag, trtllm-serve takes a YAML
+# file via --extra_llm_api_options with a speculative_config block. The
+# decoding_type is TRT-LLM's enum (Eagle | DraftTarget | NGram | MTP). The MLCC
+# algorithm → decoding_type mapping lives in serve.d/tensorrt-llm/manifest.json
+# (algorithm_map); the value arrives in <PREFIX>SPECULATIVE_ALGORITHM already as
+# the TRT-LLM decoding_type (set via --server-env / do/config). Emit NOTHING when
+# unset so non-speculative output is byte-identical to before this block.
+#
+# Two-model algorithms (DraftTarget, NGram, Eagle3 two-model) run with the
+# overlap scheduler disabled — the TRT-LLM docs' reference YAML sets
+# disable_overlap_scheduler: true alongside speculative_config.
+# ---------------------------------------------------------------------------
+_spec_draft_model="${<%= _p %>SPECULATIVE_MODEL:-${HP_SPECULATIVE_MODEL:-}}"
+if [ -n "${_spec_draft_model}" ] && [[ "${_spec_draft_model}" == s3://* ]]; then
+    echo "❌ ${PREFIX}SPECULATIVE_MODEL must be a HuggingFace model ID or local path, not an s3:// URI. Stage it first with do/stage." >&2
+    exit 1
+fi
+if [ -n "${<%= _p %>SPECULATIVE_ALGORITHM:-}" ]; then
+    _spec_decoding_type="${<%= _p %>SPECULATIVE_ALGORITHM}"
+    _spec_max_draft_len="${<%= _p %>SPECULATIVE_NUM_TOKENS:-5}"
+    _spec_yaml="/tmp/.trtllm-extra-llm-api-options.yaml"
+
+    # Emit the YAML with printf (no PyYAML dependency). disable_overlap_scheduler
+    # is required for the two-model algorithms and harmless for the one-model path.
+    {
+        printf 'disable_overlap_scheduler: true\n'
+        printf 'speculative_config:\n'
+        printf '  decoding_type: %s\n' "${_spec_decoding_type}"
+        printf '  max_draft_len: %s\n' "${_spec_max_draft_len}"
+        # Draft model only applies to Eagle / DraftTarget (NGram / MTP ignore it).
+        if [ -n "${_spec_draft_model}" ]; then
+            printf '  speculative_model: %s\n' "${_spec_draft_model}"
+        fi
+        # NGram-only tuning knob; emitted only when set so other algorithms stay minimal.
+        if [ -n "${<%= _p %>SPECULATIVE_MAX_MATCHING_NGRAM_SIZE:-}" ]; then
+            printf '  max_matching_ngram_size: %s\n' "${<%= _p %>SPECULATIVE_MAX_MATCHING_NGRAM_SIZE}"
+        fi
+    } > "${_spec_yaml}"
+
+    SERVER_ARGS+=("${ARG_PREFIX}extra_llm_api_options" "${_spec_yaml}")
+fi
 
 echo "-------------------------------------------------------------------"
 echo "TensorRT-LLM engine args: [${SERVER_ARGS[@]}]"

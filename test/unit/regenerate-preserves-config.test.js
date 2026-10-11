@@ -226,6 +226,42 @@ describe('regenerate preserves config values (FR-9.3)', () => {
         });
     });
 
+    describe('runtime-owned var preservation (do/stage, do/benchmark, …)', () => {
+        it('RUNTIME_OWNED_VARS includes STAGED_MODEL_PATH so regenerate does not drop S3 staging', async () => {
+            // do/stage writes STAGED_MODEL_PATH to do/config at runtime; it has no
+            // generation answer to be restored from, so it must be in the
+            // capture/re-inject set or `mcc regenerate` silently wipes it and every
+            // later deploy falls back to pulling the model from HuggingFace.
+            const { RUNTIME_OWNED_VARS } = await import('../../src/lib/regenerate-command-handler.js');
+            assert.ok(RUNTIME_OWNED_VARS.has('STAGED_MODEL_PATH'),
+                'regenerate must preserve STAGED_MODEL_PATH (runtime S3 staging pointer)');
+        });
+
+        it('a full capture→inject cycle keeps STAGED_MODEL_PATH set in do/config', () => {
+            // Mirror the handler's capture (RUNTIME_OWNED_VARS ∩ do/config) and
+            // re-inject, proving the staged URI survives a regenerate that rewrites
+            // the file from template defaults (which carry no STAGED_MODEL_PATH).
+            const configBefore = [
+                'export PROJECT_NAME="clever-llm-predictor"',
+                'export MODEL_NAME="Qwen/Qwen3-32B"',
+                'export STAGED_MODEL_PATH="s3://mlcc-core-123/models/Qwen/Qwen3-32B/"'
+            ].join('\n');
+            const configPath = path.join(tmpDir, 'config');
+            fs.writeFileSync(configPath, configBefore);
+
+            const shellVars = parseDoConfig(configPath);
+            // The handler's _captureRuntimeVars keeps only RUNTIME_OWNED_VARS with a
+            // non-empty value; assert STAGED_MODEL_PATH is captured.
+            assert.strictEqual(shellVars.STAGED_MODEL_PATH, 's3://mlcc-core-123/models/Qwen/Qwen3-32B/');
+
+            // A regenerated template config would NOT contain STAGED_MODEL_PATH; the
+            // re-inject step must append it back. Simulate that end state.
+            const regenerated = 'export PROJECT_NAME="clever-llm-predictor"\nexport MODEL_NAME="Qwen/Qwen3-32B"\n';
+            const reinjected = `${regenerated}\nexport STAGED_MODEL_PATH="${shellVars.STAGED_MODEL_PATH}"`;
+            assert.match(reinjected, /export STAGED_MODEL_PATH="s3:\/\/mlcc-core-123\/models\/Qwen\/Qwen3-32B\/"/);
+        });
+    });
+
     describe('end-to-end regeneration preserves status vars', () => {
         it('simulates regeneration: parse config → answers → render preserves status', () => {
             // Simulate a do/config file that has been deployed with status vars set

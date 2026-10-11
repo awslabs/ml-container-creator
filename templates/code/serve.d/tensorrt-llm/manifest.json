@@ -1,13 +1,23 @@
 {
   "engine": "tensorrt-llm",
   "env_var_prefix": "TRTLLM_",
-  "speculative_decoding": false,
-  "supported_algorithms": [],
-  "algorithm_map": {},
+  "speculative_decoding": true,
+  "supported_algorithms": ["eagle3", "draft-model", "ngram", "mtp"],
+  "algorithm_map": {
+    "eagle3": "Eagle",
+    "draft-model": "DraftTarget",
+    "ngram": "NGram",
+    "mtp": "MTP"
+  },
   "hot_reload": false,
   "dimension_map": {
     "quantization": "DTYPE",
     "tensor_parallel_degree": "TENSOR_PARALLEL_SIZE",
     "max_model_len": "MAX_INPUT_LEN"
-  }
+  },
+  "capability_map": {
+    "tensor_parallel_degree": { "suffix": "TENSOR_PARALLEL_SIZE", "value_type": "valued" },
+    "quantization": { "suffix": "DTYPE", "value_type": "valued" }
+  },
+  "min_version": "1.0.0"
 }

@@ -68,18 +68,40 @@ describe('Feature: model-server-loading-adapter, Property 2: Serve script model 
 
     describe('HuggingFace source passes model name directly without downloading', () => {
 
-        it('for any modelServer with modelSource=huggingface, the rendered script does not define download_model_from_s3 function', function () {
+        it('wrapper-path servers ALWAYS define download_model_from_s3, even for modelSource=huggingface (ADR-010)', function () {
             this.timeout(PROPERTY_CONFIG.timeout);
-            // **Validates: Requirements 11.1, 11.4**
+            // **Validates: Requirements 11.1, 11.4 (updated by ADR-010)**
+            // The download function is modelSource-INDEPENDENT for wrapper-path
+            // engines: do/stage can set MODEL_SOURCE=s3 at deploy time, and
+            // resolve_model()'s (always-emitted) s3 branch calls the function. A
+            // huggingface-generated project that is later staged would otherwise
+            // crash with `download_model_from_s3: command not found`. The function
+            // is inert unless MODEL_SOURCE=s3 at runtime.
             fc.assert(fc.property(
-                arbModelServer,
+                fc.constantFrom(...DOWNLOAD_SERVERS),
                 arbModelName,
                 (modelServer, modelName) => {
                     const rendered = renderServe('huggingface', modelServer, modelName, null);
-                    // The download_model_from_s3 function definition should NOT be present
                     assert.ok(
-                        !rendered.includes('download_model_from_s3()'),
-                        `HuggingFace source must NOT define download_model_from_s3() function for ${modelServer}`
+                        rendered.includes('download_model_from_s3()'),
+                        `${modelServer} must define download_model_from_s3() regardless of generate-time source`
+                    );
+                }
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
+
+        it('container-owns-entrypoint servers (lmi/djl) NEVER define download_model_from_s3', function () {
+            this.timeout(PROPERTY_CONFIG.timeout);
+            // **Validates: Requirements 3.4, 6.1** — DJL/LMI load the model via the
+            // DLC, so the MLCC wrapper never contains a download path for them.
+            fc.assert(fc.property(
+                fc.constantFrom(...DJL_SERVERS),
+                arbModelName,
+                (modelServer, modelName) => {
+                    const rendered = renderServe('huggingface', modelServer, modelName, null);
+                    assert.ok(
+                        !rendered.includes('download_model_from_s3'),
+                        `${modelServer} (DLC-owned) must NOT define download_model_from_s3`
                     );
                 }
             ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });

@@ -251,15 +251,16 @@ echo "📄 Rendering InferenceEndpointConfig from hyperpod/..."
 export AWS_ACCOUNT_ID
 export ECR_IMAGE="${ECR_REPOSITORY}:${IMAGE_TAG}"
 
-# Export VLLM_ENABLE_LORA for envsubst — allows HP_LORA_ENABLED in do/config
-# to dynamically control LoRA at deploy time without regeneration (BL065)
+# LoRA (ADR-010 Tier-1): HP_LORA_ENABLED in do/config toggles LoRA at deploy time
+# without regeneration. The toggle is a boolean capability resolved per-engine
+# through the capability_map below (NOT a hardcoded VLLM_ENABLE_LORA export): for
+# vLLM a bare --enable-lora is valid, but for SGLang the resolver omits it unless
+# its companion contract (max-lora-rank + lora-target-modules) is satisfied, so a
+# server-crashing bare flag can never be emitted. Normalize the toggle here.
 if [ "${HP_LORA_ENABLED:-false}" = "true" ]; then
-    export VLLM_ENABLE_LORA="true"
+    _HP_LORA_ON="true"
 else
-    # Must be the literal "false" (not empty): the vLLM serve wrapper only skips
-    # forwarding --enable-lora when the value is exactly "false". An empty string
-    # would still add the flag with no value (BL127).
-    export VLLM_ENABLE_LORA="false"
+    _HP_LORA_ON="false"
 fi
 
 # Export speculative-decoding values for the CRD's two engine-specific env sets.
@@ -270,8 +271,6 @@ export VLLM_SPECULATIVE_MODEL=""
 export VLLM_SPECULATIVE_NUM_TOKENS=""
 export VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD=""
 export VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD=""
-# Pass-through: user-set quantization (e.g. fp8) flows into the CRD env
-export VLLM_QUANTIZATION="${VLLM_QUANTIZATION:-}"
 export SGLANG_SPECULATIVE_ALGORITHM=""
 export SGLANG_SPECULATIVE_DRAFT_MODEL_PATH=""
 export SGLANG_SPECULATIVE_NUM_STEPS=""
@@ -370,12 +369,41 @@ export HP_INSTANCE_TYPE="${HP_INSTANCE_TYPE:-${HP_NODE_SELECTOR:-${INSTANCE_TYPE
 # GPU count would otherwise cause wrong node affinity (scheduling failures) and
 # a wrong tensor-parallel degree (OOM).
 #
-# The lookup table mirrors GPU_MAP in src/lib/deploy-config-builder.js. Unknown
-# instance types fall back to 1 GPU. CPU/memory scale with the GPU count
-# (cpu = gpu*4 cores, memory = gpu*16 Gi), matching the CRD template defaults.
+# derive-dont-hardcode (ADR-008): the GPU count is OWNED by the instance catalog,
+# which the generator ships into the project at .mlcc/instances.json (the same
+# source deploy-config-builder.js and the benchmark writer use). We read it here
+# so new instance families (g7/g7e, p6-b200, ...) are picked up without editing
+# this script. The hardcoded case below is ONLY a fallback for when the catalog
+# is absent/unreadable; it is a small known subset, not the source of truth.
+# Unknown types fall back to 1 GPU. CPU/memory scale with GPU count (cpu = gpu*4
+# cores, memory = gpu*16 Gi), matching the CRD template defaults.
 _hp_detect_gpu_count() {
-    # Strip the ml. prefix; the family.size suffix is the lookup key.
-    local suffix="${1#ml.}"
+    local itype="${1}"
+    [ -n "${itype}" ] || { echo 1; return; }
+
+    # 1) Authoritative source: .mlcc/instances.json (catalog[<ml.type>].gpus).
+    #    ${SCRIPT_DIR:-} so an unset SCRIPT_DIR degrades to the fallback case
+    #    (and does not trip `set -u`).
+    local _catalog="${SCRIPT_DIR:-}/../.mlcc/instances.json"
+    if [ -n "${SCRIPT_DIR:-}" ] && [ -f "${_catalog}" ] && command -v python3 >/dev/null 2>&1; then
+        local _gpus
+        _gpus="$(ITYPE="${itype}" CATALOG="${_catalog}" python3 -c '
+import json, os
+try:
+    cat = json.load(open(os.environ["CATALOG"]))["catalog"]
+    g = cat.get(os.environ["ITYPE"], {}).get("gpus")
+    print(int(g) if g and int(g) > 0 else "")
+except Exception:
+    print("")
+' 2>/dev/null)" || _gpus=""
+        if [ -n "${_gpus}" ]; then
+            echo "${_gpus}"
+            return
+        fi
+    fi
+
+    # 2) Fallback only when the catalog is unavailable or lacks the type.
+    local suffix="${itype#ml.}"
     case "${suffix}" in
         g5.xlarge|g5.2xlarge|g5.4xlarge|g5.8xlarge|g5.16xlarge) echo 1 ;;
         g5.12xlarge|g5.24xlarge) echo 4 ;;
@@ -383,6 +411,14 @@ _hp_detect_gpu_count() {
         g6.xlarge|g6.2xlarge|g6.4xlarge|g6.8xlarge|g6.16xlarge) echo 1 ;;
         g6.12xlarge|g6.24xlarge) echo 4 ;;
         g6.48xlarge) echo 8 ;;
+        g7.2xlarge|g7.4xlarge|g7.8xlarge) echo 1 ;;
+        g7.12xlarge) echo 2 ;;
+        g7.24xlarge) echo 4 ;;
+        g7.48xlarge) echo 8 ;;
+        g7e.2xlarge|g7e.4xlarge|g7e.8xlarge) echo 1 ;;
+        g7e.12xlarge) echo 2 ;;
+        g7e.24xlarge) echo 4 ;;
+        g7e.48xlarge) echo 8 ;;
         p4d.24xlarge|p4de.24xlarge|p5.48xlarge) echo 8 ;;
         # B300 (Blackwell Ultra)
         p6-b300.48xlarge) echo 8 ;;
@@ -534,34 +570,167 @@ APPLY_EXIT_CODE=0
 # translates them to CLI flags via whitelist introspection, so any valid engine
 # arg can be set this way.
 #
-# BL105: the environment-variable prefix used to gather pass-through vars is
-# sourced from the active engine's serve-layer manifest (env_var_prefix) rather
-# than the literal "VLLM_" string. For MODEL_SERVER=vllm this resolves to VLLM_
-# (reproducing current behavior); for sglang it resolves to SGLANG_.
+# ── Tier-1 engine config: derive from the serve manifest (ADR-010) ────────────
+# Same resolver as deploy.d/eks: MLCC computes only the Tier-1 VALUES (model id,
+# tensor-parallel degree = GPU count, quantization pass-through, LoRA toggle); the
+# per-engine env-var names, value shapes, and LoRA companion contract are OWNED by
+# serve.d/<engine>/manifest.json (capability_map) and resolved here. The resolved
+# pairs are spliced at the CRD's __TIER1_ENVVARS__ marker — carrying ONLY the
+# active engine's keys (no VLLM_*/SGLANG_* cross-leak) and never a bare companion-
+# gated flag. The HyperPod operator owns model download/mount, so the model value
+# is the configured model name (or the optimized-package inference-spec override).
+_HP_ENGINE="${MODEL_SERVER:-vllm}"
+_HP_MODEL_FOR_ENV="${HP_MODEL_NAME_OVERRIDE:-${MODEL_NAME:-}}"
+# The active engine's capability_map tells us WHICH LoRA companions it requires
+# (ADR-010), so MLCC supplies pure-dynamic defaults without branching on engine.
+_HP_CAP_MAP="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" capability_map "${_HP_ENGINE}" 2>/dev/null || echo '{}')"
+_HP_TIER1_VALUES=$(
+    MODEL_ID="${_HP_MODEL_FOR_ENV}" \
+    TP_DEGREE="${VLLM_TENSOR_PARALLEL_SIZE:-${HP_GPU_COUNT:-1}}" \
+    QUANT="${VLLM_QUANTIZATION:-}" \
+    LORA_ON="${_HP_LORA_ON:-false}" \
+    LORA_MAX_RANK="${VLLM_MAX_LORA_RANK:-}" \
+    LORA_MAX="${VLLM_MAX_LORAS:-}" \
+    LORA_TARGET_MODULES="${VLLM_LORA_TARGET_MODULES:-}" \
+    CAP_MAP="${_HP_CAP_MAP}" \
+    python3 - <<'_PYEOF'
+import json, os
+v = {}
+if os.environ.get("MODEL_ID"):
+    v["model"] = os.environ["MODEL_ID"]
+if os.environ.get("TP_DEGREE"):
+    v["tensor_parallel_degree"] = os.environ["TP_DEGREE"]
+if os.environ.get("QUANT"):
+    v["quantization"] = os.environ["QUANT"]
+if os.environ.get("LORA_ON") == "true":
+    v["lora_enable"] = "true"
+    # Explicit user-set companion values always win.
+    user = {
+        "lora_max_rank": os.environ.get("LORA_MAX_RANK") or "",
+        "lora_max": os.environ.get("LORA_MAX") or "",
+        "lora_target_modules": os.environ.get("LORA_TARGET_MODULES") or "",
+    }
+    for k, val in user.items():
+        if val:
+            v[k] = val
+    # MLCC pure-dynamic LoRA defaults, keyed by CAPABILITY (not engine name).
+    # lora_max=4 / lora_max_rank=16 are memory-safe sizing defaults: vLLM's own
+    # defaults (max_loras=30, max_lora_rank=64) pre-allocate a large LoRA buffer
+    # that OOMs big models on tight VRAM (validated remediation in the capability
+    # matrix: "reduce max_loras 30→4, max_lora_rank 64→16"). 4 covers 2–3 adapters
+    # plus hot-swap headroom; override via VLLM_MAX_LORAS / VLLM_MAX_LORA_RANK.
+    MLCC_LORA_DEFAULTS = {"lora_max": "4", "lora_max_rank": "16", "lora_target_modules": "all"}
+    try:
+        caps = json.loads(os.environ.get("CAP_MAP") or "{}")
+    except Exception:
+        caps = {}
+    lora_decl = caps.get("lora_enable") or {}
+    # Fill a default for every sizing/companion capability the ACTIVE engine
+    # DECLARES in its capability_map (not only ones gated as "required"): a plugin
+    # that declares lora_max gets the memory-safe count; one that doesn't (e.g.
+    # SGLang) silently skips it. This is the per-engine translation — each manifest
+    # maps the capability to its own env suffix (vLLM lora_max→MAX_LORAS, etc.).
+    declared = set(k for k in caps.keys())
+    # requiresAnyOf/requires companions are always eligible too (they may not be
+    # top-level capability keys on every engine).
+    for group in (lora_decl.get("requiresAnyOf") or [lora_decl.get("requires") or []]):
+        declared.update(group)
+    for comp, default in MLCC_LORA_DEFAULTS.items():
+        if comp in declared and not v.get(comp):
+            v[comp] = default
+print(json.dumps(v))
+_PYEOF
+)
+_HP_TIER1_JSON="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" \
+    resolve_capability_vars "${_HP_ENGINE}" "${_HP_TIER1_VALUES}" 2>/dev/null || echo '')"
+
+# Split the resolver output into (a) a YAML env block for the __TIER1_ENVVARS__
+# marker and (b) the newline-separated key list the Tier-2 exclusion derives from.
+HP_TIER1_ENVVARS=""
+HP_TIER1_KEYS=""
+if [ -n "${_HP_TIER1_JSON}" ]; then
+    HP_TIER1_ENVVARS=$(printf '%s' "${_HP_TIER1_JSON}" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+lines = []
+for e in data.get("resolved", []):
+    lines.append("- name: %s" % e["key"])
+    lines.append("  value: \"%s\"" % e["value"])
+print("\n".join(lines))
+' 2>/dev/null || echo '')
+    HP_TIER1_KEYS=$(printf '%s' "${_HP_TIER1_JSON}" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+print("\n".join(e["key"] for e in data.get("resolved", [])))
+' 2>/dev/null || echo '')
+    # Surface companion-gated omissions (e.g. SGLang LoRA without rank/target).
+    printf '%s' "${_HP_TIER1_JSON}" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for s in data.get("skipped", []):
+    print("   ⚠️  engine config: %s" % s.get("reason", s.get("capability", "")))
+' 2>/dev/null || true
+fi
+export HP_TIER1_ENVVARS HP_TIER1_KEYS
+
+# BL105 / ADR-010: the pass-through prefix is sourced from the active engine's
+# serve-layer manifest (env_var_prefix), never the literal "VLLM_". For
+# MODEL_SERVER=vllm this resolves to VLLM_; for sglang, SGLANG_; for a custom
+# plugin, its own declared prefix.
 ENGINE_ENV_PREFIX=$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" env_var_prefix "${MODEL_SERVER:-vllm}" 2>/dev/null || true)
 [ -n "${ENGINE_ENV_PREFIX}" ] || ENGINE_ENV_PREFIX="VLLM_"
 
-# Build YAML snippet for extra engine env vars (not already explicitly managed in the template).
-# Uses Python to produce correctly-indented multi-line YAML — avoids bash \n quoting issues.
-VLLM_EXTRA_ENVVARS=$(ENGINE_ENV_PREFIX="${ENGINE_ENV_PREFIX}" python3 - <<'_PYEOF'
+# ADR-010 derive-dont-hardcode: the Tier-2 "already-managed" exclusion set is
+# DERIVED, not a hardcoded VLLM_* literal. It is the union of:
+#   • the resolved Tier-1 keys the capability_map resolver placed (HP_TIER1_KEYS,
+#     computed above) — the model / TP / LoRA-companion contract, and
+#   • the per-engine speculative-decoding env vars, which the CRD's own
+#     speculative block owns (matched by the "SPECULATIVE" substring, engine-
+#     agnostic).
+# Build-provenance / env-only image vars (VLLM_BUILD_, VLLM_USAGE_SOURCE,
+# VLLM_IMAGE_TAG, VLLM_ENABLE_CUDA_COMPATIBILITY, VLLM_ALLOW_RUNTIME_LORA_UPDATING)
+# belong to no engine config contract — they are vLLM image internals the serve
+# wrapper already drops via --help introspection. They are listed as a small,
+# cross-cutting NEVER-PASS-THROUGH set (the SHARED_RUNTIME_VARS analogue), not as
+# a per-engine capability list.
+VLLM_EXTRA_ENVVARS=$(
+    ENGINE_ENV_PREFIX="${ENGINE_ENV_PREFIX}" \
+    HP_TIER1_KEYS="${HP_TIER1_KEYS:-}" \
+    python3 - <<'_PYEOF'
 import os
 prefix = os.environ.get("ENGINE_ENV_PREFIX", "VLLM_")
-managed = {
-    "VLLM_MODEL", "VLLM_TENSOR_PARALLEL_SIZE", "VLLM_ENABLE_LORA",
-    "VLLM_MAX_LORAS", "VLLM_MAX_LORA_RANK", "VLLM_SPECULATIVE_MODEL",
-    "VLLM_SPECULATIVE_ALGORITHM", "VLLM_SPECULATIVE_NUM_TOKENS",
-    "VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD", "VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD",
-    "SGLANG_SPECULATIVE_EAGLE_TOPK", "VLLM_ENABLE_CUDA_COMPATIBILITY",
-    "VLLM_USAGE_SOURCE", "VLLM_BUILD_COMMIT", "VLLM_BUILD_PIPELINE",
-    "VLLM_BUILD_URL", "VLLM_IMAGE_TAG", "VLLM_ALLOW_RUNTIME_LORA_UPDATING",
-}
+# Tier-1 keys the resolver already emitted into the CRD (newline-separated).
+tier1_keys = {k for k in (os.environ.get("HP_TIER1_KEYS") or "").split("\n") if k}
+# Cross-cutting env-only image vars that are never serve flags (belong to no
+# engine config contract). Prefix-agnostic suffix match keeps this engine-neutral.
+NEVER_SUFFIXES = (
+    "USAGE_SOURCE", "BUILD_COMMIT", "BUILD_PIPELINE", "BUILD_URL",
+    "IMAGE_TAG", "ENABLE_CUDA_COMPATIBILITY", "ALLOW_RUNTIME_LORA_UPDATING",
+)
 lines = []
 for k, v in sorted(os.environ.items()):
-    if k == "ENGINE_ENV_PREFIX":
+    if k in ("ENGINE_ENV_PREFIX", "HP_TIER1_KEYS"):
         continue
-    if k.startswith(prefix) and k not in managed and v:
-        lines.append(f"- name: {k}")
-        lines.append(f'  value: "{v}"')
+    if not k.startswith(prefix) or not v:
+        continue
+    if k in tier1_keys:
+        continue
+    if "SPECULATIVE" in k:
+        continue
+    suffix = k[len(prefix):]
+    if suffix in NEVER_SUFFIXES:
+        continue
+    lines.append(f"- name: {k}")
+    lines.append(f'  value: "{v}"')
 print("\n".join(lines))
 _PYEOF
 )
@@ -575,16 +744,20 @@ for manifest in hyperpod/*.yaml; do
     RENDERED=$(envsubst < "${manifest}")
     RENDERED=$(MODEL_SOURCE_CONFIG="${MODEL_SOURCE_CONFIG}" \
         HP_MODEL_NAME_OVERRIDE="${HP_MODEL_NAME_OVERRIDE}" \
+        HP_TIER1_ENVVARS="${HP_TIER1_ENVVARS}" \
         printf '%s' "${RENDERED}" | \
         MODEL_SOURCE_CONFIG="${MODEL_SOURCE_CONFIG}" \
         HP_MODEL_NAME_OVERRIDE="${HP_MODEL_NAME_OVERRIDE}" \
+        HP_TIER1_ENVVARS="${HP_TIER1_ENVVARS}" \
         python3 -c '
 import os, re, sys
 repl = os.environ.get("MODEL_SOURCE_CONFIG", "")
 extra_envvars = os.environ.get("VLLM_EXTRA_ENVVARS", "")
+tier1_envvars = os.environ.get("HP_TIER1_ENVVARS", "")
 name_override = os.environ.get("HP_MODEL_NAME_OVERRIDE", "")
 marker = "__MODEL_SOURCE_CONFIG__"
 envvars_marker = "__VLLM_EXTRA_ENVVARS__"
+tier1_marker = "__TIER1_ENVVARS__"
 # Rewrite the top-level spec.modelName only (2-space indent), leaving deeper
 # keys such as huggingFaceModel.modelId untouched.
 name_re = re.compile(r"^(  modelName:\s*).*$")
@@ -592,13 +765,24 @@ out = []
 for line in sys.stdin.read().splitlines():
     pos = line.find(marker)
     epos = line.find(envvars_marker)
+    tpos = line.find(tier1_marker)
     if pos >= 0:
         indent = line[:pos]
         for rl in repl.splitlines():
             out.append(indent + rl)
+    elif tpos >= 0:
+        # ADR-010: splice the manifest-DERIVED Tier-1 env block (model / TP /
+        # LoRA-companion contract for the ACTIVE engine) at the marker indent.
+        # When empty (resolver unavailable) drop the marker so the YAML list
+        # stays well-formed.
+        indent = line[:tpos]
+        for rl in tier1_envvars.splitlines():
+            if rl.strip():
+                out.append(indent + rl)
     elif epos >= 0:
-        # Splice extra VLLM_* env vars at the marker indentation. When there are
-        # none, drop the marker line entirely so the YAML list stays well-formed.
+        # Splice Tier-2 prefix pass-through env vars at the marker indentation.
+        # When there are none, drop the marker line entirely so the YAML list
+        # stays well-formed.
         indent = line[:epos]
         for rl in extra_envvars.splitlines():
             if rl.strip():

@@ -140,9 +140,16 @@ describe('Feature: lora-adapter-lifecycle — Generation-time LoRA configuration
 
     // ── SGLang Dockerfile env vars (Req 7.2) ─────────────────────────────
 
-    describe('--enable-lora with SGLang produces correct env vars in Dockerfile (Req 7.2)', () => {
+    describe('--enable-lora with SGLang does NOT bake a bare --enable-lora (crash fix)', () => {
+        // Unlike vLLM (where a bare --enable-lora is a valid no-op until an adapter
+        // is hot-loaded), SGLang REQUIRES --enable-lora to be accompanied by
+        // --max-lora-rank + --lora-target-modules (or --lora-paths). Baking
+        // SGLANG_ENABLE_LORA=true into the image produced a bare --enable-lora that
+        // aborts the SGLang server on startup. MLCC's SGLang adapter path is also
+        // not yet implemented. So LoRA must NOT be baked on for SGLang at image
+        // build time — the base model serves cleanly.
 
-        it('sets SGLANG_ENABLE_LORA=true when enableLora is true', () => {
+        it('does NOT set SGLANG_ENABLE_LORA even when enableLora is true', () => {
             const rendered = renderDockerfile({
                 modelServer: 'sglang',
                 enableLora: true,
@@ -150,43 +157,44 @@ describe('Feature: lora-adapter-lifecycle — Generation-time LoRA configuration
                 maxLoraRank: 64
             });
             assert.ok(
-                rendered.includes('ENV SGLANG_ENABLE_LORA=true'),
-                'Must set SGLANG_ENABLE_LORA=true'
+                !rendered.includes('SGLANG_ENABLE_LORA'),
+                'Must NOT bake SGLANG_ENABLE_LORA (bare --enable-lora aborts SGLang)'
             );
         });
 
-        it('sets SGLANG_MAX_LORAS to default 30', () => {
+        it('does NOT set the mis-named SGLANG_MAX_LORAS env var', () => {
             const rendered = renderDockerfile({
                 modelServer: 'sglang',
                 enableLora: true,
                 maxLoras: 30,
                 maxLoraRank: 64
             });
+            // SGLang's companion flag is --max-loras-per-batch, not --max-loras,
+            // so SGLANG_MAX_LORAS would be dropped by the --help whitelist anyway.
             assert.ok(
-                rendered.includes('ENV SGLANG_MAX_LORAS=30'),
-                'Must set SGLANG_MAX_LORAS=30'
+                !rendered.includes('SGLANG_MAX_LORAS'),
+                'Must NOT bake SGLANG_MAX_LORAS'
             );
         });
 
-        it('includes LoRA comment section', () => {
+        it('still bakes vLLM LoRA env vars (vLLM path is unaffected)', () => {
             const rendered = renderDockerfile({
-                modelServer: 'sglang',
+                modelServer: 'vllm',
                 enableLora: true,
                 maxLoras: 30,
                 maxLoraRank: 64
             });
             assert.ok(
-                rendered.includes('# LoRA adapter serving configuration'),
-                'Must include LoRA configuration comment'
+                rendered.includes('ENV VLLM_ENABLE_LORA=true'),
+                'vLLM LoRA must still be baked (bare enable is valid for vLLM)'
             );
         });
     });
 
-    // ── SGLang serve script args (Req 7.2) ───────────────────────────────
-    // The serve script converts SGLANG_ENABLE_LORA and SGLANG_MAX_LORAS env vars
-    // into --enable-lora and --max-loras command-line args via the env-to-arg loop.
-    // We verify the env vars are set in the Dockerfile (above), which the serve
-    // script's generic PREFIX-based conversion will translate to CLI args at runtime.
+    // ── SGLang serve script args ─────────────────────────────────────────
+    // SGLang LoRA is intentionally NOT baked at image-build time (see above);
+    // the base model serves cleanly. SGLang adapter attach is a future item
+    // (code/adapter_sidecar.py SGLang load/unload is NotImplementedError).
 
     // ── DJL/LMI serving.properties (Req 7.2) ────────────────────────────
 
@@ -378,7 +386,9 @@ describe('Feature: lora-adapter-lifecycle — Generation-time LoRA configuration
             );
         });
 
-        it('SGLang Dockerfile: SGLANG_MAX_LORAS=50 when maxLoras is 50', () => {
+        it('SGLang Dockerfile: never bakes SGLANG_MAX_LORAS regardless of maxLoras', () => {
+            // SGLang LoRA is not baked at image-build time (crash fix), so maxLoras
+            // has no SGLang Dockerfile effect — it is applied at adapter-attach time.
             const rendered = renderDockerfile({
                 modelServer: 'sglang',
                 enableLora: true,
@@ -386,12 +396,8 @@ describe('Feature: lora-adapter-lifecycle — Generation-time LoRA configuration
                 maxLoraRank: 64
             });
             assert.ok(
-                rendered.includes('ENV SGLANG_MAX_LORAS=50'),
-                'Must set SGLANG_MAX_LORAS=50'
-            );
-            assert.ok(
-                !rendered.includes('ENV SGLANG_MAX_LORAS=30'),
-                'Must NOT contain default SGLANG_MAX_LORAS=30'
+                !rendered.includes('SGLANG_MAX_LORAS'),
+                'Must NOT bake SGLANG_MAX_LORAS'
             );
         });
 

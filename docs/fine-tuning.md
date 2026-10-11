@@ -4,6 +4,32 @@
 
 ML Container Creator includes a `do/tune` command that wraps SageMaker AI Managed Model Customization — a serverless fine-tuning capability that eliminates instance selection and container management. You provide a dataset and technique; SageMaker AI handles infrastructure, optimization, and produces a deployable model artifact that feeds directly back into your project's deployment lifecycle.
 
+## `do/tune` vs `do/train`: the two training surfaces
+
+MLCC splits training across two surfaces by **how much of the loop you own**, not
+by technique flavor. Pick the surface first, then the technique.
+
+| | `do/tune` (managed) | `do/train` (super-user) |
+|---|---|---|
+| **What it wraps** | SageMaker Managed Model Customization (serverless) | `CreateTrainingJob` with your own container + script |
+| **Infrastructure** | Managed — no instance selection | You choose the instance type |
+| **Training code** | SageMaker's built-in trainers | Your script (ships with editable recipes) |
+| **Models** | Supported Model Catalog only | Any HuggingFace model |
+| **Supervised techniques** | SFT, DPO | SFT, DPO + any custom technique |
+| **Reinforcement learning** | Managed RLVR / RLAIF / MTRL | Self-managed **GRPO** |
+| **Reward (for RL)** | A **registered SageMaker evaluator asset** (a Lambda, referenced by ARN) | An **in-process Python callable** you write in the recipe |
+| **You edit the training/reward code?** | No | Yes — that is the point |
+| **When to choose** | You want a hands-off managed customization | You need to own and modify the training/reward loop |
+
+!!! info "GRPO is on `do/train`, not `do/tune`"
+    GRPO (Group Relative Policy Optimization) is **self-managed** reinforcement
+    learning: the reward is an in-process Python callable you author in the recipe
+    (`training/grpo/reward_example.py`), with no managed evaluator service in the
+    loop. See [Custom Training → GRPO](custom-training.md#grpo-group-relative-policy-optimization).
+    The managed RL path on `do/tune` is the opposite: its reward is a
+    separately-registered evaluator asset (an ARN). Both are called a "reward
+    function"; they are different mechanisms.
+
 ## Prerequisites
 
 | Requirement | Details |
@@ -217,14 +243,23 @@ The warning is non-blocking — tuning proceeds. In automated (`MLCC_AUTO_MODE=1
 
 ## Techniques
 
-`do/tune` supports four customization techniques. Each technique requires a different dataset format and produces different training dynamics.
+`do/tune` supports five managed customization techniques. Each requires a different
+dataset format, and the three reinforcement-fine-tuning (RFT) techniques also require
+a registered **evaluator** — see [Managed RL evaluators](#managed-rl-evaluators-rlvr-rlaif-mtrl).
 
-| Technique | Use Case | Dataset Format |
+| Technique | Use Case | Inputs (register these first) |
 |---|---|---|
-| **SFT** | Teach the model a specific style or task | Prompt/completion pairs |
-| **DPO** | Align the model with human preferences | Prompt with chosen/rejected responses |
-| **RLAIF** | Align using an AI judge | Prompts with reward prompt reference |
-| **RLVR** | Align using code-based verification | Prompts with reward function Lambda |
+| **SFT** | Teach the model a specific style or task | Dataset only — prompt/completion pairs |
+| **DPO** | Align the model with human preferences | Dataset only — prompt with chosen/rejected responses |
+| **RLVR** | Align using code-based verification | Parquet prompt dataset (verl 5-field) **+** a reward **function** (`do/register evaluator`) |
+| **RLAIF** | Align using an AI judge | Parquet prompt dataset (verl 5-field) **+** a reward **prompt** (`do/register prompt`) |
+| **MTRL** _(deferred — not yet runnable)_ | Multi-turn reinforcement learning | Plain-`prompt` dataset **+** a `CustomAgentLambda` via `--agent-env` (no model supports MTRL yet) |
+
+SFT and DPO need a dataset only. **RLVR and RLAIF** need **two** separately-registered
+inputs — a prompt dataset AND an evaluator — and `do/tune` fails before submission if
+either is missing, naming the one to register. **MTRL** is different: it needs a prompt
+dataset AND an agent (`--agent-env`), not an evaluator — and it is not yet runnable (no
+catalog model supports it). The validated managed-RL techniques are RLVR and RLAIF.
 
 Not all models support all techniques. Check what's available for your model:
 
@@ -249,7 +284,21 @@ Each model+technique combination supports one or both training types:
 
 ## Dataset Formats
 
-Datasets must be in JSONL format (one JSON object per line). The expected schema depends on the technique and model family. The script validates the first 10 lines of your dataset before submitting the job.
+The required format differs by technique family:
+
+- **SFT / DPO** — **JSONL** (one JSON object per line). `do/tune` validates the first
+  10 lines before submitting.
+- **RLVR / RLAIF** — **Parquet** in verl's 5-field schema (see
+  [Managed RL dataset format](#managed-rl-dataset-format-rlvr--rlaif) below). The
+  managed RL trainer's loader is parquet-only; a JSONL file fails in-container with
+  `ArrowInvalid: Parquet magic bytes not found`. `do/tune` enforces parquet for these
+  techniques in preflight and skips the JSONL line-check.
+- **MTRL** — a plain `prompt` column (parquet/jsonl) passed through to your agent
+  unparsed. MTRL is **not yet runnable** — see [MTRL](#mtrl-multi-turn-rl-deferred).
+
+The expected per-field schema also depends on the model family (some expect a Converse
+format); the Supported Model Catalog encodes it, and a validation error shows the
+expected schema.
 
 ### SFT (Supervised Fine-Tuning)
 
@@ -274,42 +323,200 @@ Each line contains a prompt with a preferred ("chosen") and dispreferred ("rejec
 
 **Required keys**: `prompt` (string), `chosen` (string), `rejected` (string)
 
-### RLVR (Reinforcement Learning with Verifiable Rewards)
+### Managed RL dataset format (RLVR / RLAIF)
 
-Each line contains a prompt (as a message array) and a reference to a Lambda function that scores the model's output:
+!!! important "RLVR/RLAIF datasets are parquet, and do NOT carry the reward"
+    Unlike SFT/DPO, the managed RL techniques use **Parquet** (not JSONL) and the
+    **reward is a separate registered evaluator** (an ARN), not a field in the dataset.
+    The dataset is a prompt corpus; the reward is wired via `--evaluator-name` /
+    `--reward-function` / `--reward-prompt`.
 
-```jsonl
-{"prompt": [{"role": "user", "content": "Solve: 2 + 2"}], "reward_model": "arn:aws:lambda:us-east-1:123456789012:function:math-verifier"}
-{"prompt": [{"role": "user", "content": "Write a function that reverses a string in Python"}], "reward_model": "arn:aws:lambda:us-east-1:123456789012:function:code-verifier"}
+The managed RL trainer (verl's `RLHFDataset`) requires parquet with **five fields per
+row** (verl's documented GSM8K prep format):
+
+| Field | Type | Notes |
+|---|---|---|
+| `data_source` | string | Dataset origin id (indexes the reward function) |
+| `prompt` | **list of chat messages** `[{"role","content"}]` | NOT a flattened string |
+| `ability` | string | Task category (e.g. `"math"`) |
+| `reward_model` | **struct** `{"style": "rule", "ground_truth": "<str>"}` | NOT a flat string. A missing `reward_model` fails with "Missing required field: 'reward_model'" |
+| `extra_info` | struct | e.g. `{"split","index"}` — recorded, not used by training |
+
+Build it with pyarrow and register the prefix (RLVR and RLAIF use the **same** dataset
+schema — they differ only in the reward asset):
+
+```python
+import pyarrow as pa, pyarrow.parquet as pq
+rows = {
+    "data_source": ["gsm8k"],
+    "prompt": [[{"role": "user", "content": "Question: ... Answer:"}]],
+    "ability": ["math"],
+    "reward_model": [{"style": "rule", "ground_truth": "42"}],
+    "extra_info": [{"split": "train", "index": 0}],
+}
+pq.write_table(pa.table(rows), "train-00000-of-00001.parquet")
 ```
 
-**Required keys**: `prompt` (array of message objects), `reward_model` (string — Lambda ARN)
+!!! warning "The channel prefix must contain ONLY parquet"
+    SageMaker mounts the whole dataset S3 prefix as the training channel. Any
+    non-parquet file in it — notably the registry's `_dataset.json` sidecar — is read
+    as parquet and fails the job. Stage RL datasets so the prefix holds only the
+    parquet data file(s). `do/tune` enforces parquet for RL techniques in preflight
+    (it fails loud if the dataset is not parquet, before provisioning GPUs).
 
-Use the `--reward-function` flag to specify the Lambda ARN:
+Run RLVR / RLAIF by resolving a registered evaluator (see
+[Managed RL evaluators](#managed-rl-evaluators-rlvr-rlaif-mtrl)):
 
 ```bash
-./do/tune --technique rlvr \
-  --dataset s3://my-bucket/prompts.jsonl \
-  --reward-function arn:aws:lambda:us-east-1:123456789012:function:my-reward
+# RLVR — verifiable reward (a Lambda)
+./do/tune --technique rlvr --dataset <parquet-prefix-or-name> --evaluator-name math-reward
+
+# RLAIF — LLM-as-judge (a reward prompt)
+./do/tune --technique rlaif --dataset <parquet-prefix-or-name> --evaluator-name clarity-judge
 ```
 
-### RLAIF (Reinforcement Learning from AI Feedback)
+`do/tune` resolves the evaluator name to its **hub-content evaluator ARN** and passes
+that to the trainer. You can bypass the registry with `--reward-function <arn>` (RLVR)
+or `--reward-prompt <arn>` (RLAIF), but pass the **hub-content evaluator ARN**, not a
+bare Lambda ARN or a name — the SDK requires that form.
 
-Same format as RLVR, but uses a reward prompt (an LLM judge) instead of a Lambda function:
+### MTRL (multi-turn RL) — deferred
 
-```jsonl
-{"prompt": [{"role": "user", "content": "Explain gravity to a 5-year-old"}], "reward_model": "s3://my-bucket/reward-prompts/clarity-judge.txt"}
-{"prompt": [{"role": "user", "content": "Write a professional email declining a meeting"}], "reward_model": "s3://my-bucket/reward-prompts/tone-judge.txt"}
-```
+MTRL trains an agent across multiple turns. Its reward lives **inside a
+`CustomAgentLambda` you author** (not a reward function/prompt), and its dataset is a
+plain `prompt` column passed through unparsed. `do/tune` wires `--agent-env` for it,
+but MTRL is **not yet runnable**: no model in the Supported Model Catalog advertises
+MTRL recipes, and the agent-authoring path isn't shipped. Use RLVR or RLAIF for managed
+RL today.
 
-**Required keys**: `prompt` (array of message objects), `reward_model` (string — S3 URI to reward prompt)
+## Managed RL evaluators (RLVR, RLAIF, MTRL)
 
-Use the `--reward-prompt` flag to specify the reward prompt location:
+The RFT techniques score each generated response with an **evaluator** — a native
+SageMaker AI Registry asset. There are two evaluator types, registered with two
+verbs, and each technique uses one:
+
+| Technique | Reward mechanism | Register with | Source |
+|---|---|---|---|
+| RLVR | reward **function** (code) | `do/register evaluator` | a Lambda (ARN) |
+| RLAIF | reward **prompt** (LLM-as-judge) | `do/register prompt` | an S3 prompt file |
+| MTRL _(deferred)_ | an **agent** (not an evaluator) | author a `CustomAgentLambda`, pass `--agent-env` | your agent Lambda |
+
+Together with the dataset verb, that is the **three register verbs** of the RL
+workflow: `do/register dataset` (the prompt corpus), `do/register evaluator` (a
+code reward function), and `do/register prompt` (a reward prompt). Datasets and
+evaluators are separate assets in separate registries; `do/tune` resolves both.
+
+List what you have registered with `--list` on either evaluator verb:
 
 ```bash
-./do/tune --technique rlaif \
-  --dataset s3://my-bucket/prompts.jsonl \
-  --reward-prompt s3://my-bucket/reward-prompts/clarity-judge.txt
+./do/register evaluator --list   # registered reward functions (RLVR)
+./do/register prompt --list      # registered reward prompts (RLAIF)
+```
+
+### Register a reward function (RLVR / MTRL)
+
+The lead path is **bring-your-own-Lambda** — reference an existing reward Lambda
+by ARN. SageMaker stores a reference; it provisions nothing and needs no extra
+role:
+
+```bash
+# Register an existing Lambda as a reward-function evaluator
+./do/register evaluator math-reward --arn arn:aws:lambda:us-west-2:123456789012:function:math-reward --technique rlvr
+
+# Then tune, resolving the evaluator by name (RLVR needs BOTH a dataset and this)
+./do/tune --technique rlvr --dataset math-prompts --evaluator-name math-reward
+```
+
+Don't have a Lambda yet? Start from an editable sample, then register the edited
+file:
+
+```bash
+./do/register evaluator math-reward --from-sample          # writes do/evaluators/math-reward.py — edit it
+./do/register evaluator math-reward --from-sample --finalize   # register the edited reward function
+```
+
+**ARN vs `--from-sample` tradeoff:** the ARN path provisions no Lambda and needs
+no extra role — prefer it. `--from-sample --finalize` makes SageMaker create and
+own a managed Lambda, which requires a **dual-trust reward-Lambda role** (trusted
+by both `sagemaker.amazonaws.com` and `lambda.amazonaws.com`, plus `iam:PassRole`)
+— NOT the plain training role. Set `MLCC_REWARD_LAMBDA_ROLE_ARN` to that role
+before `--finalize`, or the create fails with a Lambda trust error.
+
+#### Reward-function contract
+
+The managed container invokes the Lambda **per batch**: the `event` is a **list of
+sample records**, and the Lambda must return a **list of score objects**, one per
+record, each with `aggregate_reward_score` (float) and the record's `id`:
+
+```python
+def handler(event, context=None):
+    # event is a LIST of records (one batch). Each record carries the prompt,
+    # the model's output, and the ground truth (field names vary — normalize them).
+    scores = []
+    for idx, rec in enumerate(event):
+        rid = rec.get("id", idx)
+        reward = 1.0  # ← your real scoring here (0.0–1.0 conventional)
+        scores.append({"aggregate_reward_score": reward, "id": rid})
+    return scores
+```
+
+!!! warning "Return a LIST, not a single dict"
+    A single `{"reward": 1.0}` dict is **rejected** by the managed RLVR container
+    (*"Lambda response must be a list of score objects ... like
+    [{\"aggregate_reward_score\": 0.5, \"id\": 0}]"*). The shipped
+    `register_evaluator_sample.py` sample currently uses the old single-dict shape —
+    update it to the per-batch list contract above.
+
+A reward function must never raise — a crash fails the whole RL step, so catch
+errors and floor that record to `0.0`.
+
+!!! note "Reward Lambda IAM"
+    The execution role needs `lambda:InvokeFunction` on the reward Lambda. The shipped
+    policy scopes to `function:mlcc-*`, so a bring-your-own reward Lambda with a
+    different name needs an explicit grant for its ARN. (RLAIF additionally needs
+    `bedrock:InvokeModel` for the judge model — provisioned in the core bootstrap.)
+
+!!! info "Two different 'reward functions' in v1.9"
+    This BL117 reward function is a **registered Lambda evaluator asset** consumed
+    by managed RFT on `do/tune`. It is NOT the same as the GRPO reward in
+    [Custom Training](custom-training.md#grpo-group-relative-policy-optimization),
+    which is an **in-process Python callable** in your `do/train` recipe. Same
+    term, different mechanism — this page describes the managed Lambda-evaluator
+    kind.
+
+### Register a reward prompt (RLAIF)
+
+A reward prompt is an LLM-as-judge template registered as a native
+`REWARD_PROMPT` evaluator (no Lambda, no dual-trust role):
+
+```bash
+# Easiest: pass a LOCAL file — it is auto-uploaded to the canonical core-bucket
+# location (s3://<CORE_BUCKET>/reward-prompts/<name>.<ext>) and then registered.
+./do/register prompt clarity-judge --prompt-file ./clarity-judge.txt
+
+# Or register an already-staged S3 file directly:
+./do/register prompt clarity-judge --prompt s3://my-bucket/reward-prompts/clarity-judge.txt
+
+# Then tune (RLAIF needs BOTH a dataset and this reward prompt)
+./do/tune --technique rlaif --dataset clarity-prompts --evaluator-name clarity-judge
+```
+
+`--prompt-file` and `--prompt` are mutually exclusive; `--prompt-file` needs a
+provisioned mlcc-core bucket (`ml-container-creator bootstrap`) to upload into.
+
+#### Reward-prompt contract
+
+The prompt file is a text/Jinja template scored by an LLM judge. It references the
+ground truth and the model's output with placeholders, e.g.:
+
+```
+Score 0.0–1.0 how well the response answers the question.
+
+### Context
+{{ ground_truth }}
+
+### Model Response
+{{ model_output }}
 ```
 
 ### Model-specific formats
@@ -355,18 +562,88 @@ MCC indexes datasets with an **S3 sidecar** for reproducible tuning workflows.
 | Tier | Location | Purpose |
 |------|----------|---------|
 | **S3 sidecar** (source of truth) | `s3://<CORE_BUCKET>/datasets/<name>/_dataset.json` | Version tracking, content hashes, custom metadata, name resolution |
-| **SageMaker AI Registry Hub** (supplementary, deferred) | SageMaker Hub (`mlcc-registry-{accountId}`) | Cross-account discoverability, Studio visibility |
+| **Native AI Registry** (discoverability) | SageMaker's own AI Registry hub, tagged with your Studio domain | Studio Assets visibility, native semver, ML Lineage edges |
 
 The sidecar is populated automatically by `do/register dataset` and is the
 source of truth for versioning and `@v<N>` pinning. It sits beside the dataset
 bytes (which land at `s3://<CORE_BUCKET>/datasets/<name>/`), so the registry is
-durable and shared across machines. Hub integration is preserved but deferred to
-a later phase.
+durable and shared across machines. It is written **first** and never depends on
+anything else succeeding.
+
+After the sidecar is written, `do/register dataset` **additively** registers the
+same dataset in SageMaker's native AI Registry so it shows up in **Studio
+Assets** — pointing at the same S3 URI (no copy). This step is best-effort: if it
+is skipped or fails (see below), the sidecar still stands and the dataset is
+fully usable; it just won't appear in Studio until the native registration
+succeeds.
+
+##### Studio discoverability (the domain tag)
+
+Native assets become visible in Studio Assets only when they are tagged with a
+Studio **domain id**. MLCC passes that tag automatically when the
+`sagemaker-domain` bootstrap module is provisioned (its `DomainId` is captured
+into your active profile at bootstrap time). Without a provisioned domain the
+dataset is still registered natively, but it is not tagged into Studio Assets —
+`do/register dataset` prints a note telling you to provision the
+`sagemaker-domain` module to enable Studio visibility.
+
+##### Native versioning vs the sidecar `@vN`
+
+The two version schemes do not conflict and you never reconcile them by hand:
+
+- The **sidecar `@vN`** (ordinal + semver) is MLCC's canonical, pin-able display
+  version — it is what `do/tune --dataset name@v2` resolves against.
+- The **native AI Registry semver** auto-increments internally each time you
+  re-register the same name. It is a registry-internal detail; you don't pin
+  against it.
+
+##### Technique labels and native members
+
+`--technique` accepts `sft`, `dpo`, `rlvr`, `rlaif`, `mtrl`, and `benchmark`.
+Each dataset-driven label maps to a native `CustomizationTechnique` member:
+`sft`→SFT, `dpo`→DPO, and `rlvr`/`rlaif`/`mtrl` all land on the **RLVR** member
+(their training input is a prompt corpus of the same shape; the intended
+technique is recorded in the sidecar so `do/tune` resolves it correctly).
+`benchmark` is **sidecar-only** — it is an AIPerf BYOD benchmark corpus, not a
+customization input, so it is not registered natively. Reward prompts and reward
+functions are **evaluators, not datasets**: `do/register dataset` rejects them
+and points you at `do/register prompt` / `do/register evaluator`.
+
+##### Region and SDK requirements
+
+Native registration and ML Lineage are region-gated to `us-east-1`,
+`us-west-2`, `ap-northeast-1`, and `eu-west-1`, and need a recent `sagemaker`
+SDK. Outside a supported region, or on an SDK that doesn't expose
+`sagemaker.ai_registry`, the native step is skipped with a clear message (an
+upgrade hint for the SDK case) — the sidecar and the MLflow→Model-Registry path
+are unaffected.
+
+##### Lineage: how datasets, models, and derivatives connect
+
+MLCC turns the metadata it already records into native **ML Lineage** edges, so
+Studio's lineage graph connects your assets without you ever calling
+`AddAssociation` yourself. Two edges are drawn, both best-effort and idempotent:
+
+- **dataset → model**: the training dataset is logged as an input on the MLflow
+  run that produced the model, so Studio links the dataset to the model it
+  trained. This is driven only by the dataset S3 URI, so it covers both the
+  `do/tune` adapter path and the `do/train` GRPO path.
+- **base → derivative**: when you register an adapter or draft with
+  `do/register`, MLCC adds a `DerivedFrom` edge from the base model to the new
+  derivative, driven by the `mlcc.family` linkage it already resolves.
+
+SageMaker creates the underlying lineage artifacts asynchronously, so an edge
+may be skipped on the first call if the artifact isn't materialized yet; the
+family linkage is still recorded in the model metadata, and a later re-register
+draws the edge. Live Studio/lineage rendering is validated against a real
+account.
 
 !!! note "Console Import Not Supported"
     The SageMaker Studio console's dataset import UI has a known schema validation
     bug (injects internal session properties). Always register datasets via
-    `do/register dataset` or the SDK — not the console.
+    `do/register dataset` or the SDK — not the console. `do/register dataset`
+    lands the dataset in the native AI Registry for you, so you get Studio
+    discoverability without touching the console import UI.
 
 #### Using registered datasets
 
@@ -421,11 +698,15 @@ technique, and row count from the most recent tune job.
 ##### Custom metadata
 
 Attach attribution, lineage, origination, and application metadata; these are
-recorded under `customMetadata` in the S3 sidecar (unset fields are omitted):
+recorded under `customMetadata` in the S3 sidecar (unset fields are omitted). Use
+`--description` for a human-readable summary that is also shown on the native
+asset in Studio Assets (the asset's title is the dataset name — there is no
+separate title field):
 
 ```bash
 ./do/register dataset my-dataset \
   --s3-uri s3://my-bucket/data.jsonl --technique sft \
+  --description "Open-Orca throughput calibration set" \
   --attribution "Acme Research" \
   --lineage "derived from open-orca v2, filtered" \
   --origination "hf://Open-Orca/OpenOrca@main" \
@@ -743,13 +1024,25 @@ Your configured model isn't in the Supported Model Catalog. Run `./do/tune --lis
 
 ### Dataset validation fails
 
-The script validates the first 10 lines of your dataset. Check that:
+For **SFT/DPO**, `do/tune` validates the first 10 JSONL lines. Check that:
 
 - The file is valid JSONL (one JSON object per line)
-- Each line contains the required keys for your technique
-- Values match the expected types (strings for SFT/DPO, arrays for RLVR/RLAIF prompts)
+- Each line contains the required keys for your technique (SFT: `prompt`/`completion`;
+  DPO: `prompt`/`chosen`/`rejected`)
 
 The error message shows the first malformed line and the expected format.
+
+For **RLVR/RLAIF**, the dataset must be **parquet** in the verl 5-field schema (see
+[Managed RL dataset format](#managed-rl-dataset-format-rlvr--rlaif)). Common failures,
+all caught in preflight or early in the job:
+
+- `do/tune` refuses a non-parquet RL dataset before submitting (fail-loud guard).
+- In-container `ArrowInvalid: Parquet magic bytes not found` → the channel prefix
+  contains a non-parquet file (often the `_dataset.json` sidecar). Keep the prefix
+  parquet-only.
+- `Missing required field: 'reward_model'` → the row is missing the `reward_model`
+  struct (a flat `ground_truth` column is not accepted — it must be nested under
+  `reward_model`).
 
 ### "Schema divergence detected across files"
 

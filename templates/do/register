@@ -48,19 +48,24 @@ INSTANCE_TYPE="${INSTANCE_TYPE:-${DEPLOYED_INSTANCE_TYPE:-${BENCHMARK_INSTANCE_T
 # ============================================================
 
 # ── Subcommand routing ────────────────────────────────────────────────────────
-# Supports: model (default), dataset, evaluator
+# Supports: model (default), dataset, evaluator, prompt
 # Backward-compat: --dataset and --evaluator flags still work
 
 _show_usage() {
     echo "Usage: ./do/register [model] [options]        Register the deployed model to MPG"
     echo "       ./do/register dataset <name> [options] Register a dataset to the registry"
-    echo "       ./do/register evaluator <name> [options] Register an evaluator to the registry"
+    echo "       ./do/register evaluator <name> --arn <lambda-arn> | --from-sample [<id>]   Register a code-based reward-function evaluator"
+    echo "       ./do/register prompt <name> --prompt <s3-uri>   Register a reward prompt (RLAIF LLM-as-judge) to the AI Registry"
     echo "       ./do/register --benchmark-status <completed|failed|in-progress> --benchmark-run-id <run-id>"
     echo ""
     echo "Subcommands:"
     echo "  model       (default) Register the current deployment as a Model Package version"
     echo "  dataset     Move a dataset to the canonical MLCC datasets location and register it"
-    echo "  evaluator   Register a reward function or preference model for RL tuning"
+    echo "  evaluator   Register a code-based reward function (RLVR/MTRL): an existing Lambda by"
+    echo "              ARN, or an editable sample sourced from the AWS docs. Lands natively in"
+    echo "              the AI Registry as a REWARD_FUNCTION evaluator."
+    echo "  prompt      Register a reward prompt (RLAIF LLM-as-judge); lands in the AI Registry"
+    echo "              as a REWARD_PROMPT evaluator."
     echo ""
     echo "Dataset:"
     echo "  Moves a dataset into the canonical MLCC datasets location on the mlcc-core"
@@ -79,7 +84,10 @@ _show_usage() {
     echo ""
     echo "  Shared options:"
     echo "  <name>              Dataset name (required, positional)"
-    echo "  --technique <tech>  Technique: sft, dpo, rlaif, rlvr, benchmark (default: benchmark)"
+    echo "  --technique <tech>  Technique: sft, dpo, rlvr, rlaif, mtrl, benchmark (default: benchmark)."
+    echo "                      sft/dpo register natively under their own member; rlvr/rlaif/mtrl"
+    echo "                      under the RLVR member; benchmark is sidecar-only."
+    echo "  --description <d>   Optional human description shown in SageMaker Studio Assets."
     echo "  --row-count <n>     Number of records (with --hf-id, passed to staging as --take)"
     echo "  --format <fmt>      Format: jsonl, parquet, csv (default: jsonl)"
     echo "  --column-schema <j> Column schema as JSON string"
@@ -102,12 +110,23 @@ _show_usage() {
     echo "                           metadata sidecar (datasets/<name>/_dataset.json)."
     echo "  --json                   Emit JSON for --list-versions / --discover / --delete."
     echo ""
-    echo "Evaluator options:"
+    echo "Evaluator options (code-based reward function — RLVR / MTRL):"
     echo "  <name>              Evaluator name (required, positional)"
-    echo "  --type <type>       Type: lambda or model (required)"
-    echo "  --arn <arn>         Lambda ARN or model S3 URI (required)"
-    echo "  --technique <tech>  Technique: rlvr or rlaif (required)"
-    echo "  --description <d>   Optional description"
+    echo "  --arn <lambda-arn>  ARN of an existing reward-function Lambda (primary path)"
+    echo "  --from-sample [<id>] Materialize an editable reward-function sample to edit, then"
+    echo "                      register it with --finalize (managed-Lambda path; needs the"
+    echo "                      dual-trust reward-Lambda role via MLCC_REWARD_LAMBDA_ROLE_ARN)"
+    echo "  --description <d>   Optional description shown in Studio Assets"
+    echo "  Note: --technique is accepted but IGNORED (deprecated — the evaluator TYPE carries"
+    echo "        the distinction; do/tune uses its own --technique). The pairing is fixed:"
+    echo "        reward function → rlvr/mtrl, reward prompt → rlaif."
+    echo "  Note: --type lambda|model is accepted as a DEPRECATED alias — lambda routes here,"
+    echo "        model routes to \`do/register prompt\`."
+    echo ""
+    echo "Prompt options (reward prompt — RLAIF LLM-as-judge):"
+    echo "  <name>              Prompt evaluator name (required, positional)"
+    echo "  --prompt <s3-uri>   S3 URI of the reward prompt file (required)"
+    echo "  --description <d>   Optional description shown in Studio Assets"
     echo ""
     echo "Model options:"
     echo "  --notes \"text\"      Optional deployment notes"
@@ -140,7 +159,18 @@ _show_usage() {
     echo "  # Deregister a dataset (metadata only; data bytes preserved):"
     echo "  ./do/register dataset --delete guanaco            # whole registry entry"
     echo "  ./do/register dataset --delete guanaco @v2 --force # a single version, no prompt"
-    echo "  ./do/register evaluator my-reward --type lambda --arn arn:aws:lambda:... --technique rlvr"
+    echo "  # Register a code-based reward function (RLVR) from an existing Lambda:"
+    echo "  ./do/register evaluator my-reward --arn arn:aws:lambda:us-west-2:...:function:my-reward --technique rlvr"
+    echo "  # Start from an editable sample, then register the edited file:"
+    echo "  ./do/register evaluator my-reward --from-sample      # materialize + edit do/evaluators/my-reward.py"
+    echo "  ./do/register evaluator my-reward --from-sample --finalize   # register the edited file"
+    echo "  # Register a reward prompt (RLAIF LLM-as-judge) from a LOCAL file (auto-uploaded):"
+    echo "  ./do/register prompt pairwise-judge --prompt-file ./judge-prompt.txt"
+    echo "  # ...or from an already-staged S3 file:"
+    echo "  ./do/register prompt pairwise-judge --prompt s3://my-bucket/judge-prompt.txt"
+    echo "  # List what's registered:"
+    echo "  ./do/register evaluator --list      # reward functions (RLVR/MTRL)"
+    echo "  ./do/register prompt --list         # reward prompts (RLAIF)"
 }
 
 # Detect subcommand or legacy flags
@@ -148,6 +178,7 @@ SUBCOMMAND="model"
 case "${1:-}" in
     dataset)   SUBCOMMAND="dataset"; shift ;;
     evaluator) SUBCOMMAND="evaluator"; shift ;;
+    prompt)    SUBCOMMAND="prompt"; shift ;;
     model)     SUBCOMMAND="model"; shift ;;
     --help|-h) _show_usage; exit 0 ;;
     --dataset) SUBCOMMAND="dataset"; shift ;;  # backward compat
@@ -172,6 +203,7 @@ DATASET_HF_SPLIT=""
 DATASET_COLUMN_MAP=""
 DATASET_FORMAT="jsonl"
 DATASET_TECHNIQUE="benchmark"
+DATASET_DESCRIPTION=""
 DATASET_ROW_COUNT=""
 DATASET_COLUMN_SCHEMA=""
 DATASET_HF_FILES=""
@@ -191,6 +223,16 @@ EVALUATOR_TYPE=""
 EVALUATOR_ARN_OR_URI=""
 EVALUATOR_TECHNIQUE=""
 EVALUATOR_DESCRIPTION=""
+EVALUATOR_FROM_SAMPLE=false
+EVALUATOR_SAMPLE_ID=""
+EVALUATOR_FINALIZE=false
+EVALUATOR_FORCE=false
+EVALUATOR_LIST=false
+PROMPT_NAME=""
+PROMPT_URI=""
+PROMPT_FILE=""
+PROMPT_LIST=false
+PROMPT_DESCRIPTION=""
 EXCLUDE_ADAPTERS=""
 BASE_ONLY=false
 WITH_ENDPOINT=false
@@ -229,6 +271,8 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
             --format=*)     DATASET_FORMAT="${1#*=}"; shift ;;
             --technique)    DATASET_TECHNIQUE="$2"; shift 2 ;;
             --technique=*)  DATASET_TECHNIQUE="${1#*=}"; shift ;;
+            --description)  DATASET_DESCRIPTION="$2"; shift 2 ;;
+            --description=*) DATASET_DESCRIPTION="${1#*=}"; shift ;;
             --row-count)    DATASET_ROW_COUNT="$2"; shift 2 ;;
             --row-count=*)  DATASET_ROW_COUNT="${1#*=}"; shift ;;
             --column-schema) DATASET_COLUMN_SCHEMA="$2"; shift 2 ;;
@@ -549,6 +593,18 @@ elif [ "${SUBCOMMAND}" = "evaluator" ]; then
             --arn-or-uri=*) EVALUATOR_ARN_OR_URI="${1#*=}"; shift ;;
             --technique)    EVALUATOR_TECHNIQUE="$2"; shift 2 ;;
             --technique=*)  EVALUATOR_TECHNIQUE="${1#*=}"; shift ;;
+            --from-sample)  EVALUATOR_FROM_SAMPLE=true
+                            # Optional sample id if the next arg isn't a flag.
+                            if [ -n "${2:-}" ] && [[ "${2}" != -* ]]; then
+                                EVALUATOR_SAMPLE_ID="$2"; shift 2
+                            else
+                                shift
+                            fi ;;
+            --sample-id)    EVALUATOR_SAMPLE_ID="$2"; shift 2 ;;
+            --sample-id=*)  EVALUATOR_SAMPLE_ID="${1#*=}"; shift ;;
+            --finalize)     EVALUATOR_FINALIZE=true; shift ;;
+            --force)        EVALUATOR_FORCE=true; shift ;;
+            --list)         EVALUATOR_LIST=true; shift ;;
             --description)  EVALUATOR_DESCRIPTION="$2"; shift 2 ;;
             --description=*) EVALUATOR_DESCRIPTION="${1#*=}"; shift ;;
             --name)         EVALUATOR_NAME="$2"; shift 2 ;;  # alternate to positional
@@ -561,6 +617,28 @@ elif [ "${SUBCOMMAND}" = "evaluator" ]; then
             --evaluator-description) EVALUATOR_DESCRIPTION="$2"; shift 2 ;;
             --help|-h) _show_usage; exit 0 ;;
             *) echo "⚠️  Unknown evaluator option: $1"; _show_usage; exit 1 ;;
+        esac
+    done
+
+# ── Prompt subcommand arg parsing (REWARD_PROMPT / RLAIF) ──────────────────────
+elif [ "${SUBCOMMAND}" = "prompt" ]; then
+    # First positional arg is the prompt evaluator name
+    if [ $# -gt 0 ] && [[ "${1}" != -* ]]; then
+        PROMPT_NAME="$1"; shift
+    fi
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --prompt)       PROMPT_URI="$2"; shift 2 ;;
+            --prompt=*)     PROMPT_URI="${1#*=}"; shift ;;
+            --prompt-file)  PROMPT_FILE="$2"; shift 2 ;;
+            --prompt-file=*) PROMPT_FILE="${1#*=}"; shift ;;
+            --list)         PROMPT_LIST=true; shift ;;
+            --name)         PROMPT_NAME="$2"; shift 2 ;;  # alternate to positional
+            --name=*)       PROMPT_NAME="${1#*=}"; shift ;;
+            --description)  PROMPT_DESCRIPTION="$2"; shift 2 ;;
+            --description=*) PROMPT_DESCRIPTION="${1#*=}"; shift ;;
+            --help|-h) _show_usage; exit 0 ;;
+            *) echo "⚠️  Unknown prompt option: $1"; _show_usage; exit 1 ;;
         esac
     done
 
@@ -767,12 +845,16 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
         exit 1
     fi
 
-    # Validate technique
+    # Validate technique. Each label maps to a native AI Registry
+    # CustomizationTechnique member: sft→SFT, dpo→DPO, and rlvr/rlaif/mtrl all land
+    # on the RLVR member (their training input is a prompt corpus of the same
+    # shape; the intended technique is recorded in the sidecar). benchmark is
+    # sidecar-only (an AIPerf BYOD corpus, not a customization input).
     case "${DATASET_TECHNIQUE}" in
-        sft|dpo|rlaif|rlvr|benchmark) ;;
+        sft|dpo|rlvr|rlaif|mtrl|benchmark) ;;
         *)
             echo "❌ Invalid technique: ${DATASET_TECHNIQUE}"
-            echo "   Valid values: sft, dpo, rlaif, rlvr, benchmark"
+            echo "   Valid values: sft, dpo, rlvr, rlaif, mtrl, benchmark"
             exit 1
             ;;
     esac
@@ -946,6 +1028,10 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
         DS_ARGS+=("--column-schema" "${DATASET_COLUMN_SCHEMA}")
     fi
 
+    if [ -n "${DATASET_DESCRIPTION}" ]; then
+        DS_ARGS+=("--description" "${DATASET_DESCRIPTION}")
+    fi
+
     DS_ARGS+=("--project-name" "${PROJECT_NAME}")
     DS_ARGS+=("--region" "${AWS_REGION}")
     DS_ARGS+=("--core-bucket" "${CORE_BUCKET}")
@@ -989,59 +1075,182 @@ fi
 # ============================================================
 
 if [ "${SUBCOMMAND}" = "evaluator" ]; then
+    # Back-compat: the old form was `--type lambda|model`. `lambda`/`function`
+    # stay on this code-based reward-function path; `model`/`prompt` reroute to
+    # the `prompt` verb (REWARD_PROMPT). Map the ARN alias to the prompt URI.
+    case "${EVALUATOR_TYPE}" in
+        model|prompt)
+            echo "ℹ️  --type ${EVALUATOR_TYPE} is deprecated; routing to \`do/register prompt\`."
+            SUBCOMMAND="prompt"
+            PROMPT_NAME="${EVALUATOR_NAME}"
+            PROMPT_URI="${EVALUATOR_ARN_OR_URI}"
+            PROMPT_DESCRIPTION="${EVALUATOR_DESCRIPTION}"
+            ;;
+    esac
+fi
+
+if [ "${SUBCOMMAND}" = "evaluator" ]; then
+    # ── --list: enumerate registered REWARD_FUNCTION evaluators (B) ───────────
+    if [ "${EVALUATOR_LIST}" = true ]; then
+        if le_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-evaluators \
+            --evaluator-type reward_function --region "${AWS_REGION}"); then
+            echo "${le_output}"
+        else
+            echo "❌ Could not list reward-function evaluators"
+            exit 1
+        fi
+        exit 0
+    fi
+
     if [ -z "${EVALUATOR_NAME}" ]; then
         echo "❌ Evaluator name is required"
-        echo "   Usage: ./do/register evaluator <name> --type <lambda|model> --arn <arn> --technique <rlvr|rlaif>"
-        exit 1
-    fi
-    if [ -z "${EVALUATOR_TYPE}" ]; then
-        echo "❌ --type is required (lambda or model)"
-        exit 1
-    fi
-    if [ -z "${EVALUATOR_ARN_OR_URI}" ]; then
-        echo "❌ --arn is required (Lambda ARN or model S3 URI)"
-        exit 1
-    fi
-    if [ -z "${EVALUATOR_TECHNIQUE}" ]; then
-        echo "❌ --technique is required (rlvr or rlaif)"
+        echo "   Usage: ./do/register evaluator <name> --arn <lambda-arn>   (or --from-sample [<id>])"
         exit 1
     fi
 
-    echo "📋 Registering evaluator: ${EVALUATOR_NAME}"
-    echo "   Type:        ${EVALUATOR_TYPE}"
-    echo "   ARN/URI:     ${EVALUATOR_ARN_OR_URI}"
-    echo "   Technique:   ${EVALUATOR_TECHNIQUE}"
-    if [ -n "${EVALUATOR_DESCRIPTION}" ]; then
-        echo "   Description: ${EVALUATOR_DESCRIPTION}"
-    fi
-    echo ""
+    # Default technique is rlvr; mtrl also uses a code-based reward function.
+    [ -z "${EVALUATOR_TECHNIQUE}" ] && EVALUATOR_TECHNIQUE="rlvr"
 
-    # Build register-evaluator args
     EV_ARGS=(
         "register-evaluator"
         "--name" "${EVALUATOR_NAME}"
-        "--type" "${EVALUATOR_TYPE}"
-        "--arn-or-uri" "${EVALUATOR_ARN_OR_URI}"
         "--technique" "${EVALUATOR_TECHNIQUE}"
+        "--region" "${AWS_REGION}"
     )
 
-    if [ -n "${EVALUATOR_DESCRIPTION}" ]; then
-        EV_ARGS+=("--description" "${EVALUATOR_DESCRIPTION}")
+    if [ "${EVALUATOR_FROM_SAMPLE}" = true ]; then
+        # Editable-sample on-ramp (Req 1A). Without --finalize this materializes
+        # an editable reward function and stops so the user edits it first.
+        echo "📋 ${EVALUATOR_FINALIZE:+Finalizing}${EVALUATOR_FINALIZE:-Materializing} reward-function sample: ${EVALUATOR_NAME}"
+        EV_ARGS+=("--from-sample")
+        [ -n "${EVALUATOR_SAMPLE_ID}" ] && EV_ARGS+=("--sample-id" "${EVALUATOR_SAMPLE_ID}")
+        [ "${EVALUATOR_FINALIZE}" = true ] && EV_ARGS+=("--finalize")
+        [ "${EVALUATOR_FORCE}" = true ] && EV_ARGS+=("--force")
+    else
+        # Bring-your-own-Lambda (ARN) — the primary path.
+        if [ -z "${EVALUATOR_ARN_OR_URI}" ]; then
+            echo "❌ --arn is required (ARN of an existing reward-function Lambda)."
+            echo "   No Lambda yet? Seed an editable one:"
+            echo "     ./do/register evaluator ${EVALUATOR_NAME} --from-sample"
+            exit 1
+        fi
+        echo "📋 Registering reward-function evaluator: ${EVALUATOR_NAME}"
+        echo "   Lambda ARN:  ${EVALUATOR_ARN_OR_URI}"
+        echo "   Technique:   ${EVALUATOR_TECHNIQUE}"
+        EV_ARGS+=("--arn" "${EVALUATOR_ARN_OR_URI}")
     fi
-
+    [ -n "${EVALUATOR_DESCRIPTION}" ] && EV_ARGS+=("--description" "${EVALUATOR_DESCRIPTION}")
     EV_ARGS+=("--project-name" "${PROJECT_NAME}")
+    echo ""
 
-    # Call .register_helper.py register-evaluator
-    if ev_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${EV_ARGS[@]}" 2>/dev/null); then
+    # stderr is shown so the user sees skip/guidance messages from the helper.
+    if ev_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${EV_ARGS[@]}"); then
         ev_json=$(echo "${ev_output}" | grep -E '^\{' | tail -1)
         if [ -n "${ev_json}" ]; then
-            echo "✅ Evaluator registered successfully"
+            echo "✅ Evaluator registered"
             echo "${ev_json}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${ev_json}"
         else
             echo "⚠️  Evaluator registration returned no JSON output"
         fi
     else
         echo "❌ Evaluator registration failed"
+        exit 1
+    fi
+
+    exit 0
+fi
+
+# ============================================================
+# Handle prompt mode (register a reward prompt — REWARD_PROMPT / RLAIF)
+# ============================================================
+
+if [ "${SUBCOMMAND}" = "prompt" ]; then
+    # ── --list: enumerate registered REWARD_PROMPT evaluators (B) ─────────────
+    if [ "${PROMPT_LIST}" = true ]; then
+        if lp_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-evaluators \
+            --evaluator-type reward_prompt --region "${AWS_REGION}"); then
+            echo "${lp_output}"
+        else
+            echo "❌ Could not list reward prompts"
+            exit 1
+        fi
+        exit 0
+    fi
+
+    if [ -z "${PROMPT_NAME}" ]; then
+        echo "❌ Prompt name is required"
+        echo "   Usage: ./do/register prompt <name> (--prompt-file <local.txt> | --prompt <s3-uri>)"
+        exit 1
+    fi
+    if [ -n "${PROMPT_URI}" ] && [ -n "${PROMPT_FILE}" ]; then
+        echo "❌ --prompt and --prompt-file are mutually exclusive — provide only one"
+        exit 1
+    fi
+    if [ -z "${PROMPT_URI}" ] && [ -z "${PROMPT_FILE}" ]; then
+        echo "❌ Provide the reward prompt: --prompt-file <local file> (auto-uploaded) or --prompt <s3-uri>"
+        exit 1
+    fi
+
+    # ── --prompt-file: auto-upload a LOCAL file to the canonical core-bucket
+    #    location, then register that URI (A). Mirrors the dataset path's
+    #    canonicalization (s3://<CORE_BUCKET>/datasets/<name>/) so users don't
+    #    hand-run `aws s3 cp`. Destination: s3://<CORE_BUCKET>/reward-prompts/<name><ext>.
+    if [ -n "${PROMPT_FILE}" ]; then
+        if [ ! -f "${PROMPT_FILE}" ]; then
+            echo "❌ --prompt-file not found: ${PROMPT_FILE}"
+            exit 1
+        fi
+        if [ -z "${CORE_BUCKET}" ]; then
+            echo "❌ No mlcc-core bucket recorded in profile (codebuildSourceS3Bucket is empty)."
+            echo "   Run 'ml-container-creator bootstrap' to provision it, or set CORE_BUCKET,"
+            echo "   or pass an already-staged file via --prompt <s3-uri>."
+            exit 1
+        fi
+        _pf_ext="${PROMPT_FILE##*.}"
+        if [ "${_pf_ext}" = "${PROMPT_FILE}" ]; then _pf_ext="txt"; fi  # no extension → .txt
+        PROMPT_URI="s3://${CORE_BUCKET}/reward-prompts/${PROMPT_NAME}.${_pf_ext}"
+        echo "📦 Uploading reward prompt to canonical location"
+        echo "   Source: ${PROMPT_FILE}"
+        echo "   Target: ${PROMPT_URI}"
+        _pf_cmd=(aws s3 cp "${PROMPT_FILE}" "${PROMPT_URI}")
+        [ -n "${AWS_REGION:-}" ] && _pf_cmd+=(--region "${AWS_REGION}")
+        if ! "${_pf_cmd[@]}"; then
+            echo "❌ Failed to upload reward prompt to ${PROMPT_URI}"
+            exit 1
+        fi
+        echo "   ✅ Uploaded"
+        echo ""
+    elif [[ "${PROMPT_URI}" != s3://* ]]; then
+        echo "❌ --prompt must be an s3:// URI (got: ${PROMPT_URI}). For a local file use --prompt-file."
+        exit 1
+    fi
+
+    echo "📋 Registering reward prompt: ${PROMPT_NAME}"
+    echo "   Prompt S3 URI: ${PROMPT_URI}"
+    if [ -n "${PROMPT_DESCRIPTION}" ]; then
+        echo "   Description:   ${PROMPT_DESCRIPTION}"
+    fi
+    echo ""
+
+    PR_ARGS=(
+        "register-prompt"
+        "--name" "${PROMPT_NAME}"
+        "--prompt" "${PROMPT_URI}"
+        "--region" "${AWS_REGION}"
+    )
+    [ -n "${PROMPT_DESCRIPTION}" ] && PR_ARGS+=("--description" "${PROMPT_DESCRIPTION}")
+    PR_ARGS+=("--project-name" "${PROJECT_NAME}")
+
+    if pr_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${PR_ARGS[@]}"); then
+        pr_json=$(echo "${pr_output}" | grep -E '^\{' | tail -1)
+        if [ -n "${pr_json}" ]; then
+            echo "✅ Reward prompt registered"
+            echo "${pr_json}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${pr_json}"
+        else
+            echo "⚠️  Prompt registration returned no JSON output"
+        fi
+    else
+        echo "❌ Prompt registration failed"
         exit 1
     fi
 
@@ -1160,14 +1369,8 @@ fi
 # ============================================================
 
 # DEPLOYMENT_CONFIG format: <architecture>-<backend> (e.g., transformers-vllm, http-flask, triton-fil)
-# Special case: marketplace has no backend
-if [ "${DEPLOYMENT_CONFIG}" = "marketplace" ]; then
-    ARCHITECTURE="marketplace"
-    BACKEND=""
-else
-    ARCHITECTURE="${DEPLOYMENT_CONFIG%%-*}"
-    BACKEND="${DEPLOYMENT_CONFIG#*-}"
-fi
+ARCHITECTURE="${DEPLOYMENT_CONFIG%%-*}"
+BACKEND="${DEPLOYMENT_CONFIG#*-}"
 
 echo "📋 Registering deployment to registry"
 echo "   Project: ${PROJECT_NAME}"

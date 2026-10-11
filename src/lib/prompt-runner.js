@@ -34,9 +34,9 @@ import { runPrompts } from '../prompt-adapter.js';
 import McpQueryRunner from './mcp-query-runner.js';
 import SecretsPromptRunner from './secrets-prompt-runner.js';
 import CudaResolver from './cuda-resolver.js';
-import MarketplaceFlow from './marketplace-flow.js';
 import { isMarketplaceConfig, isMarketplaceModelName, refuseMarketplaceAndExit } from './marketplace-refusal.js';
 import { engineFeature } from './serve-manifest-reader.js';
+import { isKnownBackend as isTritonBackend, isLlm as tritonIsLlm, modelFormats as tritonModelFormats } from './triton-backend-reader.js';
 
 const __pr_filename = fileURLToPath(import.meta.url);
 const __pr_dirname = path.dirname(__pr_filename);
@@ -94,7 +94,6 @@ export default class PromptRunner {
         this.mcpQueryRunner = new McpQueryRunner(this);
         this.secretsPromptRunner = new SecretsPromptRunner(this);
         this.cudaResolver = new CudaResolver(this);
-        this.marketplaceFlow = new MarketplaceFlow(this);
     }
 
     // ── Sub-object delegations (backward compat for tests) ──────────
@@ -173,8 +172,9 @@ export default class PromptRunner {
 
         // ──────────────────────────────────────────────────────────────────────
         // Marketplace is deprecated and hard-refused (see marketplace-refusal.js).
-        // The dormant _runMarketplaceFlow path is kept in tree for one release but
-        // is no longer reachable — refuse here rather than run it.
+        // The generation surface was removed (BL120); this guard keeps an old
+        // wrapper passing a marketplace config refusing cleanly rather than erroring
+        // obscurely downstream. Mirrors the JumpStart precedent.
         // ──────────────────────────────────────────────────────────────────────
         if (isMarketplaceConfig(frameworkAnswers.architecture) ||
             isMarketplaceConfig(frameworkAnswers.deploymentConfig)) {
@@ -527,7 +527,7 @@ export default class PromptRunner {
         // Handle custom model name for transformers, diffusors, and Triton LLM backends
         if ((combinedAnswers.architecture === 'transformers' || 
              combinedAnswers.architecture === 'diffusors' ||
-             (combinedAnswers.architecture === 'triton' && (combinedAnswers.backend === 'vllm' || combinedAnswers.backend === 'tensorrtllm'))) 
+             (combinedAnswers.architecture === 'triton' && isTritonBackend(combinedAnswers.backend) && tritonIsLlm(combinedAnswers.backend))) 
             && combinedAnswers.customModelName) {
             combinedAnswers.modelName = combinedAnswers.customModelName;
             delete combinedAnswers.customModelName;
@@ -755,13 +755,14 @@ export default class PromptRunner {
      */
     _getTritonAutoModelFormat(architecture, backend) {
         if (architecture !== 'triton') return null;
+        if (!isTritonBackend(backend)) return null;
 
-        const meta = this._tritonBackends[backend];
-        if (!meta || !meta.modelFormats) return null;
+        const formats = tritonModelFormats(backend);
+        if (!Array.isArray(formats)) return null;
 
         // Only auto-set if there's exactly one format
-        if (meta.modelFormats.length === 1) {
-            return meta.modelFormats[0];
+        if (formats.length === 1) {
+            return formats[0];
         }
 
         return null;

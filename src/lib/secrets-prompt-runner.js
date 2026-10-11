@@ -11,6 +11,7 @@ import { SECRET_CLASSIFICATIONS } from './secret-classification.js';
 import { isSecretsManagerArn } from './arn-detection.js';
 import BootstrapConfig from './bootstrap-config.js';
 import { discoverSecrets, createSecret } from './prompts/secrets-discovery.js';
+import { isKnownBackend as isTritonBackend, isLlm as tritonIsLlm } from './triton-backend-reader.js';
 
 export default class SecretsPromptRunner {
     constructor(runner) {
@@ -65,7 +66,7 @@ export default class SecretsPromptRunner {
         if (classification.identifier === 'hf-token') {
             const isTransformers = architecture === 'transformers';
             const isDiffusors = architecture === 'diffusors';
-            const isTritonLlm = architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm');
+            const isTritonLlm = architecture === 'triton' && isTritonBackend(backend) && tritonIsLlm(backend);
 
             if (!isTransformers && !isDiffusors && !isTritonLlm) return false;
 

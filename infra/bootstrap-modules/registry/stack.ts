@@ -3,7 +3,6 @@
 
 import * as cdk from 'aws-cdk-lib';
 import * as sagemaker from 'aws-cdk-lib/aws-sagemaker';
-import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 
 export interface MlccRegistryStackProps extends cdk.StackProps {
@@ -11,8 +10,16 @@ export interface MlccRegistryStackProps extends cdk.StackProps {
 }
 
 /**
- * Registry module: Model Package Group + AI Registry Hub.
- * Supersedes hotfix-ai-registry-hub spec.
+ * Registry module: Model Package Group (the SageMaker Model Registry group that
+ * the MLflow→MPG bridge registers model versions into).
+ *
+ * BL123 RETIRED the branded `mlcc-registry-<account>` AI Registry Hub this module
+ * used to provision (via a createHub custom resource). The BL122 spike proved the
+ * high-level ai_registry SDK computes its own hub (`AiRegistry-<region>-<account>`)
+ * and cannot be pointed at a named hub — so a branded hub was dead weight.
+ * Datasets/evaluators now use the SDK's native hub (discoverable in Studio via the
+ * `domain_id` tag); models live here in the Model Registry (never hub-mirrored).
+ * (Supersedes the hotfix-ai-registry-hub spec.)
  */
 export class MlccRegistryStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props: MlccRegistryStackProps) {
@@ -24,50 +31,16 @@ export class MlccRegistryStack extends cdk.Stack {
         cdk.Tags.of(this).add('mlcc:module', 'registry');
         cdk.Tags.of(this).add('mlcc:profile', profileName);
 
-        // Model Package Group
+        // Model Package Group — the Model Registry group for MLflow→MPG model versions.
         const mpg = new sagemaker.CfnModelPackageGroup(this, 'ModelPackageGroup', {
             modelPackageGroupName: `mlcc-${profileName}-models`,
             modelPackageGroupDescription: `Model packages for ml-container-creator profile: ${profileName}`,
-        });
-
-        // AI Registry Hub (via custom resource — no L2 construct yet)
-        // Uses ignoreErrorCodesMatching to handle the adopt-if-exists case:
-        // if the hub already exists from a prior provision, treat it as success.
-        const hubName = `mlcc-registry-${this.account}`;
-        const createHub = new cr.AwsCustomResource(this, 'AiRegistryHub', {
-            onCreate: {
-                service: 'SageMaker',
-                action: 'createHub',
-                parameters: {
-                    HubName: hubName,
-                    // SageMaker HubDescription constraint: ^[a-zA-Z0-9](-*[a-zA-Z0-9 .,])*
-                    // No parentheses or colons allowed.
-                    HubDescription: `AI Registry Hub for ml-container-creator account ${this.account}`,
-                },
-                physicalResourceId: cr.PhysicalResourceId.of(hubName),
-                ignoreErrorCodesMatching: 'ResourceInUse',
-            },
-            onDelete: {
-                service: 'SageMaker',
-                action: 'deleteHub',
-                parameters: { HubName: hubName },
-                ignoreErrorCodesMatching: 'ResourceNotFound',
-            },
-            // createHub/deleteHub are in Lambda's built-in AWS SDK v3 — no need to
-            // install the latest SDK at deploy time (faster cold start, pinned SDK).
-            installLatestAwsSdk: false,
-            policy: cr.AwsCustomResourcePolicy.fromSdkCalls({ resources: ['*'] }),
         });
 
         // Outputs
         new cdk.CfnOutput(this, 'ModelPackageGroupName', {
             value: mpg.modelPackageGroupName!,
             exportName: `mlcc-${profileName}-registry-ModelPackageGroupName`,
-        });
-
-        new cdk.CfnOutput(this, 'AiRegistryHubName', {
-            value: hubName,
-            exportName: `mlcc-${profileName}-registry-AiRegistryHubName`,
         });
     }
 }

@@ -66,7 +66,7 @@ function createMockHandler(configPath, { accountId, region }) {
     const handler = new BootstrapCommandHandler({ promptFn: async () => ({}) });
     handler.config = new BootstrapConfig(configPath);
 
-    handler.provisioners = { _verifyCliV2: () => true, provisionAiRegistryHub: async () => {} };
+    handler.provisioners = { _verifyCliV2: () => true };
     handler._displayProgress = () => {};
     handler._displaySummary = () => {};
     handler._validateCredentials = async () => ({ accountId, region });
@@ -87,7 +87,7 @@ function createMockHandler(configPath, { accountId, region }) {
                 };
                 break;
             case 'registry':
-                moduleOutputs.registry = { AiRegistryHubName: `mlcc-registry-${acctId}` };
+                moduleOutputs.registry = { ModelPackageGroupName: `mlcc-${acctId}-models` };
                 break;
             case 'benchmark':
                 moduleOutputs.benchmark = { BenchmarkBucket: `mlcc-benchmark-results-${acctId}-${reg}`, GlueDatabase: 'mlcc_ci' };

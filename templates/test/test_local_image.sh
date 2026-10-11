@@ -77,4 +77,20 @@ docker stop ${CONTAINER_NAME}
 docker rm ${CONTAINER_NAME}
 
 echo "Test complete!"
+<% } else { %>
+# Local image testing is not applicable for the vLLM serving engine.
+#
+# The vLLM image is large and GPU-bound: it loads the model with a CUDA runtime
+# and tensor-parallel workers that a local Docker run on a workstation cannot
+# exercise meaningfully (no GPU, multi-GB weights, long warm-up). Smoke-testing
+# it locally would prove nothing about the deployed container.
+#
+# Test against a real endpoint instead:
+#
+#     ./do/build && ./do/push && ./do/deploy      # build, push, deploy to SageMaker
+#     ./do/test                                    # exercise /ping + /invocations on the endpoint
+#
+# ./do/test hits the live endpoint with the SageMaker inference contract, which is
+# the only representative test for a vLLM deployment.
+echo "Local image testing is not applicable for vLLM — use ./do/test against a deployed endpoint."
 <% } %><% } %>

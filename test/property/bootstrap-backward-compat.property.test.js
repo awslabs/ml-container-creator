@@ -123,7 +123,7 @@ function createMockHandler(configPath, callerAccount) {
                     EcrRepositoryName: 'ml-container-creator'
                 };
             } else if (m === 'registry') {
-                moduleOutputs.registry = { AiRegistryHubName: `mlcc-registry-${acctId}` };
+                moduleOutputs.registry = { ModelPackageGroupName: `mlcc-${acctId}-models` };
             } else {
                 moduleOutputs[m] = {};
             }

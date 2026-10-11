@@ -200,7 +200,10 @@ describe('Feature: v18-w3-01-bl107 SGLang Serve-Layer Plugin', () => {
             '--speculative-draft-model-path "${SGLANG_SPECULATIVE_DRAFT_MODEL_PATH}"',
             '--speculative-num-steps "${SGLANG_SPECULATIVE_NUM_STEPS}"',
             '--speculative-eagle-topk "${SGLANG_SPECULATIVE_EAGLE_TOPK}"',
-            'exec python3 -m sglang.launch_server "${SERVER_ARGS[@]}"'
+            // Entrypoint migrated to the recommended `sglang serve` CLI (SGLang
+            // >=0.5); the deprecated `python -m sglang.launch_server` emitted a
+            // startup UserWarning. The speculative-arg wiring above is unchanged.
+            'exec sglang serve "${SERVER_ARGS[@]}"'
         ];
 
         it('the SGLANG_ fallback render reproduces the pre-BL107 wrapper text', function () {

@@ -1031,16 +1031,37 @@ def validate_instance_types(value: str) -> str | None:
 def detect_gpu_count(instance_type: str) -> str:
     """Detect GPU count from the instance catalog for a given instance type.
 
-    Looks up the instance type in instance_sizer.INSTANCE_CATALOG and
-    returns the GPU count (the 3rd element of the tuple) as a string.
+    derive-dont-hardcode (ADR-008): the GPU count is OWNED by the instance
+    catalog shipped into the project at .mlcc/instances.json (the same source the
+    deploy drivers use). Read it first so new instance families (g7/g7e,
+    p6-b200, ...) resolve. Fall back to the curated instance_sizer.INSTANCE_CATALOG
+    (a recommendation subset), then to "1", only when the catalog is unavailable
+    or lacks the type.
 
     Args:
         instance_type: SageMaker instance type (e.g. "ml.g6.12xlarge").
 
     Returns:
         GPU count as a string (e.g. "1", "4", "8").
-        Returns "1" if the instance type is not found in the catalog.
+        Returns "1" if the instance type cannot be resolved from any source.
     """
+    if not instance_type:
+        return "1"
+
+    # 1) Authoritative source: .mlcc/instances.json (catalog[<ml.type>].gpus).
+    try:
+        import json
+        project_dir = os.environ.get("MLCC_PROJECT_DIR") or os.getcwd()
+        catalog_path = os.path.join(project_dir, ".mlcc", "instances.json")
+        with open(catalog_path) as f:
+            catalog = json.load(f).get("catalog", {})
+        gpus = catalog.get(instance_type, {}).get("gpus")
+        if gpus and int(gpus) > 0:
+            return str(int(gpus))
+    except Exception:  # noqa: BLE001 — fall through to the curated catalog
+        pass
+
+    # 2) Fallback: the curated recommendation catalog.
     for catalog_type, _vram, gpu_count in instance_sizer.INSTANCE_CATALOG:
         if catalog_type == instance_type:
             return str(gpu_count)

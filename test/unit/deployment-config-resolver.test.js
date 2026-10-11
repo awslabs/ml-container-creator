@@ -9,12 +9,12 @@ describe('DeploymentConfigResolver', () => {
     });
 
     describe('getAllConfigs()', () => {
-        it('should return exactly 17 valid deployment-config strings', () => {
+        it('should return exactly 16 valid deployment-config strings', () => {
             const configs = resolver.getAllConfigs();
-            assert.equal(configs.length, 17);
+            assert.equal(configs.length, 16);
         });
 
-        it('should include 2 http, 6 transformers, 7 triton, 1 diffusors, and 1 marketplace configs', () => {
+        it('should include 2 http, 6 transformers, 7 triton, and 1 diffusors configs (marketplace removed)', () => {
             const configs = resolver.getAllConfigs();
             const http = configs.filter(c => c.startsWith('http-'));
             const transformers = configs.filter(c => c.startsWith('transformers-'));
@@ -25,7 +25,7 @@ describe('DeploymentConfigResolver', () => {
             assert.equal(transformers.length, 6);
             assert.equal(triton.length, 7);
             assert.equal(diffusors.length, 1);
-            assert.equal(marketplace.length, 1);
+            assert.equal(marketplace.length, 0);
         });
     });
 

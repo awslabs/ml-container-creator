@@ -65,7 +65,7 @@ def main():
     submit_parser.add_argument("--region", default=None,
                                help="AWS region (defaults to AWS_REGION env var)")
     submit_parser.add_argument("--technique", required=True,
-                               choices=["sft", "dpo", "rlaif", "rlvr"],
+                               choices=["sft", "dpo", "rlaif", "rlvr", "mtrl"],
                                help="Customization technique")
     submit_parser.add_argument("--training-type", required=True,
                                choices=["lora", "full-rank"],
@@ -99,9 +99,15 @@ def main():
     submit_parser.add_argument("--reward-function", default=None,
                                help="Lambda ARN for reward function (RLVR)")
     submit_parser.add_argument("--reward-prompt", default=None,
-                               help="S3 URI for reward prompt (RLAIF)")
+                               help="Reward-prompt evaluator NAME for RLAIF "
+                                    "(hub-content name; the SDK resolves it to the "
+                                    "prompt asset). Not a raw S3 URI.")
     submit_parser.add_argument("--evaluator-name", default=None,
                                help="Registered evaluator name to resolve from registry")
+    submit_parser.add_argument("--agent-env", default=None,
+                               help="CustomAgentLambda ARN for MTRL. MTRL's reward lives "
+                                    "in the agent (it runs the rollout and computes reward); "
+                                    "there is no reward function/prompt. Required for mtrl.")
     submit_parser.add_argument("--accept-eula", action="store_true", default=False,
                                help="Accept model EULA for gated models (e.g., Llama)")
 
@@ -154,7 +160,7 @@ def main():
     stage_hf_parser.add_argument("--column-map", default=None,
                                  help="Column mapping (e.g., prompt=question,completion=answer)")
     stage_hf_parser.add_argument("--technique", default="sft",
-                                 choices=["sft", "dpo", "rlaif", "rlvr", "benchmark"],
+                                 choices=["sft", "dpo", "rlaif", "rlvr", "mtrl", "benchmark"],
                                  help="Customization technique (determines required columns)")
     stage_hf_parser.add_argument("--no-transform", action="store_true", default=False,
                                  help="Disable automatic chat-format flattening")

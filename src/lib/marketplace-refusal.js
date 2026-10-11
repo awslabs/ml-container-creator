@@ -6,8 +6,9 @@
  * The `marketplace` deployment config deploys a pre-built vendor model-package
  * ARN directly, so it never builds a container. That directly violates this
  * project's core promise — bring your own container — because you cannot build
- * an image for a marketplace deployment. The capability is therefore refused as
- * of this release, kept dormant/unreachable for one release, and removed next.
+ * an image for a marketplace deployment. The generation surface was removed in
+ * BL120; this module remains as the hard-refusal so an old wrapper passing a
+ * marketplace config/model gets a clear deprecation message, not an obscure error.
  *
  * This module is the SINGLE source of the refusal message and detection logic so
  * every enforcement point (generator skip-prompts path, interactive prompt

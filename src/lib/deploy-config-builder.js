@@ -296,18 +296,46 @@ async function getClusters(region) {
 
 // ── GPU count detection ──────────────────────────────────────────────────────
 
+// derive-dont-hardcode (ADR-008): the per-instance GPU count is OWNED by the
+// instance catalog (servers/lib/catalogs/instances.json, `gpus` field) — the
+// same source path-prover and the instance-sizer derive from. detectGpuCount
+// reads the catalog first so new instance families (e.g. g7/g7e, p6-b200) are
+// picked up automatically. GPU_MAP below is ONLY a last-resort fallback for when
+// the catalog file cannot be read; it is intentionally a small, well-known
+// subset and must NOT be treated as the source of truth.
 const GPU_MAP = {
     'g5.xlarge': 1, 'g5.2xlarge': 1, 'g5.4xlarge': 1, 'g5.8xlarge': 1,
     'g5.12xlarge': 4, 'g5.16xlarge': 1, 'g5.24xlarge': 4, 'g5.48xlarge': 8,
     'g6.xlarge': 1, 'g6.2xlarge': 1, 'g6.4xlarge': 1, 'g6.8xlarge': 1,
     'g6.12xlarge': 4, 'g6.16xlarge': 1, 'g6.24xlarge': 4, 'g6.48xlarge': 8,
+    'g7.2xlarge': 1, 'g7.4xlarge': 1, 'g7.8xlarge': 1,
+    'g7.12xlarge': 2, 'g7.24xlarge': 4, 'g7.48xlarge': 8,
+    'g7e.2xlarge': 1, 'g7e.4xlarge': 1, 'g7e.8xlarge': 1,
+    'g7e.12xlarge': 2, 'g7e.24xlarge': 4, 'g7e.48xlarge': 8,
     'p4d.24xlarge': 8, 'p4de.24xlarge': 8, 'p5.48xlarge': 8,
     // B300 (Blackwell Ultra) — 8 GPUs per node
     'p6-b300.48xlarge': 8
 };
 
+let _instanceCatalogCache; // undefined = not loaded; null = load failed
+function _loadInstanceCatalog() {
+    if (_instanceCatalogCache !== undefined) return _instanceCatalogCache;
+    try {
+        const catalogPath = resolve(GENERATOR_ROOT, 'servers', 'lib', 'catalogs', 'instances.json');
+        _instanceCatalogCache = JSON.parse(readFileSync(catalogPath, 'utf8'))?.catalog || null;
+    } catch {
+        _instanceCatalogCache = null;
+    }
+    return _instanceCatalogCache;
+}
+
 function detectGpuCount(instanceType) {
     if (!instanceType) return '1';
+    // 1) Authoritative source: the instance catalog (keyed by full ml.* type).
+    const catalog = _loadInstanceCatalog();
+    const info = catalog?.[instanceType];
+    if (info?.gpus && info.gpus > 0) return String(info.gpus);
+    // 2) Fallback only when the catalog is unavailable or lacks the type.
     const suffix = instanceType.replace('ml.', '');
     return String(GPU_MAP[suffix] || 1);
 }
@@ -754,16 +782,17 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType, 
         // ── Plain EKS (BL103) ────────────────────────────────────────────────
         // Reuses the HyperPod cluster/GPU fields, but the cluster is OPTIONAL:
         // when skipped, the deploy uses the ambient kubectl context.
+        let eksSelectedCluster = null;
+        let eksClusters = [];
         if (!config.HP_CLUSTER_NAME) {
-            let clusters = [];
             const clusterSpinner = ora('Querying cluster-picker...').start();
             try {
-                clusters = await getClusters(region);
+                eksClusters = await getClusters(region);
             } catch {
-                clusters = [];
+                eksClusters = [];
             }
             clusterSpinner.stop();
-            const choices = clusters.map(c => ({
+            const choices = eksClusters.map(c => ({
                 name: `${c.name} (${c.gpuTotal} GPUs, ${c.instanceTypes.join(', ')})`,
                 value: c.name
             }));
@@ -773,11 +802,60 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType, 
                 choices,
                 default: ''
             });
+            if (answers.cluster_name) {
+                eksSelectedCluster = eksClusters.find(c => c.name === answers.cluster_name) || null;
+            }
+        } else {
+            // Cluster already configured — fetch metadata to populate node-group choices.
+            const clusterSpinner = ora('Loading cluster info...').start();
+            try {
+                eksClusters = await getClusters(region);
+            } catch {
+                eksClusters = [];
+            }
+            clusterSpinner.stop();
+            eksSelectedCluster = eksClusters.find(
+                c => c.name.toLowerCase() === (config.HP_CLUSTER_NAME || '').toLowerCase()
+            ) || null;
         }
 
         // Instance type — used only to auto-detect GPU/CPU/memory requests.
+        // When a target cluster is selected, list ITS node groups (the running
+        // instances on the cluster), mirroring the HyperPod experience, instead
+        // of generic capacity recommendations. Fall back to the sizer only when
+        // no cluster is chosen (ambient kubectl context) or it reports no groups.
         if (!config.INSTANCE_TYPE && !preInstanceType) {
-            answers.instance_type = await promptInstanceType(modelName, region, null, target);
+            const clusterGroups = eksSelectedCluster?.instanceGroups || [];
+            if (clusterGroups.length > 0) {
+                const sorted = [...clusterGroups].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+                const choices = sorted.map(group => {
+                    const instanceType = group.instanceType || (group.instanceTypes && group.instanceTypes[0]) || '';
+                    const count = group?.count || 0;
+                    const flex = group?.isFlexible ? ' (flexible)' : '';
+                    return {
+                        name: `${group.name}  ${instanceType}  (${count} node${count === 1 ? '' : 's'}${flex})`,
+                        value: { instanceType, groupName: group.name }
+                    };
+                });
+                choices.push({ name: 'Custom (enter manually)', value: '__custom__' });
+
+                const selected = await select({
+                    message: 'Instance type (from cluster node groups):',
+                    choices
+                });
+                if (selected === '__custom__') {
+                    answers.instance_type = await input({
+                        message: 'Instance type:',
+                        validate: v => v.startsWith('ml.') ? true : 'Must start with ml.'
+                    });
+                } else {
+                    answers.instance_type = selected.instanceType;
+                    answers.hp_instance_group_name = selected.groupName;
+                }
+            } else {
+                // No cluster selected (ambient kubectl) or no groups — generic sizer.
+                answers.instance_type = await promptInstanceType(modelName, region, null, target);
+            }
         } else if (preInstanceType) {
             answers.instance_type = preInstanceType;
         }

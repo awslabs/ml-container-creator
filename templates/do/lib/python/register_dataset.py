@@ -12,7 +12,6 @@ import datetime
 import hashlib
 import json
 import os
-import re
 import struct
 import sys
 
@@ -31,146 +30,63 @@ _DATASETS_REGISTRY = register_common._DATASETS_REGISTRY
 _EVALUATORS_REGISTRY = register_common._EVALUATORS_REGISTRY
 
 
-# ── Hub helpers ───────────────────────────────────────────────────────────────
+# ── Native AI Registry registration (BL123) ───────────────────────────────────
+#
+# The branded `mlcc-registry` hub path (create_hub_content + _get_hub_name_from_
+# profile + _list_hub_datasets) was RETIRED in BL123: the BL122 spike proved the
+# high-level ai_registry SDK computes its own hub (`AiRegistry-<region>-<account>`)
+# and cannot be pointed at a named hub, and that Studio visibility comes from the
+# `domain_id` tag, not hub choice. Native dataset registration now lives in
+# ai_registry_native.register_dataset_native(); the S3 sidecar remains the durable
+# write record.
 
 
-def _parse_technique_from_description(description):
-    """Parse [technique:sft] tag from a dataset description string."""
-    match = re.search(r'\[technique:([^\]]+)\]', description or '')
-    return match.group(1) if match else 'unknown'
+def _register_dataset_native(*, name, s3_uri, technique, region, description, custom_metadata):
+    """Additively register the dataset in the native AI Registry (non-fatal).
 
-
-def _list_hub_datasets(hub_name, region):
-    """List datasets from AI Registry Hub."""
-    try:
-        import boto3
-        sm = boto3.client('sagemaker', region_name=region)
-        results = []
-        kwargs = {'HubName': hub_name, 'HubContentType': 'Dataset'}
-        while True:
-            resp = sm.list_hub_contents(**kwargs)
-            for item in resp.get('HubContentSummaries', []):
-                technique = _parse_technique_from_description(
-                    item.get('HubContentDescription', '')
-                )
-                results.append({
-                    'name': item['HubContentName'],
-                    'version': item.get('HubContentVersion', ''),
-                    'technique': technique,
-                    'created_at': str(item.get('CreationTime', '')),
-                    'origin': 'remote',
-                })
-            next_token = resp.get('NextToken')
-            if not next_token:
-                break
-            kwargs['NextToken'] = next_token
-        return results
-    except Exception as e:
-        print(f'\u26a0\ufe0f  Could not list hub datasets: {e}', file=sys.stderr)
-        return []
-
-
-def _get_hub_name_from_profile(region=None):
-    """Read aiRegistryHubName from the bootstrap profile config."""
-    try:
-        with open(register_common._CONFIG_PATH) as f:
-            config = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError, IOError):
-        return None
-
-    profiles = config.get("profiles", {})
-    if not profiles:
-        return None
-
-    # Priority 1: active profile (set by `mcc bootstrap use <profile>`)
-    active_profile = config.get("activeProfile")
-    if active_profile and active_profile in profiles:
-        profile_data = profiles[active_profile]
-        if isinstance(profile_data, dict):
-            hub_name = profile_data.get("aiRegistryHubName")
-            if hub_name:
-                return hub_name
-
-    # Priority 2: region match — profile key contains the region string
-    if region:
-        for profile_key, profile_data in profiles.items():
-            if not isinstance(profile_data, dict):
-                continue
-            if region in profile_key:
-                hub_name = profile_data.get("aiRegistryHubName")
-                if hub_name:
-                    return hub_name
-
-    # Priority 3: first profile with a hub name (least specific fallback)
-    for profile_data in profiles.values():
-        if not isinstance(profile_data, dict):
-            continue
-        hub_name = profile_data.get("aiRegistryHubName")
-        if hub_name:
-            return hub_name
-
-    return None
-
-
-def _register_to_hub(hub_name, name, s3_uri, technique, description, region):
-    """Register dataset to a specific hub by name.
-
-    NOTE (2026-07-15): The SageMaker Hub 'DataSet' HubContentType (schema 2.0.0)
-    is designed for benchmarking/workload datasets (fields: DatasetS3Bucket,
-    DatasetS3Prefix, DatasetContextS3Uri, DatasetRoleArn) — NOT for SFT/DPO/RLVR
-    training datasets. Fine-tuning datasets do not have a Hub registration path
-    via import_hub_content. This function is a no-op stub pending investigation
-    of the correct API (possibly sagemaker.ai_registry.dataset.DataSet.create()
-    or a custom JsonDoc hub content type).
-
-    Local JSON registry (~/.ml-container-creator/datasets.json) is the canonical
-    store for fine-tuning datasets.
+    Called AFTER the durable S3 sidecar write. Returns a (native_arn, native_info)
+    tuple; native_arn is None when the step is skipped or fails. Any failure is
+    swallowed into a warning — the sidecar the user asked for already persisted.
+    When the native create records a technique the enum does not name (rlaif/mtrl
+    → the RLVR member), the intended technique is already in the sidecar
+    (`technique` field), so no extra write is needed here.
     """
+    import ai_registry_native
+
+    role = ai_registry_native.resolve_training_role()
+    domain_id = ai_registry_native.resolve_domain_id()
     try:
-        import boto3
-        sm_client = boto3.client("sagemaker", region_name=region)
-        hub_content_document = json.dumps({
-            "Source": s3_uri,
-            "CustomizationTechnique": technique or "sft",
-        })
-        create_params = {
-            "HubName": hub_name,
-            "HubContentName": name,
-            "HubContentType": "Dataset",
-            "DocumentSchemaVersion": "1.0.0",
-            "HubContentDocument": hub_content_document,
-        }
-        if description:
-            create_params["HubContentDescription"] = description
-        response = sm_client.create_hub_content(**create_params)
-        hub_content_arn = response.get("HubContentArn", "")
-        print(f"Registered dataset '{name}' to hub '{hub_name}' (ARN: {hub_content_arn})", file=sys.stderr)
-        return hub_content_arn
-    except Exception as e:
-        error_msg = str(e).lower()
-        if ("resourcenotfound" in error_msg or "resource not found" in error_msg
-                or "does not exist" in error_msg or "hub" in error_msg and "not found" in error_msg):
-            _warn(
-                f"Hub '{hub_name}' not found. "
-                "Run `ml-container-creator bootstrap` to provision the AI Registry hub."
-            )
-            print("    Falling back to local JSON registry.", file=sys.stderr)
-            return None
-        if "already exists" in error_msg or "resourceinuse" in error_msg:
-            print(f"Dataset '{name}' already exists in hub '{hub_name}' (idempotent)", file=sys.stderr)
-            try:
-                describe_resp = sm_client.describe_hub_content(
-                    HubName=hub_name, HubContentName=name, HubContentType="Dataset",
-                )
-                return describe_resp.get("HubContentArn", "")
-            except Exception:
-                return ""
-        _warn(
-            f"Failed to register dataset to hub '{hub_name}': {e}\n"
-            "    If this persists, run `ml-container-creator bootstrap` to verify hub provisioning.\n"
-            "    Falling back to local JSON registry."
+        info = ai_registry_native.register_dataset_native(
+            name=name, s3_uri=s3_uri, technique=technique, region=region,
+            description=description, role=role, domain_id=domain_id,
         )
-        return None
+    except ai_registry_native.NativeRegistrySkipped as skip:
+        print(f"\u2139\ufe0f  Native AI Registry registration skipped: {skip}", file=sys.stderr)
+        return None, None
+    except Exception as e:  # noqa: BLE001 — native registration is best-effort
+        _warn(
+            f"Native AI Registry registration failed ({e}); the S3 sidecar remains "
+            "the durable record. The dataset is registered and usable; it just "
+            "won't appear in Studio Assets until this succeeds."
+        )
+        return None, None
+
+    native_arn = info.get("arn")
+    if not info.get("domain_tagged"):
+        print(
+            "\u2139\ufe0f  Registered natively but no Studio domain id is configured "
+            "\u2014 the dataset won't be tagged into Studio Assets. Provision the "
+            "sagemaker-domain bootstrap module to enable Studio visibility.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"Registered dataset '{name}' natively in the AI Registry "
+            f"(member={info.get('member')}, native version={info.get('version')}) "
+            "\u2014 visible in Studio Assets.",
+            file=sys.stderr,
+        )
+    return native_arn, info
 
 
 # ── Content hash helpers ──────────────────────────────────────────────────────
@@ -442,6 +358,21 @@ def cmd_register_dataset(args):
     if not s3_uri:
         _error_exit("--s3-uri is required", code="MISSING_ARGUMENT")
 
+    # Req 11.5: a reward prompt/function is an EVALUATOR, not a dataset. Reject it
+    # here with guidance to the evaluator verbs rather than registering it as a
+    # dataset. (This rejects the reward ARTIFACT, not the RFT prompt corpus, which
+    # is a legitimate dataset accepted under the RLVR member.)
+    import ai_registry_native
+    if ai_registry_native.is_reward_artifact_label(technique):
+        _error_exit(
+            f"'{technique}' is a reward artifact (an evaluator), not a dataset.\n"
+            "    Register a reward prompt with `do/register prompt` and a reward "
+            "function with `do/register evaluator`.\n"
+            "    `do/register dataset` is for training corpora (sft, dpo, rlvr, "
+            "rlaif, mtrl) and benchmark data.",
+            code="REWARD_ARTIFACT_NOT_DATASET",
+        )
+
     core_bucket = _resolve_core_bucket(args)
     if not core_bucket:
         _error_exit(
@@ -519,23 +450,23 @@ def cmd_register_dataset(args):
         else:
             print(f"Dataset changed \u2014 new version v{ordinal} ({new_version})", file=sys.stderr)
 
-    # Step 4: Register via AI Registry Hub (preserved, non-authoritative)
-    description = f"[hash:{content_hash}]" if content_hash else ""
-    dataset_arn = None
+    # Step 4: Write the S3 sidecar (metadata source of truth). The native AI
+    # Registry registration (Step 6) is additive and non-fatal, so the sidecar is
+    # written FIRST — a native failure must never lose the record the user asked
+    # for. The native ARN, when it succeeds, is backfilled below.
+    #
+    # The human --description (Req 10) is kept in the sidecar's customMetadata as a
+    # distinct field from the technical [hash:...] marker; the latter stays the
+    # dataset-level description content MLCC relies on.
+    human_description = getattr(args, "description", None)
+    if human_description:
+        custom_metadata = dict(custom_metadata)
+        custom_metadata["description"] = human_description
 
-    hub_name = _get_hub_name_from_profile(region)
-
-    if hub_name:
-        print(f"Targeting hub '{hub_name}' for dataset registration...", file=sys.stderr)
-        hub_arn = _register_to_hub(hub_name, name, s3_uri, technique, description, region)
-        if hub_arn is not None:
-            dataset_arn = hub_arn
-
-    # Step 5: Write the S3 sidecar (metadata source of truth)
     doc = _build_sidecar_doc(
         existing=existing, name=name, s3_uri=s3_uri, data_format=data_format,
         technique=technique, row_count=row_count, column_schema=column_schema,
-        project_name=project_name, arn=dataset_arn, version=new_version,
+        project_name=project_name, arn=None, version=new_version,
         ordinal=ordinal, content_hash=content_hash, custom_metadata=custom_metadata,
     )
 
@@ -543,6 +474,26 @@ def cmd_register_dataset(args):
         dataset_store.write_sidecar(s3_client, core_bucket, name, doc)
     except dataset_store.TransportError as e:
         _error_exit(f"Failed to write dataset sidecar: {e}", code="SIDECAR_WRITE_FAILED")
+
+    # Step 5: Additively register in the native AI Registry (BL123, non-fatal).
+    # The native description is the human --description when given, else the
+    # technical hash marker so the Studio entry is at least identifiable.
+    native_description = human_description or (f"[hash:{content_hash}]" if content_hash else None)
+    dataset_arn, _native_info = _register_dataset_native(
+        name=name, s3_uri=s3_uri, technique=technique, region=region,
+        description=native_description, custom_metadata=custom_metadata,
+    )
+    # Backfill the native ARN into the sidecar's latest version entry when the
+    # native create succeeded, so the durable record carries the native pointer.
+    if dataset_arn:
+        try:
+            latest_entry = doc["versions"][-1]
+            latest_entry["arn"] = dataset_arn
+            doc["arn"] = dataset_arn
+            dataset_store.write_sidecar(s3_client, core_bucket, name, doc)
+        except Exception as e:  # noqa: BLE001 — ARN backfill is best-effort
+            _warn(f"Could not backfill the native ARN into the sidecar ({e}); "
+                  "the native asset is registered regardless.")
 
     sidecar_uri = register_common._sidecar_uri(core_bucket, name)
     print(f"Registered dataset '{name}' v{ordinal} ({new_version}) \u2192 {s3_uri}", file=sys.stderr)
@@ -580,51 +531,12 @@ def cmd_register_dataset(args):
     })
 
 
-def cmd_register_evaluator(args):
-    """Register an evaluator into the local registry."""
-    name = args.name
-    eval_type = args.eval_type
-    arn_or_uri = args.arn_or_uri
-    technique = args.technique
-    description = args.description or ""
-    project_name = args.project_name or ""
-
-    if not name:
-        _error_exit("--name is required", code="MISSING_ARGUMENT")
-    if not arn_or_uri:
-        _error_exit("--arn-or-uri is required", code="MISSING_ARGUMENT")
-
-    entries = _load_registry(register_common._EVALUATORS_REGISTRY)
-
-    entry = {
-        "name": name,
-        "type": eval_type,
-        "arn_or_uri": arn_or_uri,
-        "technique": technique,
-        "description": description,
-        "project_name": project_name,
-        "registered_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
-    }
-
-    updated = False
-    for i, existing in enumerate(entries):
-        if existing.get("name") == name:
-            entries[i] = entry
-            updated = True
-            break
-    if not updated:
-        entries.append(entry)
-
-    _save_registry(register_common._EVALUATORS_REGISTRY, entries)
-
-    print(f"Registered evaluator '{name}' ({eval_type}) \u2192 {arn_or_uri}", file=sys.stderr)
-    _output({
-        "name": name,
-        "type": eval_type,
-        "arn_or_uri": arn_or_uri,
-        "technique": technique,
-        "registered": True,
-    })
+# NOTE (BL117): cmd_register_evaluator moved to register_evaluator.py and was
+# rewritten to create a native sagemaker.ai_registry Evaluator asset (both the
+# REWARD_FUNCTION and REWARD_PROMPT types) instead of appending to the local
+# evaluators.json stub, which is retired as the record of truth. The reward
+# ARTIFACT (a prompt/function) is an evaluator, not a dataset — register it with
+# `do/register evaluator` or `do/register prompt`.
 
 
 # ── discover-dataset (Req B) ──────────────────────────────────────────────────

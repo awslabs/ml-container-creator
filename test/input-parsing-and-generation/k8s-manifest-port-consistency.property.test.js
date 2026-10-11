@@ -57,15 +57,29 @@ function renderCrd(vars) {
         'modelLocation: models/test',
         'prefetchEnabled: true'
     ];
+    // ADR-010: the deploy driver resolves the active engine's capability_map into
+    // a Tier-1 env block spliced at __TIER1_ENVVARS__. Mirror that here with a
+    // concrete block so the parsed CRD carries the derived worker env (model / TP /
+    // LoRA), exactly as a real deploy would.
+    const tier1Block = (vars.modelServer === 'sglang')
+        ? ['- name: SGLANG_MODEL_PATH', `  value: "${vars.modelName}"`,
+            '- name: SGLANG_TP_SIZE', '  value: "4"']
+        : ['- name: VLLM_MODEL', `  value: "${vars.modelName}"`,
+            '- name: VLLM_TENSOR_PARALLEL_SIZE', '  value: "4"'];
     output = output.split('\n').flatMap((line) => {
         const pos = line.indexOf('__MODEL_SOURCE_CONFIG__');
         if (pos >= 0) {
             const indent = line.slice(0, pos);
             return s3Block.map((l) => indent + l);
         }
+        const tpos = line.indexOf('__TIER1_ENVVARS__');
+        if (tpos >= 0) {
+            const indent = line.slice(0, tpos);
+            return tier1Block.map((l) => indent + l);
+        }
         // __VLLM_EXTRA_ENVVARS__ is spliced by do/deploy.d/hyperpod-eks (indent-aware);
-        // with no extra VLLM_* vars the marker line is dropped entirely (empty-safe),
-        // matching the deploy driver's behavior.
+        // with no extra pass-through vars the marker line is dropped entirely
+        // (empty-safe), matching the deploy driver's behavior.
         if (line.indexOf('__VLLM_EXTRA_ENVVARS__') >= 0) {
             return [];
         }

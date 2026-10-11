@@ -689,3 +689,130 @@ def tag_dataset_runs_deleted(name, client=None):
     except Exception:  # noqa: BLE001 — best-effort
         pass
 
+
+
+# ---------------------------------------------------------------------------
+# BL123: native SageMaker ML Lineage edges (dataset→model, base→derivative)
+#
+# SageMaker auto-creates lineage ARTIFACTS for registered models, datasets, and
+# evaluators (spike Probe 5); only the EDGES between them must be added. These
+# helpers add those edges, driven by the v1.8 ``mlcc.family`` metadata, so MLCC
+# turns its existing family tags into native lineage rather than maintaining a
+# parallel graph. Both are NON-FATAL and IDEMPOTENT (Req 6.3): a lineage failure
+# (IAM, transient, already-exists) never breaks the tune/register the user asked
+# for.
+# ---------------------------------------------------------------------------
+
+
+def log_training_dataset_lineage(*, dataset_s3_uri, dataset_name, context="training",
+                                 meta=None):
+    """Record a dataset→model lineage edge by logging the dataset as a run input.
+
+    BL123 Req 6.1. SageMaker's Studio Lineage graph lights up the dataset→model
+    edge from an ``mlflow.log_input`` on the run that produced the model. This
+    wraps ``log_dataset`` so the tune/train/register flow can record that edge
+    with the training dataset — covering the ``do/train`` GRPO path too, since it
+    is driven only by the dataset S3 URI (no technique/engine-specific logic).
+
+    NON-FATAL + IDEMPOTENT: no active run, MLflow unconfigured, or any logging
+    error returns False with a warning rather than raising; a repeat call with
+    the same (name, digest) is de-duplicated by ``log_dataset``.
+
+    Returns True when the input was logged (or already present), else False.
+    """
+    if not dataset_s3_uri:
+        return False
+    try:
+        import mlflow
+    except ImportError:
+        return False
+    try:
+        if mlflow.active_run() is None:
+            # No run to attach the input to — nothing to do (the managed do/tune
+            # path owns its own run on the SageMaker side; this is for flows where
+            # MLCC controls the run).
+            return False
+        log_dataset(
+            source=dataset_s3_uri,
+            name=dataset_name or dataset_s3_uri,
+            context=context,
+            meta=meta or {"s3_uri": dataset_s3_uri},
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001 — lineage is best-effort
+        import sys
+        print(f"\u26a0\ufe0f  Dataset\u2192model lineage edge skipped ({exc}); "
+              "the model and dataset are registered regardless.", file=sys.stderr)
+        return False
+
+
+def _resolve_lineage_artifact_arn(sm_client, source_uri):
+    """Return the SageMaker lineage Artifact ARN whose Source.SourceUri matches.
+
+    SageMaker auto-creates an Artifact for each registered model/dataset; its
+    SourceUri is the model-package ARN (or dataset/hub-content ARN). We list
+    artifacts by source URI and return the first ARN, or None when none exists
+    yet (the caller treats that as a non-fatal skip).
+    """
+    try:
+        resp = sm_client.list_artifacts(SourceUri=source_uri, MaxResults=1)
+    except Exception:  # noqa: BLE001 — treat any lookup failure as "not found"
+        return None
+    summaries = resp.get("ArtifactSummaries") or []
+    if not summaries:
+        return None
+    return summaries[0].get("ArtifactArn")
+
+
+def add_derived_from_edge(*, base_source_uri, derivative_source_uri, region=None,
+                          sm_client=None):
+    """Add a base→derivative ``DerivedFrom`` lineage edge (Req 6.2).
+
+    Resolves the two auto-created lineage Artifacts (by their Source URIs — e.g.
+    the base model-package ARN and the derivative adapter model-package ARN) and
+    calls ``AddAssociation(SourceArn=base, DestinationArn=derivative,
+    AssociationType='DerivedFrom')``. The user never calls AddAssociation; MLCC
+    draws the edge from the already-resolved ``mlcc.family`` /
+    ``mlcc.base_model_run_id`` linkage at register time.
+
+    NON-FATAL + IDEMPOTENT (Req 6.3): a missing artifact, an already-existing
+    association, an IAM/transient error — all return False with a warning rather
+    than raising. Returns True when the edge was added (or already present).
+    """
+    import sys
+    if not base_source_uri or not derivative_source_uri:
+        return False
+    try:
+        import boto3
+        client = sm_client or boto3.client("sagemaker", region_name=region)
+    except Exception as exc:  # noqa: BLE001
+        print(f"\u26a0\ufe0f  base\u2192derivative lineage edge skipped (no SageMaker client: {exc}).",
+              file=sys.stderr)
+        return False
+
+    base_arn = _resolve_lineage_artifact_arn(client, base_source_uri)
+    deriv_arn = _resolve_lineage_artifact_arn(client, derivative_source_uri)
+    if not base_arn or not deriv_arn:
+        print("\u2139\ufe0f  base\u2192derivative lineage edge skipped: the lineage artifacts "
+              "are not available yet (they are auto-created asynchronously). The "
+              "family linkage is still recorded in the model metadata.",
+              file=sys.stderr)
+        return False
+
+    try:
+        client.add_association(
+            SourceArn=base_arn,
+            DestinationArn=deriv_arn,
+            AssociationType="DerivedFrom",
+        )
+        print(f"Recorded base\u2192derivative lineage edge (DerivedFrom): "
+              f"{base_source_uri} \u2192 {derivative_source_uri}", file=sys.stderr)
+        return True
+    except Exception as exc:  # noqa: BLE001 — already-exists / IAM / transient
+        msg = str(exc).lower()
+        if "already" in msg or "exist" in msg:
+            # Idempotent: the edge is already there — treat as success.
+            return True
+        print(f"\u26a0\ufe0f  base\u2192derivative lineage edge skipped ({exc}); the family "
+              "linkage is still recorded in the model metadata.", file=sys.stderr)
+        return False

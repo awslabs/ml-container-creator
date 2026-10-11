@@ -71,19 +71,41 @@ function deployEnv(cfg) {
         HP_NAMESPACE: cfg.hyperPodNamespace,
         HP_REPLICAS: String(cfg.hyperPodReplicas),
         MODEL_NAME: cfg.modelName,
+        MODEL_SERVER: cfg.modelServer || 'vllm',
         HP_GPU_COUNT: gpu,
         HP_CPU_REQUEST: String(parseInt(gpu, 10) * 4),
         HP_MEM_REQUEST: `${parseInt(gpu, 10) * 16}Gi`,
         HP_MODEL_SOURCE: isS3 ? 's3' : 'huggingface',
         HP_MODEL_ID: isS3 ? cfg.stagedModelPath : cfg.modelName,
+        HP_MODEL_ARTIFACT_URI: isS3 ? cfg.stagedModelPath : '',
         VLLM_TENSOR_PARALLEL_SIZE: gpu,
         VLLM_QUANTIZATION: cfg.quantization || '',
+        // ADR-010: the driver resolves Tier-1/Tier-2 env JSON before render. Supply
+        // whatever the config carries (default empty → templates take the fallback
+        // branch) so BOTH the subprocess and the in-process mirror see identical
+        // input and the parity comparison stays meaningful.
+        EKS_TIER1_ENV_JSON: cfg.eksTier1EnvJson || '',
+        EKS_TIER2_ENV_JSON: cfg.eksTier2EnvJson || '',
+        HP_MODEL_HOSTPATH: cfg.modelHostPath || '',
         ECR_IMAGE: `123456789012.dkr.ecr.us-east-1.amazonaws.com/repo:${cfg.projectName}-latest`
     };
 }
 
+/** Parse the resolver's {resolved:[{key,value}]} env JSON exactly as the shipped
+ *  render-eks-manifests.cjs does — kept in lockstep so the mirror cannot drift. */
+function parseTier1Mirror(raw) {
+    if (!raw) return [];
+    let data;
+    try { data = JSON.parse(raw); } catch { return []; }
+    const resolved = data && Array.isArray(data.resolved) ? data.resolved : [];
+    return resolved
+        .filter((e) => e && typeof e.key === 'string' && e.key)
+        .map((e) => ({ key: e.key, value: (e.value === null || e.value === undefined) ? '' : String(e.value) }));
+}
+
 /** EJS render path (in-process mirror of render-eks-manifests.cjs) then envsubst.
- *  A separate subprocess smoke test asserts the shipped .cjs helper matches this. */
+ *  A separate subprocess smoke test asserts the shipped .cjs helper matches this.
+ *  The templateVars MUST mirror render-eks-manifests.cjs exactly. */
 function renderViaEjs(name, cfg) {
     const env = deployEnv(cfg);
     const src = path.join(EKS_TPL_DIR, `${name}.yaml.ejs`);
@@ -93,6 +115,10 @@ function renderViaEjs(name, cfg) {
         hyperPodNamespace: env.HP_NAMESPACE || 'default',
         hyperPodReplicas: env.HP_REPLICAS,
         modelName: env.MODEL_NAME || '',
+        modelServer: env.MODEL_SERVER || 'vllm',
+        modelHostPath: env.HP_MODEL_HOSTPATH || '',
+        tier1Env: parseTier1Mirror(env.EKS_TIER1_ENV_JSON),
+        tier2Env: parseTier1Mirror(env.EKS_TIER2_ENV_JSON),
         HP_GPU_COUNT: env.HP_GPU_COUNT
     }, { filename: src });
     return envsubst(out, env);
@@ -327,11 +353,75 @@ describe('BL111: Deploy-time EJS re-render for the plain-EKS target', () => {
             assert.ok(/envsubst fallback/.test(msg), 'warning must name the envsubst fallback');
         });
 
-        it('(generate-time yaml is not source of truth) the .ejs source is shipped into the project', () => {
+        it('(model volume) emptyDir path requests ephemeral-storage; hostPath NVMe path does NOT', () => {
+            // Default (no HP_MODEL_HOSTPATH): bounded emptyDir on the node root, so
+            // the pod MUST request ephemeral-storage (else greedy-eviction loop).
+            const def = yaml.load(renderViaEjs('Deployment', {
+                projectName: 'swift', framework: 'transformers', hyperPodNamespace: 'default',
+                hyperPodReplicas: 1, modelName: 'm', HP_GPU_COUNT: 8,
+                modelSource: 'huggingface'
+            }));
+            const defSpec = def.spec.template.spec;
+            assert.ok(defSpec.volumes[0].emptyDir, 'default model volume is an emptyDir');
+            assert.ok(defSpec.containers[0].resources.requests['ephemeral-storage'],
+                'emptyDir path must request ephemeral-storage');
+
+            // HP_MODEL_HOSTPATH set: model lands on node-local NVMe (hostPath), which
+            // does NOT draw from ephemeral-storage — so NO request (a large request
+            // against the small root volume would make the pod unschedulable).
+            const hp = yaml.load(renderViaEjs('Deployment', {
+                projectName: 'swift', framework: 'transformers', hyperPodNamespace: 'default',
+                hyperPodReplicas: 1, modelName: 'm', HP_GPU_COUNT: 8,
+                modelSource: 'huggingface', modelHostPath: '/opt/dlami/nvme'
+            }));
+            const hpSpec = hp.spec.template.spec;
+            assert.ok(hpSpec.volumes[0].hostPath, 'hostPath path uses a hostPath volume');
+            assert.strictEqual(hpSpec.volumes[0].hostPath.path, '/opt/dlami/nvme/swift',
+                'hostPath appends the project name to the NVMe base');
+            assert.ok(!hpSpec.containers[0].resources.requests['ephemeral-storage'],
+                'hostPath path must NOT request ephemeral-storage (not drawn from node root)');
+            // Both mount the model at the BYOC contract path.
+            assert.strictEqual(hpSpec.containers[0].volumeMounts[0].mountPath, '/opt/ml/model');
+        });
+
+        it('(NCCL) mounts a RAM-backed /dev/shm so multi-GPU tensor-parallel NCCL can init', () => {
+            // NCCL uses /dev/shm for intra-node cross-GPU transport. K8s defaults it
+            // to 64Mi, which makes ncclCommInitRank fail with "unhandled system
+            // error" on any TP>1 model (e.g. Kimi-K3 at --tp-size 8). The Deployment
+            // must mount a Memory-medium emptyDir at /dev/shm, independent of the
+            // model-volume (emptyDir vs hostPath) choice.
+            for (const extra of [{}, { modelHostPath: '/opt/dlami/nvme' }]) {
+                const spec = yaml.load(renderViaEjs('Deployment', {
+                    projectName: 'swift', framework: 'transformers', hyperPodNamespace: 'default',
+                    hyperPodReplicas: 1, modelName: 'm', HP_GPU_COUNT: 8,
+                    modelSource: 'huggingface', ...extra
+                })).spec.template.spec;
+
+                const shmVol = spec.volumes.find((v) => v.name === 'dshm');
+                assert.ok(shmVol, 'a dshm volume must exist');
+                assert.strictEqual(shmVol.emptyDir.medium, 'Memory',
+                    '/dev/shm volume must be RAM-backed (medium: Memory)');
+                assert.ok(shmVol.emptyDir.sizeLimit,
+                    '/dev/shm must be bounded by a sizeLimit (default HP_GPU_COUNT*8Gi, override HP_SHM_SIZE)');
+
+                const shmMount = spec.containers[0].volumeMounts.find((m) => m.mountPath === '/dev/shm');
+                assert.ok(shmMount && shmMount.name === 'dshm',
+                    'the container must mount the dshm volume at /dev/shm');
+            }
+        });
+
+        it('(generate-time yaml is not source of truth) the .ejs source is shipped into EVERY project', () => {
+            // The deployment target is a DEPLOY-TIME choice, not a generation-time
+            // answer, so the generator must ship the eks .yaml.ejs source
+            // UNCONDITIONALLY — never gated on `answers.deploymentTarget === 'eks'`
+            // (which, at generation, is always the realtime-inference default, so
+            // the gate was dead and the source was never shipped → the EJS render
+            // loop matched zero files and silently applied nothing).
             const appjs = readTpl('src/app.js');
-            assert.ok(/deploymentTarget === 'eks'/.test(appjs)
-                && /\.yaml\.ejs/.test(appjs),
-            'generator must ship the eks .yaml.ejs source into the project for the eks target');
+            assert.ok(/\.yaml\.ejs/.test(appjs),
+                'generator must ship the eks .yaml.ejs source into the project');
+            assert.ok(!/if \(answers\.deploymentTarget === 'eks'\)[\s\S]{0,400}\.yaml\.ejs/.test(appjs),
+                'shipping the eks .ejs source must NOT be gated on a generate-time eks target');
         });
 
         it('the renderer maps do/config env → EJS template variables', () => {

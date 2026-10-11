@@ -13,10 +13,8 @@ import os
 import sys
 
 from common import _output, _error_exit, _check_sagemaker_core
-from register_common import _load_registry
-import register_common
 import dataset_store
-from register_dataset import _get_hub_name_from_profile, _resolve_core_bucket
+from register_dataset import _resolve_core_bucket
 from register_model import _extract_version_from_arn, _check_ai_registry
 
 
@@ -238,18 +236,206 @@ def resolve_dataset_uri(name, *, version=None, region=None, core_bucket=None,
     }
 
 
+def _native_hub_name(sm_client, region):
+    """Resolve the computed native AI Registry hub name (AiRegistry-<region>-<acct>).
+
+    The SDK computes its own hub; we discover it by listing hubs and matching the
+    ``AiRegistry-`` prefix (falling back to deriving it from the caller account).
+    Returns None when it cannot be determined.
+    """
+    try:
+        token = None
+        while True:
+            kw = {"NextToken": token} if token else {}
+            resp = sm_client.list_hubs(**kw)
+            for h in resp.get("HubSummaries", []):
+                hub_name = h.get("HubName", "")
+                if hub_name.startswith("AiRegistry-"):
+                    return hub_name
+            token = resp.get("NextToken")
+            if not token:
+                break
+    except Exception:  # noqa: BLE001 — fall through to the derived name
+        pass
+
+    try:
+        import boto3
+        account = boto3.client("sts", region_name=region).get_caller_identity()["Account"]
+        return f"AiRegistry-{region}-{account}"
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _resolve_evaluator_native(name, region):
+    """Resolve a native evaluator by name via the AI Registry SDK.
+
+    Uses ``Evaluator.get(name)`` — the SDK's own resolution, which locates the
+    AI Registry hub the same way ``Evaluator.create`` does. (An earlier
+    implementation called ``describe_hub_content`` against a GUESSED hub name
+    ``AiRegistry-<region>-<account>``; the real SDK-created hub has an opaque
+    generated id, so the guess never matched and resolution always failed with
+    "not found" even for assets that existed — which also broke
+    ``do/tune --evaluator-name``.)
+
+    Returns ``{name, type, reference, arn, version}`` or None when not found.
+    ``type`` is the MLCC-facing ``reward_function``/``reward_prompt`` string so
+    ``do/tune`` routes it to the right job input. Raises on transport/permission
+    errors (distinct from not-found).
+    """
+    from sagemaker.ai_registry.evaluator import Evaluator
+
+    try:
+        ev = Evaluator.get(name)
+    except Exception as e:  # noqa: BLE001
+        if "ResourceNotFound" in type(e).__name__ or "does not exist" in str(e) \
+                or "not found" in str(e).lower():
+            return None
+        raise
+
+    if ev is None:
+        return None
+
+    return {
+        "name": getattr(ev, "name", name),
+        "type": _sdk_type_to_mlcc(getattr(ev, "type", "")),
+        "reference": getattr(ev, "reference", "") or "",
+        "arn": getattr(ev, "arn", None),
+        "version": getattr(ev, "version", None),
+    }
+
+
 def cmd_resolve_evaluator(args):
-    """Resolve a registered evaluator by name."""
+    """Resolve a registered evaluator by name from the native AI Registry.
+
+    BL117 retired the local ``evaluators.json`` as the record of truth; evaluators
+    are native ``sagemaker.ai_registry`` assets. Resolution reads the native hub.
+    Returns ``{name, type, reference, arn, version}``; ``type`` is
+    ``reward_function`` (RLVR/MTRL) or ``reward_prompt`` (RLAIF) so ``do/tune``
+    threads the right job input.
+    """
     name = args.name
     if not name:
         _error_exit("--name is required", code="MISSING_ARGUMENT")
 
-    entries = _load_registry(register_common._EVALUATORS_REGISTRY)
-    for entry in entries:
-        if entry.get("name") == name:
-            _output(entry)
+    region = (
+        getattr(args, "region", None)
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or os.environ.get("AWS_REGION")
+    )
 
-    _error_exit(f"Evaluator not found: {name}", code="EVALUATOR_NOT_FOUND")
+    # SDK-floor / region guard: outside a supported region (or on an SDK without
+    # ai_registry) the native hub cannot be read — surface a clear not-supported
+    # error rather than a raw boto failure.
+    try:
+        import ai_registry_native as _arn
+        if not _arn.region_supports_ai_registry(region):
+            _error_exit(
+                f"Evaluators are not available in region '{region}'. "
+                f"Managed RL evaluators require one of: "
+                f"{', '.join(sorted(_arn.AI_REGISTRY_REGIONS))}.",
+                code="EVALUATOR_REGION_UNSUPPORTED",
+            )
+    except ImportError:
+        pass
+
+    try:
+        resolved = _resolve_evaluator_native(name, region)
+    except Exception as e:  # noqa: BLE001 — transport/permission (distinct from not-found)
+        print(json.dumps({"error": str(e), "code": "EVALUATOR_RESOLVE_FAILED"}))
+        print(f"\u26a0\ufe0f  Failed to resolve evaluator '{name}': {e}", file=sys.stderr)
+        sys.exit(3)
+
+    if resolved is None:
+        _error_exit(f"Evaluator not found: {name}", code="EVALUATOR_NOT_FOUND")
+
+    _output(resolved)
+
+
+def _sdk_type_to_mlcc(sdk_type):
+    """Map an SDK evaluator type (``RewardFunction``/``RewardPrompt``) to the
+    MLCC-facing string (``reward_function``/``reward_prompt``)."""
+    return "reward_prompt" if "prompt" in str(sdk_type).lower() else "reward_function"
+
+
+def _list_evaluators_native(region, evaluator_type=None):
+    """List native evaluator assets via the AI Registry SDK.
+
+    Uses ``Evaluator.get_all()`` — the SDK's own enumeration, which resolves the
+    AI Registry hub exactly the way ``Evaluator.create`` does. (An earlier
+    implementation listed ``JsonDoc`` hub content via a GUESSED hub name
+    ``AiRegistry-<region>-<account>``; the real SDK-created hub has an opaque
+    generated id, so the guess never matched and listing always came back empty.)
+
+    ``evaluator_type`` (optional MLCC string) filters to REWARD_FUNCTION or
+    REWARD_PROMPT. Returns ``{name, type, version, arn, reference}`` dicts. Raises
+    on transport/permission errors.
+    """
+    from sagemaker.ai_registry.evaluator import Evaluator
+    from sagemaker.ai_registry.air_constants import REWARD_FUNCTION, REWARD_PROMPT
+
+    sdk_type = None
+    if evaluator_type == "reward_function":
+        sdk_type = REWARD_FUNCTION
+    elif evaluator_type == "reward_prompt":
+        sdk_type = REWARD_PROMPT
+
+    try:
+        results = Evaluator.get_all(type=sdk_type) if sdk_type else Evaluator.get_all()
+    except Exception as e:  # noqa: BLE001
+        if "ResourceNotFound" in type(e).__name__ or "does not exist" in str(e):
+            return []
+        raise
+
+    out = []
+    for ev in list(results or []):
+        name = getattr(ev, "name", None)
+        if not name:
+            continue
+        out.append({
+            "name": name,
+            "type": _sdk_type_to_mlcc(getattr(ev, "type", "")),
+            "version": getattr(ev, "version", None),
+            "arn": getattr(ev, "arn", None),
+            "reference": getattr(ev, "reference", None),
+        })
+    return out
+
+
+def cmd_list_evaluators(args):
+    """List registered evaluators from the native AI Registry.
+
+    Discovery parity with ``list-datasets``: evaluators/prompts were only
+    resolvable by name before. ``--evaluator-type reward_function|reward_prompt``
+    filters to one kind so ``do/register evaluator --list`` (reward functions) and
+    ``do/register prompt --list`` (reward prompts) each show the relevant set.
+    """
+    region = (
+        getattr(args, "region", None)
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or os.environ.get("AWS_REGION")
+    )
+    evaluator_type = getattr(args, "evaluator_type", None)
+
+    try:
+        import ai_registry_native as _arn
+        if not _arn.region_supports_ai_registry(region):
+            _error_exit(
+                f"Evaluators are not available in region '{region}'. "
+                f"Managed RL evaluators require one of: "
+                f"{', '.join(sorted(_arn.AI_REGISTRY_REGIONS))}.",
+                code="EVALUATOR_REGION_UNSUPPORTED",
+            )
+    except ImportError:
+        pass
+
+    try:
+        evaluators = _list_evaluators_native(region, evaluator_type)
+    except Exception as e:  # noqa: BLE001 — transport/permission (distinct from empty)
+        print(json.dumps({"error": str(e), "code": "EVALUATOR_LIST_FAILED"}))
+        print(f"\u26a0\ufe0f  Failed to list evaluators: {e}", file=sys.stderr)
+        sys.exit(3)
+
+    _output({"evaluators": evaluators, "count": len(evaluators)})
 
 
 def cmd_get_version(args):

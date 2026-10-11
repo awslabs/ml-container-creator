@@ -53,7 +53,6 @@ the server after migration.
 | region-picker | 230 | 1 | ✓ | ✓ | ✓ | ✓ | regions catalog, `get_regions`, filter + Bedrock prompt |
 | workload-picker | 171 | 2 | ✓ | ✓ | – | – | workload-profiles catalog, 2 tools |
 | e2e-status | 297 | 2 | – | – | ✓ | – | status tools (no catalog) |
-| marketplace-picker | 342 | 1 | – | ✓ | ✓ | – | marketplace lookup tool |
 | adapter-picker | 365 | 3 | – | ✓ | – | – | adapter tools |
 | draft-model-picker | 390 | 4 | ✓ | ✓ | – | – | draft-models catalog, 4 tools |
 | endpoint-picker | 565 | 1 | – | ✓ | ✓ | – | live SageMaker endpoint query |

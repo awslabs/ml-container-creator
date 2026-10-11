@@ -13,6 +13,25 @@ except ImportError:
     # If certifi is not available, disable SSL verification as fallback
     ssl._create_default_https_context = ssl._create_unverified_context
 
+<%
+  // Shared fallback train_test_split for the configs that do NOT import it from
+  // scikit-learn (xgboost/tensorflow — both http and triton fil/tensorflow).
+  // Defined once here so the single source is not duplicated across the two
+  // mutually-exclusive EJS branches below; each branch emits it at its own
+  // position so rendered output is byte-identical to the previous two copies.
+-%>
+<% const trainTestSplitDef = `def train_test_split(X, y, test_size=0.2, random_state=None):
+    if random_state is not None:
+        np.random.seed(random_state)
+
+    n_samples = len(X)
+    n_test = int(n_samples * test_size)
+
+    indices = np.random.permutation(n_samples)
+    test_indices = indices[:n_test]
+    train_indices = indices[n_test:]
+
+    return X.iloc[train_indices], X.iloc[test_indices], y[train_indices], y[test_indices]`; -%>
 <% if (architecture === 'triton') { %>
 <% if (backend === 'fil' && (modelFormat === 'xgboost_json' || modelFormat === 'xgboost_ubj')) { %>
 try:
@@ -65,36 +84,14 @@ from sklearn.model_selection import train_test_split
 <% if (effectiveFramework === 'xgboost') { %>import xgboost as xgb<% } %>
 <% if (effectiveFramework === 'tensorflow') { %>import tensorflow as tf<% } %>
 
-def train_test_split(X, y, test_size=0.2, random_state=None):
-    if random_state is not None:
-        np.random.seed(random_state)
-
-    n_samples = len(X)
-    n_test = int(n_samples * test_size)
-
-    indices = np.random.permutation(n_samples)
-    test_indices = indices[:n_test]
-    train_indices = indices[n_test:]
-
-    return X.iloc[train_indices], X.iloc[test_indices], y[train_indices], y[test_indices]
+<%- trainTestSplitDef %>
 <% } %>
 <% } %>
 
 from ucimlrepo import fetch_ucirepo
 <% if (architecture === 'triton' && (backend === 'fil' || backend === 'tensorflow')) { %>
 
-def train_test_split(X, y, test_size=0.2, random_state=None):
-    if random_state is not None:
-        np.random.seed(random_state)
-
-    n_samples = len(X)
-    n_test = int(n_samples * test_size)
-
-    indices = np.random.permutation(n_samples)
-    test_indices = indices[:n_test]
-    train_indices = indices[n_test:]
-
-    return X.iloc[train_indices], X.iloc[test_indices], y[train_indices], y[test_indices]
+<%- trainTestSplitDef %>
 <% } %>
 
 try:

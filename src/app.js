@@ -18,6 +18,7 @@ import RegistryLoader from './lib/registry-loader.js';
 import { resolvePrefixedEnvVars } from './lib/engine-prefix-resolver.js';
 import { isMarketplaceConfig, isMarketplaceModelName, refuseMarketplaceAndExit } from './lib/marketplace-refusal.js';
 import { readEnvVarPrefix, resolveEngineFeatureVars } from './lib/serve-manifest-reader.js';
+import { isLlm as tritonIsLlm, isKnownBackend as isTritonBackend } from './lib/triton-backend-reader.js';
 import {
     listPredictorFrameworks,
     pipDependencies as predictorPipDependencies,
@@ -247,51 +248,45 @@ export async function run(projectName, options) {
 
     // --- Phase: DLC Resolution (--no-build mode) ---
     if (answers.no_build) {
-        // Guard: marketplace architecture already skips containers — --no-build is redundant
-        if (answers.architecture === 'marketplace') {
-            console.log('\n⚠️  --no-build is redundant with marketplace architecture (already skips container generation). Ignoring flag.');
-            answers.no_build = false;
-        } else {
-            const { resolveDlcImage } = await import('./lib/dlc-resolver.js');
+        const { resolveDlcImage } = await import('./lib/dlc-resolver.js');
 
-            // If existing endpoint, resolve instance type from live endpoint
-            const instanceType = answers.instanceType;
-            if (answers.existingEndpointName && !instanceType) {
-                // Instance type must be resolved before DLC selection
-                console.log('\n⚠️  --no-build with --existing-endpoint requires instance type for DLC image selection.');
-                console.log('   Provide --instance-type or ensure the endpoint is resolvable.');
-                // Fallback: require user to specify instance type
-                if (!instanceType) {
-                    console.log('\n❌ Cannot resolve DLC image without instance type.');
-                    console.log('   Use: --instance-type ml.g5.xlarge (or similar)');
-                    process.exit(1);
-                }
+        // If existing endpoint, resolve instance type from live endpoint
+        const instanceType = answers.instanceType;
+        if (answers.existingEndpointName && !instanceType) {
+            // Instance type must be resolved before DLC selection
+            console.log('\n⚠️  --no-build with --existing-endpoint requires instance type for DLC image selection.');
+            console.log('   Provide --instance-type or ensure the endpoint is resolvable.');
+            // Fallback: require user to specify instance type
+            if (!instanceType) {
+                console.log('\n❌ Cannot resolve DLC image without instance type.');
+                console.log('   Use: --instance-type ml.g5.xlarge (or similar)');
+                process.exit(1);
             }
+        }
 
-            try {
-                const dlcUri = await resolveDlcImage({
-                    framework: answers.framework,
-                    model_server: answers.modelServer || answers.backend,
-                    instance_type: instanceType,
-                    region: answers.region || answers.awsRegion || 'us-east-1',
-                    accelerator: 'gpu',
-                    model_architecture: answers.modelArchitecture || ''
-                });
-                answers.container_image_uri = dlcUri;
-                answers.deploy_mode = 'dlc-direct';
-                console.log(`\n✅ DLC image resolved: ${dlcUri}`);
-            } catch (err) {
-                if (err.name === 'DlcResolutionError') {
-                    console.log(`\n❌ DLC Resolution Failed: ${err.message}`);
-                    if (err.availableOptions.length > 0) {
-                        console.log('\n   Available images (incompatible with your instance):');
-                        err.availableOptions.slice(0, 5).forEach(opt => console.log(`     • ${opt}`));
-                    }
-                    console.log('\n   Suggestion: Use custom-container mode (omit --no-build) for this instance type.');
-                    process.exit(1);
+        try {
+            const dlcUri = await resolveDlcImage({
+                framework: answers.framework,
+                model_server: answers.modelServer || answers.backend,
+                instance_type: instanceType,
+                region: answers.region || answers.awsRegion || 'us-east-1',
+                accelerator: 'gpu',
+                model_architecture: answers.modelArchitecture || ''
+            });
+            answers.container_image_uri = dlcUri;
+            answers.deploy_mode = 'dlc-direct';
+            console.log(`\n✅ DLC image resolved: ${dlcUri}`);
+        } catch (err) {
+            if (err.name === 'DlcResolutionError') {
+                console.log(`\n❌ DLC Resolution Failed: ${err.message}`);
+                if (err.availableOptions.length > 0) {
+                    console.log('\n   Available images (incompatible with your instance):');
+                    err.availableOptions.slice(0, 5).forEach(opt => console.log(`     • ${opt}`));
                 }
-                throw err;
+                console.log('\n   Suggestion: Use custom-container mode (omit --no-build) for this instance type.');
+                process.exit(1);
             }
+            throw err;
         }
     }
 
@@ -567,63 +562,10 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         answers.deploy_mode = 'dlc-direct';
     }
 
-    // Marketplace projects: exclude everything container-related
-    if (architecture === 'marketplace') {
-        ignorePatterns.push('**/Dockerfile');
-        ignorePatterns.push('**/code/**');
-        ignorePatterns.push('**/do/build');
-        ignorePatterns.push('**/do/push');
-        ignorePatterns.push('**/do/submit');
-        ignorePatterns.push('**/do/adapter');
-        ignorePatterns.push('**/do/adapters/**');
-        ignorePatterns.push('**/do/tune');
-        ignorePatterns.push('**/do/.tune_helper.py');
-        ignorePatterns.push('**/do/.stage_helper.py');
-        ignorePatterns.push('**/do/.adapter_helper.py');
-        ignorePatterns.push('**/do/.register_helper.py');
-        ignorePatterns.push('**/do/lib/python/**');
-        ignorePatterns.push('**/do/train');
-        ignorePatterns.push('**/do/.train_helper.py');
-        ignorePatterns.push('**/do/.train_build_request.py');
-        ignorePatterns.push('**/do/training/**');
-        ignorePatterns.push('**/do/evaluate');
-        ignorePatterns.push('**/do/.eval_helper.py');
-        ignorePatterns.push('**/do/add-ic');
-        ignorePatterns.push('**/do/run');
-        ignorePatterns.push('**/do/draft');
-        ignorePatterns.push('**/sample_model/**');
-        ignorePatterns.push('**/requirements.txt');
-        ignorePatterns.push('**/nginx-*.conf');
-        ignorePatterns.push('**/triton/**');
-        ignorePatterns.push('**/diffusors/**');
-        ignorePatterns.push('**/hyperpod/**');
-        ignorePatterns.push('**/eks/**');
-        ignorePatterns.push('**/MIGRATION.md');
-        ignorePatterns.push('**/TEMPLATE_SYSTEM.md');
-        ignorePatterns.push('**/IAM_PERMISSIONS.md');
-        ignorePatterns.push('**/PROJECT_README.md');
-        ignorePatterns.push('**/deploy_notebook_generator.py');
-        ignorePatterns.push('**/buildspec.yml');
-        ignorePatterns.push('**/test/**');
-        // Exclude templates that reference container-specific variables (framework, modelServer)
-        // Marketplace overlays its own config, deploy, and test templates
-        ignorePatterns.push('**/do/config');
-        ignorePatterns.push('**/do/deploy');
-        ignorePatterns.push('**/do/.deploy_helper.py');
-        ignorePatterns.push('**/do/test');
-        ignorePatterns.push('**/do/README.md');
-        ignorePatterns.push('**/do/export');
-        ignorePatterns.push('**/do/validate');
-        ignorePatterns.push('**/do/ic/**');
-    }
-
     // Always exclude architecture-specific source directories from main copy
     // (they are overlaid separately for their respective architectures)
-    ignorePatterns.push('**/marketplace/**');
-    if (architecture !== 'marketplace') {
-        ignorePatterns.push('**/triton/**');
-        ignorePatterns.push('**/diffusors/**');
-    }
+    ignorePatterns.push('**/triton/**');
+    ignorePatterns.push('**/diffusors/**');
 
     // For triton and diffusors, exclude the default Dockerfile
     if (architecture === 'triton' || architecture === 'diffusors') {
@@ -731,14 +673,6 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         _copyFile(path.join(templateDir, 'diffusors/patch_image_api.py'), path.join(destDir, 'code/patch_image_api.py'));
         break;
 
-    case 'marketplace':
-        // Marketplace projects: overlay marketplace-specific templates
-        // These replace the default do/config, do/deploy, and do/test with marketplace versions
-        _renderTemplate(path.join(templateDir, 'marketplace/config'), path.join(destDir, 'do/config'), templateVars);
-        _renderTemplate(path.join(templateDir, 'marketplace/deploy'), path.join(destDir, 'do/deploy'), templateVars);
-        _renderTemplate(path.join(templateDir, 'marketplace/test'), path.join(destDir, 'do/test'), templateVars);
-        break;
-
     default:
         // Fallback to HTTP behavior
         _unlinkIfExists(path.join(destDir, 'code/chat_template.jinja'));
@@ -759,10 +693,7 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     }
 
     // Copy PROJECT_README.md as README.md (overwriting the template README)
-    // Marketplace projects don't use the standard README (no container/framework info)
-    if (architecture !== 'marketplace') {
-        _renderTemplate(path.join(templateDir, 'PROJECT_README.md'), path.join(destDir, 'README.md'), templateVars);
-    }
+    _renderTemplate(path.join(templateDir, 'PROJECT_README.md'), path.join(destDir, 'README.md'), templateVars);
 
     // Copy do/lib/ Node.js modules (plain copy, no EJS)
     const doLibDir = path.join(destDir, 'do', 'lib');
@@ -775,18 +706,24 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     // do/deploy.d/eks can re-render from the template at deploy time — the render
     // source of truth is the .ejs template resolved against current do/config, not
     // the generate-time-frozen eks/*.yaml that copyTpl also writes (kept only as the
-    // envsubst-fallback input). Only the plain-EKS target needs this.
-    if (answers.deploymentTarget === 'eks' && architecture !== 'marketplace') {
-        const eksTemplateDir = path.join(templateDir, 'eks');
-        if (fs.existsSync(eksTemplateDir)) {
-            const eksDestDir = path.join(destDir, 'eks');
-            fs.mkdirSync(eksDestDir, { recursive: true });
-            for (const ejsSrc of fs.readdirSync(eksTemplateDir)) {
-                if (!ejsSrc.endsWith('.yaml.ejs')) continue;
-                // Copy verbatim (NOT EJS-rendered): the deploy-time render owns the
-                // <%= %> resolution so instanceType/GPU/model/serve reflect deploy time.
-                _copyFile(path.join(eksTemplateDir, ejsSrc), path.join(eksDestDir, ejsSrc));
-            }
+    // envsubst-fallback input).
+    //
+    // This is ALWAYS done, for every project. The deployment target is a
+    // DEPLOY-TIME choice (`do/deploy --target eks`), NOT a generation-time answer —
+    // at generation `answers.deploymentTarget` is just the default
+    // (realtime-inference). Gating this on `=== 'eks'` therefore meant the .ejs
+    // source was NEVER shipped, so every EKS deploy's node+ejs render loop matched
+    // zero files and silently applied nothing. Any project can deploy to EKS, so
+    // every project carries the .ejs source.
+    const eksTemplateDir = path.join(templateDir, 'eks');
+    if (fs.existsSync(eksTemplateDir)) {
+        const eksDestDir = path.join(destDir, 'eks');
+        fs.mkdirSync(eksDestDir, { recursive: true });
+        for (const ejsSrc of fs.readdirSync(eksTemplateDir)) {
+            if (!ejsSrc.endsWith('.yaml.ejs')) continue;
+            // Copy verbatim (NOT EJS-rendered): the deploy-time render owns the
+            // <%= %> resolution so instanceType/GPU/model/serve reflect deploy time.
+            _copyFile(path.join(eksTemplateDir, ejsSrc), path.join(eksDestDir, ejsSrc));
         }
     }
 
@@ -869,7 +806,7 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
  */
 export async function postGenerate(destDir, answers, tritonBackends = {}) {
     // Set executable permissions on shell scripts
-    _setExecutablePermissions(destDir, answers);
+    _setExecutablePermissions(destDir);
 
     // Run sample model training if requested
     const architecture = answers.architecture;
@@ -1121,11 +1058,19 @@ function _generateTritonFiles(templateDir, destDir, templateVars, answers, _trit
     const modelName = answers.modelName || 'model';
     const backend = answers.backend;
 
+    // BL119: the Triton templates no longer hardcode a `vllm || tensorrtllm` name
+    // list. Derive the LLM-backend predicate from the catalog via the reader and
+    // inject it so config.pbtxt / Dockerfile branch on `isLlmBackend` instead.
+    // Unknown/legacy backends (not in the catalog) are treated as non-LLM, matching
+    // the templates' prior else-branch behavior for anything but vllm/tensorrtllm.
+    const isLlmBackend = isTritonBackend(backend) && tritonIsLlm(backend);
+    const tritonVars = { ...templateVars, isLlmBackend };
+
     // Copy Triton Dockerfile
     _renderTemplate(
         path.join(templateDir, 'triton/Dockerfile'),
         path.join(destDir, 'Dockerfile'),
-        templateVars
+        tritonVars
     );
 
     // Create model repository directory structure
@@ -1136,7 +1081,7 @@ function _generateTritonFiles(templateDir, destDir, templateVars, answers, _trit
     _renderTemplate(
         path.join(templateDir, 'triton/config.pbtxt'),
         path.join(modelRepoPath, 'config.pbtxt'),
-        templateVars
+        tritonVars
     );
 
     // Create version 1 directory with .gitkeep
@@ -1145,17 +1090,20 @@ function _generateTritonFiles(templateDir, destDir, templateVars, answers, _trit
         '# Placeholder for model artifacts\n'
     );
 
-    // For triton-python backend: copy model.py and requirements.txt
+    // For triton-python backend: copy model.py and requirements.txt. (The Python
+    // backend is the only one with a model.py / requirements.txt overlay — this is
+    // genuinely backend-specific, not a catalog-derivable fact, so it stays a
+    // backend check per route B.)
     if (backend === 'python') {
         _renderTemplate(
             path.join(templateDir, 'triton/model.py'),
             path.join(modelRepoPath, '1/model.py'),
-            templateVars
+            tritonVars
         );
         _renderTemplate(
             path.join(templateDir, 'triton/requirements.txt'),
             path.join(destDir, 'triton/requirements.txt'),
-            templateVars
+            tritonVars
         );
     }
 }
@@ -1205,25 +1153,7 @@ function _unlinkIfExists(filePath) {
  *
  * @param {string} destDir - Path to the generated project directory
  */
-function _setExecutablePermissions(destDir, answers = {}) {
-    const architecture = answers.architecture;
-
-    // Marketplace projects have a reduced set of scripts
-    const marketplaceScripts = [
-        'do/config',
-        'do/deploy',
-        'do/test',
-        'do/logs',
-        'do/clean',
-        'do/register',
-        'do/ci',
-        'do/manifest',
-        'do/benchmark',
-        'do/optimize',
-        'do/status',
-        'do/validate'
-    ];
-
+function _setExecutablePermissions(destDir) {
     const defaultScripts = [
         'do/config',
         'do/build',
@@ -1248,7 +1178,7 @@ function _setExecutablePermissions(destDir, answers = {}) {
         'do/validate'
     ];
 
-    const shellScripts = architecture === 'marketplace' ? marketplaceScripts : defaultScripts;
+    const shellScripts = defaultScripts;
 
     shellScripts.forEach(script => {
         const scriptPath = path.join(destDir, script);

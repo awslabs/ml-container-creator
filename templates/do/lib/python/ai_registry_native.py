@@ -1,0 +1,236 @@
+from __future__ import annotations
+"""Native SageMaker AI Registry helpers (BL123).
+
+Shared, dependency-light helpers for the native `sagemaker.ai_registry` path:
+datasets register natively (and, via BL117, evaluators) so they appear in Studio
+Assets, while MLCC's S3 sidecar stays the durable write record. Everything here is
+NON-FATAL by contract — the caller's sidecar/MLflow path must survive any failure.
+
+Key spike-derived facts (BL122, verified against sagemaker 3.23.0):
+  - The AI Registry hub is COMPUTED (`AiRegistry-<region>-<account>`), NOT
+    targetable; `DataSet.create` takes no hub kwarg. We use the SDK's native hub.
+  - Studio Assets visibility requires passing `domain_id` (the `@domain` tag).
+  - `DataSet.create(name, source, customization_technique=<member>, role=,
+    domain_id=)` keeps a `source` S3 pointer (no copy) and auto-increments the
+    native semver on same-name re-create.
+  - `ai_registry` + Studio Lineage are region-gated.
+
+This module hardcodes NO per-technique knowledge beyond the single label→member
+map below (Req 11.3, derive-dont-hardcode): the SDK enum is the source of the
+member set, and the map is the single place MLCC's technique labels bind to it.
+"""
+
+import json
+import os
+import sys
+
+from register_common import _CONFIG_PATH
+
+# Regions where ai_registry + Studio Lineage are available (Req 7.1).
+AI_REGISTRY_REGIONS = frozenset({
+    "us-east-1", "us-west-2", "ap-northeast-1", "eu-west-1",
+})
+
+# ── MLCC technique label → native CustomizationTechnique member name ───────────
+#
+# The native `CustomizationTechnique` enum NAMES only {SFT, DPO, RLVR} (verified
+# sagemaker 3.23.0). MLCC accepts a wider set of *labels* on `do/register dataset`
+# and maps each to the compatible native member (Req 11):
+#   - SFT, DPO           → their own member (dataset-driven techniques).
+#   - RLVR               → RLVR member.
+#   - RLAIF, MTRL        → the RLVR member (their training input is a prompt
+#                          corpus of the same shape); the INTENDED technique is
+#                          recorded in the S3 sidecar so do/tune can resolve it.
+#   - benchmark          → None: sidecar-only, NOT registered natively (it is an
+#                          AIPerf BYOD benchmark corpus, not a customization input).
+# A value of None means "no native member" → skip the native create, keep the
+# sidecar. A label absent from this map is a reward ARTIFACT or an unknown value
+# and is rejected by the caller with guidance to the evaluator verbs.
+_TECHNIQUE_TO_MEMBER = {
+    "sft": "SFT",
+    "dpo": "DPO",
+    "rlvr": "RLVR",
+    "rlaif": "RLVR",
+    "mtrl": "RLVR",
+    "benchmark": None,
+}
+
+# Labels that are genuine reward ARTIFACTS, not datasets — rejected by
+# do/register dataset with guidance to the evaluator verbs (Req 11.5).
+_REWARD_ARTIFACT_LABELS = frozenset({"reward-prompt", "reward_prompt", "reward-function", "reward_function"})
+
+
+def dataset_techniques():
+    """The dataset technique labels do/register dataset accepts (sorted)."""
+    return sorted(_TECHNIQUE_TO_MEMBER.keys())
+
+
+def is_reward_artifact_label(label):
+    """True when the label names a reward artifact (an evaluator, not a dataset)."""
+    return (label or "").strip().lower() in _REWARD_ARTIFACT_LABELS
+
+
+def native_member_for(technique):
+    """Return (member_name, recognized) for an MLCC technique label.
+
+    member_name is the native CustomizationTechnique member string to pass to
+    DataSet.create, or None when the technique is sidecar-only (benchmark).
+    recognized is False when the label is unknown (caller rejects it).
+    """
+    key = (technique or "").strip().lower()
+    if key not in _TECHNIQUE_TO_MEMBER:
+        return None, False
+    return _TECHNIQUE_TO_MEMBER[key], True
+
+
+def check_ai_registry_available():
+    """True when the installed sagemaker SDK exposes sagemaker.ai_registry.
+
+    Reuses the dormant probe shape from register_model._check_ai_registry so a
+    too-old SDK degrades to the sidecar path with a clear upgrade message instead
+    of raising a raw ImportError (Req 7.2).
+    """
+    try:
+        from sagemaker.ai_registry.dataset import DataSet  # noqa: F401
+        return True
+    except Exception:  # noqa: BLE001 — any import/attr failure = not available
+        return False
+
+
+def region_supports_ai_registry(region):
+    """True when the region supports ai_registry + Studio Lineage (Req 7.1)."""
+    return (region or "") in AI_REGISTRY_REGIONS
+
+
+def _active_profile_data():
+    """Return the active profile dict from ~/.ml-container-creator/config.json.
+
+    Mirrors the active-profile resolution used elsewhere (activeProfile key →
+    profiles map). Returns {} when the config/profile is missing or unreadable so
+    callers degrade gracefully.
+    """
+    try:
+        with open(_CONFIG_PATH) as f:
+            config = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+    profiles = config.get("profiles") or {}
+    active = config.get("activeProfile")
+    if active and active in profiles and isinstance(profiles[active], dict):
+        return profiles[active]
+    # Fall back to the first profile dict if no active one is marked.
+    for data in profiles.values():
+        if isinstance(data, dict):
+            return data
+    return {}
+
+
+def resolve_domain_id():
+    """Return the Studio Domain_Id from the active profile, or None (Req 3.2/3.3).
+
+    Prefer the denormalized top-level ``domainId`` the bootstrap writes, but FALL
+    BACK to ``moduleOutputs['sagemaker-domain'].DomainId`` when it is absent. The
+    bootstrap denormalizer only backfills the top-level key when it runs with the
+    sagemaker-domain module in its outputs, so a profile provisioned with the
+    module BEFORE that step existed (or via an add-module that short-circuited on
+    "already provisioned") has the DomainId in moduleOutputs but no top-level key.
+    Reading both makes resolution independent of denormalization timing.
+
+    Absent in both → the asset is still created natively but without the @domain
+    tag (not Studio-visible); the caller notes this and does not fail.
+    """
+    profile = _active_profile_data()
+    domain_id = profile.get("domainId")
+    if not domain_id:
+        module_outputs = profile.get("moduleOutputs") or {}
+        sm_domain = module_outputs.get("sagemaker-domain") or {}
+        if isinstance(sm_domain, dict):
+            domain_id = sm_domain.get("DomainId")
+    return domain_id or None
+
+
+def resolve_training_role():
+    """Return the training role ARN from the active profile, or None.
+
+    DataSet.create needs a sagemaker-trusted role (the launch gate). Falls back to
+    an explicit env override so a caller can pass one in CI.
+    """
+    return (
+        os.environ.get("MLCC_TRAINING_ROLE_ARN")
+        or _active_profile_data().get("roleArn")
+        or None
+    )
+
+
+class NativeRegistrySkipped(Exception):
+    """Raised to signal a non-fatal skip with a user-facing reason."""
+
+
+def register_dataset_native(*, name, s3_uri, technique, region,
+                            description=None, role=None, domain_id=None):
+    """Create (or version++) a native AI Registry DataSet for Studio discoverability.
+
+    Additive + NON-FATAL (Req 1.5): the caller has already written the durable S3
+    sidecar; this layers a versioned, Studio-discoverable entry pointing at the
+    SAME S3 URI (no copy). Returns a result dict on success:
+        {"arn": <hub-content-arn>, "version": <native semver>, "member": <member>,
+         "domain_tagged": <bool>}
+    Raises NativeRegistrySkipped (non-fatal, with reason) when the step is skipped
+    (region/SDK/technique) and lets genuine SDK errors propagate to the caller,
+    which converts them to a warning.
+
+    `technique` is an MLCC label (sft/dpo/rlvr/rlaif/mtrl/benchmark); the mapping
+    to the native member is applied here via the single map.
+    """
+    member, recognized = native_member_for(technique)
+    if not recognized:
+        raise NativeRegistrySkipped(
+            f"technique '{technique}' has no native AI Registry member"
+        )
+    if member is None:
+        raise NativeRegistrySkipped(
+            f"technique '{technique}' is sidecar-only (not a customization input)"
+        )
+
+    if not region_supports_ai_registry(region):
+        raise NativeRegistrySkipped(
+            f"region '{region}' does not support the AI Registry / Studio Lineage "
+            f"(supported: {', '.join(sorted(AI_REGISTRY_REGIONS))})"
+        )
+
+    if not check_ai_registry_available():
+        raise NativeRegistrySkipped(
+            "the installed sagemaker SDK does not expose sagemaker.ai_registry "
+            "— upgrade sagemaker to enable native asset registration"
+        )
+
+    from sagemaker.ai_registry.dataset import CustomizationTechnique, DataSet
+
+    technique_member = getattr(CustomizationTechnique, member, None)
+    if technique_member is None:
+        raise NativeRegistrySkipped(
+            f"the installed SDK's CustomizationTechnique has no '{member}' member"
+        )
+
+    create_kwargs = {
+        "name": name,
+        "source": s3_uri,
+        "customization_technique": technique_member,
+    }
+    if role:
+        create_kwargs["role"] = role
+    domain_tagged = False
+    if domain_id:
+        create_kwargs["domain_id"] = domain_id
+        domain_tagged = True
+    if description:
+        create_kwargs["description"] = description
+
+    dataset = DataSet.create(**create_kwargs)
+
+    return {
+        "arn": getattr(dataset, "arn", None),
+        "version": getattr(dataset, "version", None),
+        "member": member,
+        "domain_tagged": domain_tagged,
+    }

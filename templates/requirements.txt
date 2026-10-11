@@ -1,7 +1,15 @@
 <% if (typeof predictorPipDependencies !== 'undefined' && predictorPipDependencies && predictorPipDependencies.length > 0) { %># <%= engine %> dependencies (from predictors.d/<%= engine %>/manifest.json)
 <% predictorPipDependencies.forEach(function(dep) { %><%= dep %>
 <% }); %><% } else if (framework === 'transformers' && modelServer === 'sglang') { %># SGLang dependencies
-sglang[all]==0.5.10
+#
+# NOTE: these are NOT installed into the deployed image. The transformers-sglang
+# container is built FROM the SGLang Deep Learning Container base image, which
+# already ships sglang, torch, transformers, accelerate, etc.; the generated
+# Dockerfile does not COPY or `pip install -r requirements.txt` on the
+# transformers path, and code/serve runs `sglang serve` (the SGLang >=0.5 CLI)
+# straight from the base image. This list is kept only as a reference / for a
+# local `pip install -r requirements.txt` when experimenting outside the DLC.
+sglang[all]>=0.5.5
 torch>=2.1.0
 transformers>=4.36.0
 accelerate>=0.25.0

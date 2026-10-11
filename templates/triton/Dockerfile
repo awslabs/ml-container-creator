@@ -30,7 +30,7 @@ LABEL com.amazonaws.sagemaker.capabilities.accept-bind-to-port=true
 # Set working directory
 WORKDIR /opt/ml
 
-<% if (backend === 'vllm' || backend === 'tensorrtllm') { %>
+<% if (isLlmBackend) { %>
 # HuggingFace model configuration for LLM backends
 ENV HF_MODEL_ID="<%= modelName %>"
 <% if (hfToken) { %>

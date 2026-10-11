@@ -119,14 +119,15 @@ spec:
             name: hf-token-secret
             key: token
             optional: true
-      - name: VLLM_TENSOR_PARALLEL_SIZE
-        value: "${HP_GPU_COUNT:-<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>}"
-<% if (framework === 'transformers' || framework === 'diffusors') { %>
-      - name: VLLM_MODEL
-        value: "<%= modelName %>"
-      - name: SGLANG_MODEL_PATH
-        value: "<%= modelName %>"
-<% } %>
+      # ── Tier-1 engine config (ADR-010) ──────────────────────────────────────
+      # DERIVED from serve.d/<engine>/manifest.json capability_map by the deploy
+      # driver (serve_manifest.py resolve_capability_vars) and spliced here. This
+      # replaces the previously hardcoded VLLM_TENSOR_PARALLEL_SIZE / VLLM_MODEL /
+      # SGLANG_MODEL_PATH / VLLM_ENABLE_LORA lines: the block now carries ONLY the
+      # active engine's keys (no cross-engine leak), honors value-shape (boolean
+      # caps → bare flag; unset valued caps omitted), and never emits a companion-
+      # gated flag bare (e.g. SGLang --enable-lora without rank/target-modules).
+      __TIER1_ENVVARS__
       # Both engine-specific speculative variable sets are emitted. The image
       # selects one set based on its model server; no speculative flags are
       # injected into worker.args.
@@ -153,12 +154,11 @@ spec:
         value: "${SGLANG_SPECULATIVE_NUM_STEPS}"
       - name: SGLANG_SPECULATIVE_EAGLE_TOPK
         value: "${SGLANG_SPECULATIVE_EAGLE_TOPK}"
-      # LoRA is controlled at deploy time via HP_LORA_ENABLED in do/config, which
-      # the deploy driver maps to VLLM_ENABLE_LORA before envsubst (BL127). The
-      # line is emitted unconditionally so the placeholder survives generation and
-      # envsubst can fill it in without an image rebuild or regenerate.
-      - name: VLLM_ENABLE_LORA
-        value: "${VLLM_ENABLE_LORA:-}"
+      # LoRA is now part of the DERIVED Tier-1 block above (ADR-010): the deploy
+      # driver resolves HP_LORA_ENABLED through the active engine's capability_map,
+      # so vLLM gets a bare --enable-lora while SGLang's companion-gated toggle is
+      # omitted unless its rank/target-modules are set — no hardcoded
+      # VLLM_ENABLE_LORA line that would leak the wrong prefix onto other engines.
 <% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
       - name: NCCL_SOCKET_IFNAME
         value: "eth"
@@ -167,6 +167,8 @@ spec:
       - name: NCCL_PROTOCOL
         value: "simple"
 <% } %>
-      # Auto-injected VLLM_* pass-through vars from do/config (set by deploy driver).
-      # Any VLLM_* var not already explicitly listed above is injected here at deploy time.
+      # Tier-2 prefix pass-through (ADR-010): any <PREFIX>* var set in do/config
+      # for the ACTIVE engine that is not already a Tier-1 or speculative key is
+      # injected here verbatim by the deploy driver, with zero MLCC enumeration.
+      # (Marker name kept for compatibility with the generate-time frozen YAML.)
       __VLLM_EXTRA_ENVVARS__

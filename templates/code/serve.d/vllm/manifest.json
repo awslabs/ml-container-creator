@@ -24,6 +24,14 @@
     "max_model_len": "MAX_MODEL_LEN",
     "kv_cache_dtype": "KV_CACHE_DTYPE"
   },
+  "capability_map": {
+    "model": { "suffix": "MODEL", "value_type": "valued" },
+    "tensor_parallel_degree": { "suffix": "TENSOR_PARALLEL_SIZE", "value_type": "valued" },
+    "quantization": { "suffix": "QUANTIZATION", "value_type": "valued" },
+    "lora_enable": { "suffix": "ENABLE_LORA", "value_type": "boolean", "requires": [] },
+    "lora_max": { "suffix": "MAX_LORAS", "value_type": "valued" },
+    "lora_max_rank": { "suffix": "MAX_LORA_RANK", "value_type": "valued" }
+  },
   "min_version": "0.6.0",
   "version_features": [
     { "since": "0.8.0", "adds": { "supported_algorithms": ["mtp"] } },

@@ -73,6 +73,42 @@ export class MlccTrainingStack extends cdk.Stack {
             resources: ['arn:aws:logs:*:*:*'],
         }));
 
+        // ── Launch-gate IAM (BL123) ─────────────────────────────────────────────
+        // The 11 actions a SageMaker training-type workload needs to LAUNCH — the
+        // minimum delta the BL122 spike's IamRoleResolver flagged for the native
+        // ai_registry DataSet/Evaluator create path (which runs a training-type
+        // workload) and the managed-RL customization jobs: EC2 VPC/ENI setup,
+        // CloudWatch metric emission, and the ECR auth token. These are
+        // service-scoped at launch time, so resource '*' is required (ENI/VPC
+        // describe + GetAuthorizationToken take no narrower ARN).
+        //
+        // BL123 is the SOLE writer of this block. BL117 CONSUMES it and MUST NOT
+        // add a second copy — extend THIS statement if the full runtime set grows
+        // (the spike flagged the launch gate as not-yet-exhaustive). A runtime
+        // AccessDenied here surfaces as a permission error from the create call;
+        // the actionable guidance is to re-run `ml-container-creator bootstrap`
+        // (or add-module training) to refresh this role.
+        trainingRole.addToPolicy(new iam.PolicyStatement({
+            sid: 'MlccLaunchGate',
+            actions: [
+                // CloudWatch metrics the training container publishes.
+                'cloudwatch:PutMetricData',
+                // ECR auth token for pulling the training/DLC image.
+                'ecr:GetAuthorizationToken',
+                // EC2 VPC/ENI setup for a VPC-attached training job.
+                'ec2:CreateNetworkInterface',
+                'ec2:CreateNetworkInterfacePermission',
+                'ec2:DeleteNetworkInterface',
+                'ec2:DeleteNetworkInterfacePermission',
+                'ec2:DescribeDhcpOptions',
+                'ec2:DescribeNetworkInterfaces',
+                'ec2:DescribeSecurityGroups',
+                'ec2:DescribeSubnets',
+                'ec2:DescribeVpcs',
+            ],
+            resources: ['*'],
+        }));
+
         // Outputs
         new cdk.CfnOutput(this, 'TrainingBucketOutput', {
             value: bucketName,

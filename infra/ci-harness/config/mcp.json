@@ -30,12 +30,6 @@
         "servers/instance-sizer/index.js"
       ]
     },
-    "marketplace-picker": {
-      "command": "node",
-      "args": [
-        "servers/marketplace-picker/index.js"
-      ]
-    },
     "model-picker": {
       "command": "node",
       "args": [

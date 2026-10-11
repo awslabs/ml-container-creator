@@ -22,16 +22,21 @@
     "max_model_len": "CONTEXT_LENGTH",
     "kv_cache_dtype": "KV_CACHE_DTYPE"
   },
-  "min_version": "0.4.0",
-  "version_features": [
-    { "since": "0.4.0", "adds": { "supported_algorithms": ["mtp"] } }
-  ],
+  "capability_map": {
+    "model": { "suffix": "MODEL_PATH", "value_type": "valued" },
+    "tensor_parallel_degree": { "suffix": "TP_SIZE", "value_type": "valued" },
+    "quantization": { "suffix": "QUANTIZATION", "value_type": "valued" },
+    "lora_enable": { "suffix": "ENABLE_LORA", "value_type": "boolean", "requires_any_of": [["lora_max_rank", "lora_target_modules"]] },
+    "lora_max_rank": { "suffix": "MAX_LORA_RANK", "value_type": "valued" },
+    "lora_target_modules": { "suffix": "LORA_TARGET_MODULES", "value_type": "valued" }
+  },
+  "min_version": "0.5.0",
   "engine_features": {
     "radix_attention": {
       "env_var": "SGLANG_ENABLE_RADIX_CACHE",
       "type": "boolean",
       "default": "false",
-      "description": "RadixAttention: automatic KV-cache reuse across requests sharing a prefix, via a radix tree. SGLang-specific — vLLM has block-level prefix caching, not RadixAttention. Big TTFT wins on multi-turn/RAG/agent workloads with shared prefixes."
+      "description": "RadixAttention: automatic KV-cache reuse across requests that share a prompt prefix, via a radix tree. Can reduce time-to-first-token on workloads with shared prefixes such as multi-turn chat, RAG, and agents."
     }
   }
 }

@@ -8,7 +8,7 @@
 name: "<%= modelName || 'model' %>"
 backend: "<%= backend %>"
 
-<% if (backend === 'vllm' || backend === 'tensorrtllm') { %>
+<% if (isLlmBackend) { %>
 # LLM backends (vllm, tensorrtllm) auto-configure most settings
 # Minimal configuration is sufficient
 max_batch_size: 0

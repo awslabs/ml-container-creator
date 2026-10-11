@@ -1,6 +1,6 @@
 {
   "version": "2026-05-27",
-  "lastSynced": "2026-06-26T19:01:02.821Z",
+  "lastSynced": "2026-10-09T19:21:30.097Z",
   "source": "https://docs.aws.amazon.com/sagemaker/latest/dg/model-customize-open-weight.html",
   "models": {
     "huggingface-llm-qwen2-5-7b-instruct": {
@@ -1756,6 +1756,24 @@
               "completion": "string"
             }
           }
+        },
+        "dpo": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "chosen",
+              "rejected"
+            ],
+            "types": {
+              "prompt": "string",
+              "chosen": "string",
+              "rejected": "string"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -1880,6 +1898,24 @@
               "prompt": "array"
             }
           }
+        },
+        "dpo": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "chosen",
+              "rejected"
+            ],
+            "types": {
+              "prompt": "string",
+              "chosen": "string",
+              "rejected": "string"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -1931,6 +1967,24 @@
             ],
             "types": {
               "prompt": "array"
+            }
+          }
+        },
+        "dpo": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "chosen",
+              "rejected"
+            ],
+            "types": {
+              "prompt": "string",
+              "chosen": "string",
+              "rejected": "string"
             }
           }
         }
@@ -2045,6 +2099,485 @@
             "types": {
               "prompt": "string",
               "completion": "string"
+            }
+          }
+        },
+        "rlaif": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlaif",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        },
+        "rlvr": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlvr",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        }
+      },
+      "goldenPath": false
+    },
+    "huggingface-reasoning-nemotron-3-5-lightning-30b-a3b-bf16": {
+      "family": "huggingface-reasoning-nemotron",
+      "provider": "unknown",
+      "displayName": "NVIDIA Nemotron 3.5 Lightning 30B A3B BF16",
+      "huggingFaceId": "",
+      "techniques": {
+        "sft": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-sft",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "completion"
+            ],
+            "types": {
+              "prompt": "string",
+              "completion": "string"
+            }
+          }
+        },
+        "dpo": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "chosen",
+              "rejected"
+            ],
+            "types": {
+              "prompt": "string",
+              "chosen": "string",
+              "rejected": "string"
+            }
+          }
+        },
+        "rlvr": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlvr",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        },
+        "rlaif": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlaif",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        }
+      },
+      "goldenPath": false
+    },
+    "huggingface-vlm-qwen3-8-27b": {
+      "family": "huggingface-vlm",
+      "provider": "unknown",
+      "displayName": "Qwen3.8 27B",
+      "huggingFaceId": "",
+      "techniques": {
+        "dpo": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "chosen",
+              "rejected"
+            ],
+            "types": {
+              "prompt": "string",
+              "chosen": "string",
+              "rejected": "string"
+            }
+          }
+        },
+        "rlaif": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlaif",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        },
+        "rlvr": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlvr",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        },
+        "sft": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-sft",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "completion"
+            ],
+            "types": {
+              "prompt": "string",
+              "completion": "string"
+            }
+          }
+        }
+      },
+      "goldenPath": false
+    },
+    "huggingface-vlm-qwen3-6-35b-a3b": {
+      "family": "huggingface-vlm",
+      "provider": "unknown",
+      "displayName": "Qwen3.6-35B-A3B",
+      "huggingFaceId": "",
+      "techniques": {
+        "rlaif": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlaif",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        },
+        "rlvr": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlvr",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        },
+        "sft": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-sft",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "completion"
+            ],
+            "types": {
+              "prompt": "string",
+              "completion": "string"
+            }
+          }
+        }
+      },
+      "goldenPath": false
+    },
+    "huggingface-vlm-ministral-3-8b-instruct-2512-bf16": {
+      "family": "huggingface-vlm",
+      "provider": "unknown",
+      "displayName": "Ministral 3 8B Instruct 2512 BF16",
+      "huggingFaceId": "",
+      "techniques": {
+        "sft": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-sft",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "completion"
+            ],
+            "types": {
+              "prompt": "string",
+              "completion": "string"
+            }
+          }
+        },
+        "dpo": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "chosen",
+              "rejected"
+            ],
+            "types": {
+              "prompt": "string",
+              "chosen": "string",
+              "rejected": "string"
+            }
+          }
+        },
+        "rlvr": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlvr",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        },
+        "rlaif": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlaif",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        }
+      },
+      "goldenPath": false
+    },
+    "huggingface-vlm-ministral-3-3b-instruct-2512-bf16": {
+      "family": "huggingface-vlm",
+      "provider": "unknown",
+      "displayName": "Ministral 3 3B Instruct 2512 BF16",
+      "huggingFaceId": "",
+      "techniques": {
+        "sft": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-sft",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "completion"
+            ],
+            "types": {
+              "prompt": "string",
+              "completion": "string"
+            }
+          }
+        },
+        "dpo": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "chosen",
+              "rejected"
+            ],
+            "types": {
+              "prompt": "string",
+              "chosen": "string",
+              "rejected": "string"
+            }
+          }
+        },
+        "rlvr": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlvr",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        },
+        "rlaif": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlaif",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        }
+      },
+      "goldenPath": false
+    },
+    "huggingface-vlm-ministral-3-14b-instruct-2512-bf16": {
+      "family": "huggingface-vlm",
+      "provider": "unknown",
+      "displayName": "Ministral 3 14B Instruct 2512 BF16",
+      "huggingFaceId": "",
+      "techniques": {
+        "dpo": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "chosen",
+              "rejected"
+            ],
+            "types": {
+              "prompt": "string",
+              "chosen": "string",
+              "rejected": "string"
+            }
+          }
+        },
+        "sft": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-sft",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "completion"
+            ],
+            "types": {
+              "prompt": "string",
+              "completion": "string"
+            }
+          }
+        },
+        "rlvr": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlvr",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        },
+        "rlaif": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlaif",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        }
+      },
+      "goldenPath": false
+    },
+    "huggingface-vlm-gemma-4-26b-a4b-it": {
+      "family": "huggingface-vlm",
+      "provider": "unknown",
+      "displayName": "gemma-4-26b-a4b-it",
+      "huggingFaceId": "",
+      "techniques": {
+        "sft": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-sft",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "completion"
+            ],
+            "types": {
+              "prompt": "string",
+              "completion": "string"
+            }
+          }
+        },
+        "dpo": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "chosen",
+              "rejected"
+            ],
+            "types": {
+              "prompt": "string",
+              "chosen": "string",
+              "rejected": "string"
             }
           }
         },

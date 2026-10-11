@@ -115,10 +115,37 @@ if [ -n "${_RESOLVED_INSTANCE}" ]; then
     export INSTANCE_TYPE DEPLOYED_INSTANCE_TYPE
 
     # ── Resolve GPU count from instance type ─────────────────────────────────
-    # Static lookup table derived from servers/lib/catalogs/instances.json.
-    # Maps known SageMaker instance types to their GPU count.
+    # derive-dont-hardcode (ADR-008): the GPU count is OWNED by the instance
+    # catalog, shipped into the project at .mlcc/instances.json (the same source
+    # the deploy drivers and benchmark writer use). Read it first so new instance
+    # families (g7/g7e, p6-b200, ...) resolve without editing this table. The
+    # hardcoded case is ONLY a fallback for when the catalog is absent/unreadable.
+    # Unknown types return "" (caller then skips writing DEPLOYED_GPU_COUNT).
     _resolve_gpu_count() {
-        case "$1" in
+        local itype="$1"
+        [ -n "${itype}" ] || { echo ""; return; }
+
+        # 1) Authoritative source: .mlcc/instances.json (catalog[<ml.type>].gpus).
+        local _catalog="${SCRIPT_DIR:-}/../.mlcc/instances.json"
+        if [ -n "${SCRIPT_DIR:-}" ] && [ -f "${_catalog}" ] && command -v python3 >/dev/null 2>&1; then
+            local _gpus
+            _gpus="$(ITYPE="${itype}" CATALOG="${_catalog}" python3 -c '
+import json, os
+try:
+    cat = json.load(open(os.environ["CATALOG"]))["catalog"]
+    g = cat.get(os.environ["ITYPE"], {}).get("gpus")
+    print(int(g) if g and int(g) > 0 else "")
+except Exception:
+    print("")
+' 2>/dev/null)" || _gpus=""
+            if [ -n "${_gpus}" ]; then
+                echo "${_gpus}"
+                return
+            fi
+        fi
+
+        # 2) Fallback only when the catalog is unavailable or lacks the type.
+        case "${itype}" in
             ml.g5.xlarge|ml.g5.2xlarge|ml.g5.4xlarge|ml.g5.8xlarge|ml.g5.16xlarge) echo 1 ;;
             ml.g5.12xlarge|ml.g5.24xlarge) echo 4 ;;
             ml.g5.48xlarge) echo 8 ;;

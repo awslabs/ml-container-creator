@@ -87,6 +87,48 @@
       "additionalProperties": { "type": "string", "minLength": 1 },
       "description": "Maps a benchmark dimension to an engine config key / flag suffix. Combined with env_var_prefix to yield the full config key."
     },
+    "capability_map": {
+      "type": "object",
+      "description": "ADR-010 Tier-1 config contract: how THIS engine expresses each capability MLCC computes and injects (model, tensor-parallel degree, LoRA + companions). Keyed by an MLCC-stable snake_case capability name; the KEY SET IS OPEN by design (plugin-first) — the schema governs each ENTRY's shape, not a closed list of allowed capabilities, so a custom serve.d/<engine>/ plugin can declare its own capability/companion contract without this schema growing a new key. Everything OUTSIDE this map is Tier-2 prefix pass-through and needs no declaration. The full env var is env_var_prefix + suffix.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["suffix", "value_type"],
+        "not": {
+          "required": ["requires", "requires_any_of"],
+          "description": "An entry declares its companion contract with EITHER `requires` (a single AND-group) OR `requires_any_of` (OR of AND-groups), never both."
+        },
+        "properties": {
+          "suffix": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "description": "The env-var suffix appended to env_var_prefix (e.g. TP_SIZE → SGLANG_TP_SIZE)."
+          },
+          "value_type": {
+            "type": "string",
+            "enum": ["valued", "boolean"],
+            "description": "'valued' emits KEY=value; 'boolean' emits KEY=true only when the capability is enabled (a bare-boolean flag) and emits nothing when disabled."
+          },
+          "requires": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true,
+            "description": "Companion contract, SINGLE AND-group: other capability_map keys that MUST ALL also resolve for this capability to be emitted (e.g. vLLM lora_enable requires []). Sugar for a one-group requires_any_of. When any required companion is unresolvable this capability is OMITTED (never emitted bare), for every engine. Omit or [] when the capability has no companions (vLLM lora_enable is valid bare). Mutually exclusive with requires_any_of."
+          },
+          "requires_any_of": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "uniqueItems": true,
+              "description": "One AND-group: capability_map keys that must ALL resolve together."
+            },
+            "description": "Companion contract, OR of AND-groups: the capability is emittable if AT LEAST ONE inner group fully resolves (every key in that group resolves). Expresses engine rules like SGLang `--enable-lora` needs (max_lora_rank AND lora_target_modules) OR (lora_paths). When no group is fully satisfiable the capability is OMITTED (never emitted bare). The engine itself declares which groups it accepts; MLCC never branches on the engine name. Mutually exclusive with requires. An empty inner group [] means 'this group needs nothing' (always satisfiable)."
+          }
+        }
+      }
+    },
     "engine_features": {
       "type": "object",
       "description": "Engine-specific capabilities that are UNIQUE to this engine or implemented differently from the others (ADR-004 §c). Each entry is a named feature declared as DATA — its controlling env var, type, allowed values, and default — so a consumer reads it generically instead of branching on the engine name. This is the home for 'this engine can do X and vLLM cannot' (e.g. SGLang RadixAttention, LMI pluggable rolling-batch backend). Omit when the engine has no distinctive feature to declare. The feature KEY is an MLCC-stable snake_case name; the env_var is what the container actually reads.",

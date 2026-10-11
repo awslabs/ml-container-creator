@@ -73,20 +73,57 @@ function positiveIntOr(value, fallback) {
 // expressions were previously resolved at generate time; BL111 resolves them at
 // deploy time from the current environment so a reconfigure/edit is reflected.
 const HP_GPU_COUNT = positiveIntOr(env.HP_GPU_COUNT, 1);
+
+// ADR-010: Tier-1 engine config is DERIVED, not hardcoded. do/deploy.d/eks
+// resolves the active engine's capability_map (serve_manifest.py
+// resolve_capability_vars) into an ordered list of {key,value} env pairs and
+// hands it here as JSON in EKS_TIER1_ENV_JSON. The ConfigMap template loops this
+// list, so it carries ONLY the active engine's keys (no stray VLLM_*/SGLANG_*
+// cross-leak) and already honors value-shape + companion rules. A missing/empty
+// value means the resolver was unavailable; the template falls back to its own
+// ${VAR:-default} shapes, so parse defensively.
+function parseTier1(raw) {
+    if (!raw) {
+        return [];
+    }
+    let data;
+    try {
+        data = JSON.parse(raw);
+    } catch (err) {
+        process.stderr.write(`render-eks-manifests: ignoring unparseable EKS_TIER1_ENV_JSON: ${err.message}\n`);
+        return [];
+    }
+    const resolved = data && Array.isArray(data.resolved) ? data.resolved : [];
+    return resolved
+        .filter((e) => e && typeof e.key === 'string' && e.key)
+        .map((e) => ({ key: e.key, value: e.value == null ? '' : String(e.value) }));
+}
+
 const templateVars = {
     projectName: env.PROJECT_NAME || '',
     framework: env.FRAMEWORK || '',
     hyperPodNamespace: env.HP_NAMESPACE || 'default',
     hyperPodReplicas: positiveIntOr(env.HP_REPLICAS, 1),
     modelName: env.MODEL_NAME || '',
+    // Active serving engine (ADR-004 single-source selection); defaults to vllm.
+    modelServer: env.MODEL_SERVER || 'vllm',
+    // When set, the model volume is a hostPath at this node-local NVMe base
+    // (e.g. /opt/dlami/nvme) instead of an emptyDir on the node's ephemeral-storage
+    // root — for large models on nodes whose instance-store isn't the kubelet root.
+    // The deploy driver sets HP_MODEL_HOSTPATH; the template appends the project.
+    modelHostPath: env.HP_MODEL_HOSTPATH || '',
+    // Manifest-derived Tier-1 env pairs for the active engine (ADR-010). Empty
+    // list when the resolver was unavailable → template uses its own fallbacks.
+    tier1Env: parseTier1(env.EKS_TIER1_ENV_JSON),
+    // Tier-2 unbounded prefix pass-through (ADR-010): any <PREFIX>* var the user
+    // set that is not a Tier-1 key, forwarded verbatim. Same {resolved:[...]}
+    // shape, parsed with the same defensive reader.
+    tier2Env: parseTier1(env.EKS_TIER2_ENV_JSON),
     // The templates read HP_GPU_COUNT via `typeof HP_GPU_COUNT !== 'undefined'`
     // for the ${VAR:-default} shell fallbacks; supply it as a string.
     HP_GPU_COUNT,
-    // BL115: LoRA-on switch for the plain-EKS worker env. The ConfigMap gates
-    // its VLLM_ENABLE_LORA entry on HP_LORA_ENABLED === 'true'. do/config
-    // defaults this to 'true' for vLLM configs; an explicit opt-out
-    // (HP_LORA_ENABLED=false) omits the entry. Normalized to a string so the
-    // template's strict `=== 'true'` comparison works.
+    // BL115: LoRA-on switch retained for the fallback render path. Normalized to
+    // a string so the template's strict `=== 'true'` comparison works.
     HP_LORA_ENABLED: env.HP_LORA_ENABLED || ''
 };
 

@@ -80,8 +80,7 @@ ml-container-creator/
 │   ├── code/                           # Server code templates (serve, model_handler, etc.)
 │   ├── do/                             # Lifecycle scripts (build, push, deploy, test, etc.)
 │   ├── triton/                         # Triton-specific templates
-│   ├── diffusors/                      # Diffusors-specific templates
-│   └── marketplace/                    # Marketplace templates
+│   └── diffusors/                      # Diffusors-specific templates
 ├── servers/
 │   ├── instance-sizer/                 # MCP: Instance recommendation
 │   ├── region-picker/                  # MCP: Region filtering

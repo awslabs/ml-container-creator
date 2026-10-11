@@ -78,16 +78,23 @@ export function listServeEngines(serveDir = SERVE_D) {
 }
 
 /**
- * Union of every serve engine's runtime-owned tunable vars (ADR-008 / BL105).
+ * Union of every serve engine's runtime-owned tunable vars (ADR-008 / BL105 /
+ * ADR-010).
  *
- * Each engine's benchmark-tunable config vars are `env_var_prefix` + each
- * `dimension_map` value (e.g. vLLM's `tensor_parallel_degree → TENSOR_PARALLEL_SIZE`
- * becomes `VLLM_TENSOR_PARALLEL_SIZE`). These are written at runtime by
- * `do/benchmark --apply` / `do/deploy` and must survive `mcc regenerate`, so
- * `RUNTIME_OWNED_VARS` derives its engine slice from here instead of hardcoding
- * one engine's names. A generated project uses a single engine, so the union is a
- * harmless superset — a var not present in a project's do/config is simply never
- * captured.
+ * Two per-engine sources, both `env_var_prefix` + a declared suffix:
+ *   • `dimension_map` — benchmark-tunable config vars (e.g. vLLM's
+ *     `tensor_parallel_degree → TENSOR_PARALLEL_SIZE` becomes
+ *     `VLLM_TENSOR_PARALLEL_SIZE`), written by `do/benchmark --apply` / `do/deploy`.
+ *   • `capability_map` — the Tier-1 engine-config suffixes (ADR-010): model, TP
+ *     degree, and the LoRA toggle + companions (e.g. `VLLM_MAX_LORA_RANK`,
+ *     `SGLANG_LORA_TARGET_MODULES`). A value a user reconfigures for one of these
+ *     must likewise survive `mcc regenerate`, so it is derived here rather than
+ *     hardcoded as a VLLM_ literal.
+ *
+ * `RUNTIME_OWNED_VARS` derives its engine slice from this union instead of
+ * hardcoding one engine's names. A generated project uses a single engine, so the
+ * union is a harmless superset — a var not present in a project's do/config is
+ * simply never captured.
  *
  * @param {string} [serveDir] - Optional override for the serve.d root (tests).
  * @returns {string[]} Sorted, de-duplicated full var names across all engines.
@@ -104,10 +111,21 @@ export function serveEngineRuntimeVarsUnion(serveDir = SERVE_D) {
             continue;
         }
         const prefix = typeof manifest.env_var_prefix === 'string' ? manifest.env_var_prefix : '';
+        if (!prefix) continue;
         const dims = manifest.dimension_map;
-        if (!prefix || typeof dims !== 'object' || dims === null) continue;
-        for (const suffix of Object.values(dims)) {
-            if (typeof suffix === 'string' && suffix) vars.add(`${prefix}${suffix}`);
+        if (dims && typeof dims === 'object') {
+            for (const suffix of Object.values(dims)) {
+                if (typeof suffix === 'string' && suffix) vars.add(`${prefix}${suffix}`);
+            }
+        }
+        // ADR-010: Tier-1 capability env vars are runtime-owned too. Each
+        // capability_map entry's `suffix` yields a full `<prefix><suffix>` var.
+        const caps = manifest.capability_map;
+        if (caps && typeof caps === 'object') {
+            for (const decl of Object.values(caps)) {
+                const suffix = decl && typeof decl.suffix === 'string' ? decl.suffix : '';
+                if (suffix) vars.add(`${prefix}${suffix}`);
+            }
         }
     }
     return [...vars].sort();
@@ -220,6 +238,127 @@ export function engineFeatures(engine, serveDir = SERVE_D) {
  */
 export function engineFeature(engine, feature, serveDir = SERVE_D) {
     return engineFeatures(engine, serveDir)[feature] || null;
+}
+
+/**
+ * The engine's Tier-1 capability map (ADR-010), with each capability's env var
+ * already prefixed. Tier 1 is the minimal set MLCC computes and injects (model,
+ * tensor-parallel degree, LoRA + companions); everything else is Tier-2 prefix
+ * pass-through and is NOT declared here. Returns {} when the engine declares none
+ * (llama-cpp, vllm-omni) — an explicit "no injected config" statement.
+ *
+ * @param {string} engine
+ * @param {string} [serveDir]
+ * @returns {Object<string, {envVar: string, valueType: string, requires: string[]}>}
+ */
+export function capabilityMap(engine, serveDir = SERVE_D) {
+    const manifest = readManifest(engine, serveDir);
+    if (!manifest) return {};
+    const prefix = typeof manifest.env_var_prefix === 'string' ? manifest.env_var_prefix : '';
+    const caps = manifest.capability_map;
+    if (!prefix || typeof caps !== 'object' || caps === null) return {};
+    const out = {};
+    for (const [name, decl] of Object.entries(caps)) {
+        if (!decl || typeof decl.suffix !== 'string' || !decl.suffix) continue;
+        // Normalize the companion contract to OR-of-AND-groups (ADR-010):
+        //   requires_any_of: [[...],[...]]  → used as-is (OR of AND-groups).
+        //   requires: [...]                 → sugar for a single AND-group [[...]].
+        //   neither                         → [[]] (one empty group = no companions).
+        // The resolver emits the capability if ANY group fully resolves. `requires`
+        // is kept for backward compatibility with existing consumers/tests.
+        let requiresAnyOf;
+        if (Array.isArray(decl.requires_any_of)) {
+            requiresAnyOf = decl.requires_any_of.map((g) => (Array.isArray(g) ? [...g] : []));
+        } else if (Array.isArray(decl.requires)) {
+            requiresAnyOf = [[...decl.requires]];
+        } else {
+            requiresAnyOf = [[]];
+        }
+        out[name] = {
+            envVar: `${prefix}${decl.suffix}`,
+            valueType: decl.value_type === 'boolean' ? 'boolean' : 'valued',
+            // Flat view: companions common to EVERY group (for callers/tests that
+            // want "what is always required"). For a single-group contract this is
+            // just that group; for multi-group it is the intersection.
+            requires: requiresAnyOf.reduce(
+                (acc, g, i) => (i === 0 ? [...g] : acc.filter((k) => g.includes(k))),
+                []
+            ),
+            requiresAnyOf
+        };
+    }
+    return out;
+}
+
+/**
+ * Resolve MLCC-computed Tier-1 capability VALUES for an engine into concrete
+ * `{ key, value }` env-var pairs (ADR-010). This is the SINGLE home of the
+ * companion-flag rule (Req 6): a capability is emitted only when it has a
+ * resolvable value AND every capability in its `requires[]` also has a resolvable
+ * value; otherwise it is omitted (never emitted bare) with a recorded skip reason.
+ * Pure data — never branches on the engine name — so a custom plugin's companion
+ * contract is honored identically.
+ *
+ * Value semantics:
+ *   - A capability is "resolvable" when `values[name]` is present and non-empty.
+ *     (For boolean capabilities, a truthy value — "true"/true — means enabled.)
+ *   - value_type 'boolean': emit `KEY=true` only when enabled; emit nothing when
+ *     absent/false/disabled.
+ *   - value_type 'valued': emit `KEY=<value>`.
+ *
+ * @param {string} engine
+ * @param {Object<string,(string|number|boolean)>} values - canonical capability → value
+ * @param {string} [serveDir]
+ * @returns {{ resolved: Array<{key: string, value: string}>, skipped: Array<{capability: string, reason: string}> }}
+ */
+export function resolveCapabilityVars(engine, values = {}, serveDir = SERVE_D) {
+    const caps = capabilityMap(engine, serveDir);
+    const resolved = [];
+    const skipped = [];
+
+    const isEnabled = (name) => {
+        const v = values[name];
+        if (v === undefined || v === null || v === '') return false;
+        const decl = caps[name];
+        if (decl && decl.valueType === 'boolean') {
+            const s = String(v).toLowerCase();
+            return s === 'true' || s === '1' || s === 'yes';
+        }
+        return true;
+    };
+
+    for (const [name, decl] of Object.entries(caps)) {
+        if (!isEnabled(name)) continue; // nothing requested for this capability
+
+        // Companion gating (OR of AND-groups): the capability is emittable if AT
+        // LEAST ONE group has every companion resolvable. A single-group contract
+        // (flat `requires`) is the common case; `[[]]` (no companions) always
+        // passes. Engine-declared, never branches on the engine name.
+        const groups = Array.isArray(decl.requiresAnyOf) ? decl.requiresAnyOf : [[]];
+        const satisfied = groups.some((group) => group.every((req) => isEnabled(req)));
+        if (!satisfied) {
+            // Report the smallest unmet set — the group closest to being satisfied —
+            // so the operator sees the most actionable "set these" hint.
+            const bestGroup = groups
+                .map((group) => group.filter((req) => !isEnabled(req)))
+                .sort((a, b) => a.length - b.length)[0] || [];
+            const joined = bestGroup.join(', ');
+            const altNote = groups.length > 1 ? ' (or another supported companion group)' : '';
+            skipped.push({
+                capability: name,
+                reason: `requires ${joined}${altNote} which ${bestGroup.length === 1 ? 'is' : 'are'} not set; omitting ${decl.envVar} rather than emitting it without its companion(s)`
+            });
+            continue;
+        }
+
+        if (decl.valueType === 'boolean') {
+            resolved.push({ key: decl.envVar, value: 'true' });
+        } else {
+            resolved.push({ key: decl.envVar, value: String(values[name]) });
+        }
+    }
+
+    return { resolved, skipped };
 }
 
 /**

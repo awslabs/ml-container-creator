@@ -672,7 +672,7 @@ The `serve.d/` plugin system grew up around transformers LLM engines, so the
 checklist's language (`transformers-<engine>`, speculative algorithms, the
 `--help`-introspection loop) reads as if every engine is one. It is not:
 - **Architecture matters.** An engine belongs to an *architecture*
-  (`transformers`, `diffusors`, `triton`, `http`, `marketplace`), and the
+  (`transformers`, `diffusors`, `triton`, `http`), and the
   deployment-config is `<architecture>-<engine>` — e.g. `diffusors-vllm-omni`,
   not `transformers-vllm-omni`. The resolver's `CANONICAL_CONFIGS` map is the
   source of truth for that pairing.
@@ -758,21 +758,25 @@ revisiting it against the catalog:
 > than bundled in. Scoping discipline (§g.5) is itself a lesson: fix the thing you
 > set out to fix; record the adjacent opportunity instead of absorbing it.
 
-> **TensorRT-LLM — the same scope line, written down.** TRT-LLM's manifest
-> declares `speculative_decoding: false`, which is a SCOPE statement, not a
-> capability one. NVIDIA's docs confirm TRT-LLM supports EAGLE3, MTP,
-> draft/target, and NGram — but it configures them through structured LLM-API
-> config objects / a `speculative_config` JSON, NOT the flat `TRTLLM_*` env→flag
-> conversion its wrapper performs. Declaring `speculative_decoding: true` +
-> `supported_algorithms`/`algorithm_map` *without* teaching the wrapper to
-> assemble that config (and wiring the hyperpod-eks `_spec_enum` path) would
-> over-claim support the generator cannot emit — the mirror image of the LMI
-> under-declaration above, and just as dishonest. So the TRT-LLM pass added only
-> the honest, flat-wrapper-compatible fixes (`dimension_map` + the ADR-004 prefix
-> correction) and left full speculative decoding as a v1.9 backlog item
-> (`.kiro/specs/bl-v19-trtllm-speculative/`). The rule, stated plainly:
-> `speculative_decoding` reflects what MLCC's wrapper can CONFIGURE, not what the
-> upstream engine can do — never set it `true` ahead of the wiring.
+> **TensorRT-LLM — the scope line, honored then closed (BL125).** TRT-LLM's
+> manifest once declared `speculative_decoding: false` as a SCOPE statement: the
+> engine supports EAGLE3, MTP, draft/target, and NGram, but configures them
+> through a structured `speculative_config` block (a YAML passed via
+> `--extra_llm_api_options`), NOT the flat `TRTLLM_*` env→flag conversion the
+> wrapper performs for ordinary args. The v1.8 pass refused to set
+> `speculative_decoding: true` until the wrapper could actually emit that config
+> — declaring algorithms ahead of the wiring would have been the mirror image of
+> the LMI under-declaration above. BL125 did the wiring: the wrapper
+> (`serve.d/tensorrt-llm/tensorrt-llm.ejs`) now assembles the `speculative_config`
+> YAML from `TRTLLM_SPECULATIVE_*` and appends `--extra_llm_api_options`, so the
+> manifest honestly declares `speculative_decoding: true` with
+> `supported_algorithms`/`algorithm_map` (`eagle3→Eagle`, `draft-model→DraftTarget`,
+> `ngram→NGram`, `mtp→MTP`). Note TRT-LLM is a SageMaker-endpoint engine: its
+> speculative env vars arrive via `--server-env` injection, NOT the HyperPod CRD
+> `_spec_enum` path (which stays vLLM/SGLang-scoped by product design). The rule,
+> stated plainly and still true: `speculative_decoding` reflects what MLCC's
+> wrapper can CONFIGURE, not what the upstream engine can merely do — set it
+> `true` only once (and as soon as) the wiring exists.
 
 ---
 

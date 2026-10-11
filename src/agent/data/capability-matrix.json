@@ -25,6 +25,51 @@
       "status": "green",
       "message": "DPO/RLHF training pipeline validated. Preference dataset format documented."
     },
+    "training.managed.rlaif": {
+      "status": "green",
+      "message": "Managed RLAIF (LLM-as-judge RL) via do/tune validated end-to-end on Qwen3-32B: a reward prompt registered with `do/register prompt` is resolved to its hub-content evaluator ARN and passed as reward_prompt; the SageMaker job calls a Bedrock judge model (e.g. bedrock/deepseek.v3-v1:0) to score completions. Produced a LoRA adapter, auto-registered as a model-package version. Requires: parquet dataset in verl's 5-field schema; the core execution role needs bedrock:InvokeModel for the judge model (provisioned in core/stack.ts).",
+      "details": {
+        "register_reward": "do/register prompt <name> --prompt-file <local.txt>  (REWARD_PROMPT evaluator)",
+        "run": "do/tune --technique rlaif --dataset <parquet-prefix> --evaluator-name <name>",
+        "dataset": "Parquet, verl 5-field schema: data_source, prompt (chat message list), ability, reward_model {style, ground_truth}, extra_info. Channel prefix must contain ONLY parquet (no _dataset.json sidecar).",
+        "reward_prompt_arn_not_name": "do/tune passes the hub-content evaluator ARN, NOT the bare name (a name fails the default-hub lookup) and NOT an S3 URI (fails the hubContentName regex)."
+      }
+    },
+    "training.managed.rlvr": {
+      "status": "green",
+      "message": "Managed RLVR (verifiable-reward RL) via do/tune validated end-to-end on Qwen3-32B: a reward Lambda registered with `do/register evaluator` is resolved to its hub-content evaluator ARN and passed as custom_reward_function. Produced + auto-registered a LoRA adapter. Three contract details were required to make it run (all handled by do/tune now): pass the hub-content ARN (not the Lambda ref, which triggers an in-SDK Evaluator.create that resolves the caller role and fails); skip_reward_validation=True (the pre-submit smoke test reads jsonl but the trainer needs parquet); and the execution role needs lambda:InvokeFunction on the reward Lambda.",
+      "details": {
+        "register_reward": "do/register evaluator <name> --arn <lambda-arn>  (REWARD_FUNCTION evaluator)",
+        "run": "do/tune --technique rlvr --dataset <parquet-prefix> --evaluator-name <name>",
+        "dataset": "Parquet, verl 5-field schema (same as RLAIF). reward_model.ground_truth carries the verifiable answer.",
+        "reward_lambda_contract": "The managed container invokes the Lambda PER-BATCH with a LIST of sample records and requires a LIST back: [{\"aggregate_reward_score\": <float>, \"id\": <int>}]. A single {\"reward\": ...} dict is REJECTED. The shipped register_evaluator_sample.py uses the old single-dict shape and must be updated.",
+        "reward_lambda_iam": "A bring-your-own reward Lambda not named mlcc-* needs an explicit lambda:InvokeFunction grant on the execution role (the shipped policy scopes to function:mlcc-*)."
+      }
+    },
+    "training.managed.sft": {
+      "status": "yellow",
+      "message": "Managed SFT via do/tune (SageMaker Managed Model Customization). Wired and catalog-supported across the model families, but not end-to-end validated in the current round (RLAIF and RLVR were the validated managed paths). Dataset is JSONL prompt/completion pairs. Should work; run once to confirm for your model.",
+      "alternatives": [
+        "training.custom.sft (do/train) is the validated self-managed SFT path"
+      ]
+    },
+    "training.managed.dpo": {
+      "status": "yellow",
+      "message": "Managed DPO via do/tune. Wired and catalog-supported, not end-to-end validated this round. Dataset is JSONL prompt/chosen/rejected. Should work; run once to confirm.",
+      "alternatives": [
+        "training.custom.dpo (do/train) is the validated self-managed DPO path"
+      ]
+    },
+    "training.managed.mtrl": {
+      "status": "red",
+      "message": "Managed MTRL (multi-turn RL) is NOT runnable. do/tune now wires --agent-env -> MultiTurnRLTrainer (agent_env + output_model_package_group), but MTRL is blocked on prerequisites outside the generator: (1) NO catalog model supports mtrl \u2014 the tune catalog lists only sft/dpo/rlaif/rlvr, and MultiTurnRLTrainer rejects non-MTRL models with 'No recipes found ... for MTRL' (AWS examples use Nova / GPT-OSS-20B); (2) MTRL has no reward function/prompt \u2014 its reward lives in a CustomAgentLambda you must author; (3) its dataset is a plain `prompt` column passed through unparsed, NOT the verl 5-field schema. do/tune fails early and clearly: 'Technique mtrl is not supported for model ...'.",
+      "alternatives": [
+        "Use RLVR (verifiable reward via a Lambda) or RLAIF (LLM-as-judge) \u2014 both validated end-to-end",
+        "Track MTRL enablement in the v1.10 tracker (BL139): needs a MTRL-capable catalog model + a CustomAgentLambda + the mtrl dataset path"
+      ],
+      "unblock_spec": "BL139",
+      "estimated_effort": "deferred past v1.10"
+    },
     "benchmarking.do-benchmark": {
       "status": "green",
       "message": "End-to-end benchmark pipeline: deploy, load-test, collect metrics, upload to S3/Glue. Athena-queryable results."

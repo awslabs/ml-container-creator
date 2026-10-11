@@ -175,6 +175,108 @@ def engine_feature(engine: str, feature: str, serve_dir: str | None = None) -> d
     return engine_features(engine, serve_dir).get(feature)
 
 
+def capability_map(engine: str, serve_dir: str | None = None) -> dict:
+    """Return the engine's Tier-1 capability map (ADR-010) with each capability's
+    env var already prefixed.
+
+    Tier 1 is the minimal set MLCC computes and injects (model, tensor-parallel
+    degree, LoRA + companions); everything else is Tier-2 prefix pass-through and
+    is NOT declared here. Returns {} when the engine declares none (llama-cpp,
+    vllm-omni) — an explicit "no injected config" statement. Each entry is
+    {envVar, valueType('valued'|'boolean'), requires: [...]}.
+    """
+    manifest = read_manifest(engine, serve_dir)
+    prefix = manifest.get("env_var_prefix", "")
+    caps = manifest.get("capability_map", {})
+    if not prefix or not isinstance(caps, dict):
+        return {}
+    out = {}
+    for name, decl in caps.items():
+        if not isinstance(decl, dict):
+            continue
+        suffix = decl.get("suffix")
+        if not isinstance(suffix, str) or not suffix:
+            continue
+        # Normalize the companion contract to OR-of-AND-groups (ADR-010):
+        #   requires_any_of: [[...],[...]] used as-is; requires: [...] -> [[...]];
+        #   neither -> [[]] (one empty group = no companions). The resolver emits
+        #   the capability if ANY group fully resolves. `requires` kept for
+        #   backward-compatible flat consumers (= intersection across groups).
+        if isinstance(decl.get("requires_any_of"), list):
+            requires_any_of = [
+                list(g) if isinstance(g, list) else [] for g in decl["requires_any_of"]
+            ]
+        elif isinstance(decl.get("requires"), list):
+            requires_any_of = [list(decl["requires"])]
+        else:
+            requires_any_of = [[]]
+        flat = []
+        for i, g in enumerate(requires_any_of):
+            flat = list(g) if i == 0 else [k for k in flat if k in g]
+        out[name] = {
+            "envVar": f"{prefix}{suffix}",
+            "valueType": "boolean" if decl.get("value_type") == "boolean" else "valued",
+            "requires": flat,
+            "requiresAnyOf": requires_any_of,
+        }
+    return out
+
+
+def resolve_capability_vars(engine: str, values: dict, serve_dir: str | None = None) -> dict:
+    """Resolve MLCC-computed Tier-1 capability VALUES into concrete env-var pairs.
+
+    This is the SINGLE home of the companion-flag rule (ADR-010 Req 6): a
+    capability is emitted only when it has a resolvable value AND every capability
+    in its ``requires`` also has a resolvable value; otherwise it is omitted
+    (never emitted bare) with a recorded skip reason. Pure data — never branches
+    on the engine name — so a custom plugin's companion contract is honored
+    identically.
+
+    Returns {"resolved": [{"key","value"}], "skipped": [{"capability","reason"}]}.
+    """
+    caps = capability_map(engine, serve_dir)
+    resolved = []
+    skipped = []
+
+    def _is_enabled(name: str) -> bool:
+        v = values.get(name)
+        if v is None or v == "":
+            return False
+        decl = caps.get(name)
+        if decl and decl["valueType"] == "boolean":
+            return str(v).lower() in ("true", "1", "yes")
+        return True
+
+    for name, decl in caps.items():
+        if not _is_enabled(name):
+            continue
+        # Companion gating (OR of AND-groups): emittable if AT LEAST ONE group has
+        # every companion resolvable. Single-group (flat requires) is the common
+        # case; [[]] always passes. Engine-declared; no engine-name branching.
+        groups = decl.get("requiresAnyOf") or [[]]
+        satisfied = any(all(_is_enabled(req) for req in group) for group in groups)
+        if not satisfied:
+            unmet_sets = [[req for req in group if not _is_enabled(req)] for group in groups]
+            best = sorted(unmet_sets, key=len)[0] if unmet_sets else []
+            joined = ", ".join(best)
+            is_are = "is" if len(best) == 1 else "are"
+            alt_note = " (or another supported companion group)" if len(groups) > 1 else ""
+            skipped.append({
+                "capability": name,
+                "reason": (
+                    f"requires {joined}{alt_note} which {is_are} not set; omitting "
+                    f"{decl['envVar']} rather than emitting it without its companion(s)"
+                ),
+            })
+            continue
+        if decl["valueType"] == "boolean":
+            resolved.append({"key": decl["envVar"], "value": "true"})
+        else:
+            resolved.append({"key": decl["envVar"], "value": str(values[name])})
+
+    return {"resolved": resolved, "skipped": skipped}
+
+
 # ── Capability versioning (BL129) ──────────────────────────────────────────────
 #
 # Engine-agnostic capability versioning: the flat manifest fields (e.g.
@@ -443,6 +545,55 @@ def _cli(argv: list[str]) -> int:
             print(f"Error: {exc}", file=sys.stderr)
             return 4
         print("true" if ok else "false")
+        return 0
+
+    # ── Engine-config capability resolution (ADR-010) ─────────────────────────
+    # Tier-1 capability map + the single-home companion resolver. Plugin-first:
+    # the output derives entirely from the engine's manifest capability_map, so a
+    # custom serve.d/<engine>/ participates with zero MLCC-file edits.
+    if argv and argv[0] == "capability_map":
+        # capability_map <engine>  → JSON object of {cap: {envVar,valueType,requires}}.
+        if len(argv) != 2:
+            print("usage: serve_manifest.py capability_map <engine>", file=sys.stderr)
+            return 2
+        _engine = argv[1]
+        try:
+            caps = capability_map(_engine)
+        except ManifestNotFound as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 3
+        except ManifestMalformed as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 4
+        print(json.dumps(caps))
+        return 0
+
+    if argv and argv[0] == "resolve_capability_vars":
+        # resolve_capability_vars <engine> <values-json>  → JSON {resolved,skipped}.
+        if len(argv) != 3:
+            print(
+                "usage: serve_manifest.py resolve_capability_vars <engine> <values-json>",
+                file=sys.stderr,
+            )
+            return 2
+        _engine, _values_json = argv[1], argv[2]
+        try:
+            _values = json.loads(_values_json)
+        except (ValueError, TypeError) as exc:
+            print(f"Error: invalid values JSON: {exc}", file=sys.stderr)
+            return 2
+        if not isinstance(_values, dict):
+            print("Error: values JSON must be an object", file=sys.stderr)
+            return 2
+        try:
+            result = resolve_capability_vars(_engine, _values)
+        except ManifestNotFound as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 3
+        except ManifestMalformed as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 4
+        print(json.dumps(result))
         return 0
 
     if len(argv) != 2:

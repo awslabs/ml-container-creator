@@ -30,14 +30,22 @@ describe('BL096: detectGpuCount (JS)', () => {
         }
     });
 
+    it('maps 2-GPU instance types to 2 (g7/g7e 12xlarge — differs from g5/g6)', () => {
+        for (const t of ['ml.g7.12xlarge', 'ml.g7e.12xlarge']) {
+            assert.strictEqual(detectGpuCount(t), '2', `${t} should be 2 GPUs`);
+        }
+    });
+
     it('maps 4-GPU instance types to 4', () => {
-        for (const t of ['ml.g5.12xlarge', 'ml.g5.24xlarge', 'ml.g6.12xlarge', 'ml.g6.24xlarge']) {
+        for (const t of ['ml.g5.12xlarge', 'ml.g5.24xlarge', 'ml.g6.12xlarge', 'ml.g6.24xlarge',
+            'ml.g7.24xlarge', 'ml.g7e.24xlarge']) {
             assert.strictEqual(detectGpuCount(t), '4', `${t} should be 4 GPUs`);
         }
     });
 
     it('maps 8-GPU instance types to 8', () => {
-        for (const t of ['ml.g5.48xlarge', 'ml.g6.48xlarge', 'ml.p4d.24xlarge', 'ml.p4de.24xlarge', 'ml.p5.48xlarge']) {
+        for (const t of ['ml.g5.48xlarge', 'ml.g6.48xlarge', 'ml.g7.48xlarge', 'ml.g7e.48xlarge',
+            'ml.p4d.24xlarge', 'ml.p4de.24xlarge', 'ml.p5.48xlarge']) {
             assert.strictEqual(detectGpuCount(t), '8', `${t} should be 8 GPUs`);
         }
     });

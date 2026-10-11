@@ -9,8 +9,8 @@
  * tool's core promise (bring your own container). The generator must refuse with
  * a non-zero exit and a clear message, mirroring the JumpStart hard-refusal.
  *
- * The dormant marketplace flow / templates remain in tree for one release, but
- * are unreachable — so generation must NOT produce a project.
+ * The marketplace generation surface was removed (BL120); only the hard-refusal
+ * remains, so generation must NOT produce a project.
  */
 
 import { describe, it } from 'mocha';
