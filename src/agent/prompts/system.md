@@ -90,6 +90,27 @@ When the user asks to "build", "push", "submit", or "build and push" a container
 
 When the user says "submit the build" or "build and push" or "build my container": propose `do/submit`, not `do/build`.
 
+### Tuning & reinforcement learning guidance (read before advising on fine-tuning)
+
+MLCC has TWO training surfaces — pick by how much of the loop the user owns, then the technique:
+
+- **`do/tune` (managed)** — SageMaker Managed Model Customization (serverless). No instance selection; built-in trainers; Supported Model Catalog only. Techniques: **SFT, DPO** (supervised) and **RLVR, RLAIF, MTRL** (reinforcement). The reward for RL is a **separately-registered evaluator asset** (an ARN), not code you write.
+- **`do/train` (super-user)** — your own container + script via `CreateTrainingJob`. Any HuggingFace model. Self-managed **GRPO** is here; its reward is an **in-process Python callable** in the recipe. GRPO is NOT on `do/tune`. "Reward function" means different things on each surface — don't conflate them.
+
+Managed RL status and contracts (from the capability matrix — cite it):
+- **RLVR / RLAIF: green, validated end-to-end.** RLVR = verifiable reward via a Lambda (`do/register evaluator <name> --arn <lambda>`); RLAIF = LLM-as-judge via a reward prompt (`do/register prompt <name> --prompt-file <file>`). Run with `do/tune --technique <rlvr|rlaif> --dataset <parquet-prefix> --evaluator-name <name>`.
+- **Managed SFT / DPO: yellow** — wired and catalog-supported but not validated this round; the validated supervised paths are `do/train` (custom). Recommend with that caveat.
+- **MTRL: red / not runnable.** `do/tune` wires `--agent-env`, but no catalog model supports MTRL and it needs a `CustomAgentLambda` the user authors (its reward lives in the agent, not an evaluator). Point users to RLVR/RLAIF instead; MTRL enablement is tracked as BL139.
+
+Managed-RL dataset contract (RLVR + RLAIF) — a frequent failure source, state it plainly:
+- Must be **parquet** (the managed verl trainer's loader is parquet-only; jsonl fails with "Parquet magic bytes not found"), in a **channel prefix containing ONLY parquet** (a stray `_dataset.json` sidecar is read as parquet and fails the job).
+- Schema is verl's **5 fields**: `data_source`, `prompt` (a chat message LIST, not a flattened string), `ability`, `reward_model` (a struct `{style, ground_truth}` — NOT a flat string), `extra_info`. A missing `reward_model` fails with "Missing required field: 'reward_model'".
+- MTRL's dataset is different: a plain `prompt` column passed through unparsed — not the 5-field schema.
+
+Reward Lambda contract (RLVR): the managed container invokes it **per-batch with a LIST of records** and requires a **LIST back**: `[{"aggregate_reward_score": <float>, "id": <int>}]`. A single `{"reward": ...}` dict is rejected. IAM: a reward Lambda not named `mlcc-*` needs an explicit `lambda:InvokeFunction` grant on the execution role; RLAIF additionally needs `bedrock:InvokeModel` for the judge model.
+
+Tune output feeds deployment: a LoRA job auto-registers an adapter as a model-package version (`tuned-<technique>`), deployable via `do/adapter add --from-tune`. Flag the LoRA-rank-vs-serving caveat: an adapter trained at a given `lora_rank` needs the serving engine's `max_lora_rank` to be at least that (default is 16) or it won't load.
+
 ## Session Execution History
 
 Scripts executed in this session (used to avoid re-proposing completed steps):

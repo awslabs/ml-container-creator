@@ -251,13 +251,15 @@ a registered **evaluator** — see [Managed RL evaluators](#managed-rl-evaluator
 |---|---|---|
 | **SFT** | Teach the model a specific style or task | Dataset only — prompt/completion pairs |
 | **DPO** | Align the model with human preferences | Dataset only — prompt with chosen/rejected responses |
-| **RLVR** | Align using code-based verification | Prompt dataset **+** a reward **function** (`do/register evaluator`) |
-| **RLAIF** | Align using an AI judge | Prompt dataset **+** a reward **prompt** (`do/register prompt`) |
-| **MTRL** | Multi-turn reinforcement learning | Prompt-only dataset **+** a reward **function** (`do/register evaluator`) |
+| **RLVR** | Align using code-based verification | Parquet prompt dataset (verl 5-field) **+** a reward **function** (`do/register evaluator`) |
+| **RLAIF** | Align using an AI judge | Parquet prompt dataset (verl 5-field) **+** a reward **prompt** (`do/register prompt`) |
+| **MTRL** _(deferred — not yet runnable)_ | Multi-turn reinforcement learning | Plain-`prompt` dataset **+** a `CustomAgentLambda` via `--agent-env` (no model supports MTRL yet) |
 
-SFT and DPO need a dataset only. Every RFT technique (RLVR, RLAIF, MTRL) needs
-**two** separately-registered inputs — a prompt dataset AND an evaluator — and
-`do/tune` fails before submission if either is missing, naming the one to register.
+SFT and DPO need a dataset only. **RLVR and RLAIF** need **two** separately-registered
+inputs — a prompt dataset AND an evaluator — and `do/tune` fails before submission if
+either is missing, naming the one to register. **MTRL** is different: it needs a prompt
+dataset AND an agent (`--agent-env`), not an evaluator — and it is not yet runnable (no
+catalog model supports it). The validated managed-RL techniques are RLVR and RLAIF.
 
 Not all models support all techniques. Check what's available for your model:
 
@@ -282,7 +284,21 @@ Each model+technique combination supports one or both training types:
 
 ## Dataset Formats
 
-Datasets must be in JSONL format (one JSON object per line). The expected schema depends on the technique and model family. The script validates the first 10 lines of your dataset before submitting the job.
+The required format differs by technique family:
+
+- **SFT / DPO** — **JSONL** (one JSON object per line). `do/tune` validates the first
+  10 lines before submitting.
+- **RLVR / RLAIF** — **Parquet** in verl's 5-field schema (see
+  [Managed RL dataset format](#managed-rl-dataset-format-rlvr--rlaif) below). The
+  managed RL trainer's loader is parquet-only; a JSONL file fails in-container with
+  `ArrowInvalid: Parquet magic bytes not found`. `do/tune` enforces parquet for these
+  techniques in preflight and skips the JSONL line-check.
+- **MTRL** — a plain `prompt` column (parquet/jsonl) passed through to your agent
+  unparsed. MTRL is **not yet runnable** — see [MTRL](#mtrl-multi-turn-rl-deferred).
+
+The expected per-field schema also depends on the model family (some expect a Converse
+format); the Supported Model Catalog encodes it, and a validation error shows the
+expected schema.
 
 ### SFT (Supervised Fine-Tuning)
 
@@ -307,43 +323,71 @@ Each line contains a prompt with a preferred ("chosen") and dispreferred ("rejec
 
 **Required keys**: `prompt` (string), `chosen` (string), `rejected` (string)
 
-### RLVR (Reinforcement Learning with Verifiable Rewards)
+### Managed RL dataset format (RLVR / RLAIF)
 
-Each line contains a prompt (as a message array) and a reference to a Lambda function that scores the model's output:
+!!! important "RLVR/RLAIF datasets are parquet, and do NOT carry the reward"
+    Unlike SFT/DPO, the managed RL techniques use **Parquet** (not JSONL) and the
+    **reward is a separate registered evaluator** (an ARN), not a field in the dataset.
+    The dataset is a prompt corpus; the reward is wired via `--evaluator-name` /
+    `--reward-function` / `--reward-prompt`.
 
-```jsonl
-{"prompt": [{"role": "user", "content": "Solve: 2 + 2"}], "reward_model": "arn:aws:lambda:us-east-1:123456789012:function:math-verifier"}
-{"prompt": [{"role": "user", "content": "Write a function that reverses a string in Python"}], "reward_model": "arn:aws:lambda:us-east-1:123456789012:function:code-verifier"}
+The managed RL trainer (verl's `RLHFDataset`) requires parquet with **five fields per
+row** (verl's documented GSM8K prep format):
+
+| Field | Type | Notes |
+|---|---|---|
+| `data_source` | string | Dataset origin id (indexes the reward function) |
+| `prompt` | **list of chat messages** `[{"role","content"}]` | NOT a flattened string |
+| `ability` | string | Task category (e.g. `"math"`) |
+| `reward_model` | **struct** `{"style": "rule", "ground_truth": "<str>"}` | NOT a flat string. A missing `reward_model` fails with "Missing required field: 'reward_model'" |
+| `extra_info` | struct | e.g. `{"split","index"}` — recorded, not used by training |
+
+Build it with pyarrow and register the prefix (RLVR and RLAIF use the **same** dataset
+schema — they differ only in the reward asset):
+
+```python
+import pyarrow as pa, pyarrow.parquet as pq
+rows = {
+    "data_source": ["gsm8k"],
+    "prompt": [[{"role": "user", "content": "Question: ... Answer:"}]],
+    "ability": ["math"],
+    "reward_model": [{"style": "rule", "ground_truth": "42"}],
+    "extra_info": [{"split": "train", "index": 0}],
+}
+pq.write_table(pa.table(rows), "train-00000-of-00001.parquet")
 ```
 
-**Required keys**: `prompt` (array of message objects), `reward_model` (string — Lambda ARN)
+!!! warning "The channel prefix must contain ONLY parquet"
+    SageMaker mounts the whole dataset S3 prefix as the training channel. Any
+    non-parquet file in it — notably the registry's `_dataset.json` sidecar — is read
+    as parquet and fails the job. Stage RL datasets so the prefix holds only the
+    parquet data file(s). `do/tune` enforces parquet for RL techniques in preflight
+    (it fails loud if the dataset is not parquet, before provisioning GPUs).
 
-Use the `--reward-function` flag to specify the Lambda ARN:
+Run RLVR / RLAIF by resolving a registered evaluator (see
+[Managed RL evaluators](#managed-rl-evaluators-rlvr-rlaif-mtrl)):
 
 ```bash
-./do/tune --technique rlvr \
-  --dataset s3://my-bucket/prompts.jsonl \
-  --reward-function arn:aws:lambda:us-east-1:123456789012:function:my-reward
+# RLVR — verifiable reward (a Lambda)
+./do/tune --technique rlvr --dataset <parquet-prefix-or-name> --evaluator-name math-reward
+
+# RLAIF — LLM-as-judge (a reward prompt)
+./do/tune --technique rlaif --dataset <parquet-prefix-or-name> --evaluator-name clarity-judge
 ```
 
-### RLAIF (Reinforcement Learning from AI Feedback)
+`do/tune` resolves the evaluator name to its **hub-content evaluator ARN** and passes
+that to the trainer. You can bypass the registry with `--reward-function <arn>` (RLVR)
+or `--reward-prompt <arn>` (RLAIF), but pass the **hub-content evaluator ARN**, not a
+bare Lambda ARN or a name — the SDK requires that form.
 
-Same format as RLVR, but uses a reward prompt (an LLM judge) instead of a Lambda function:
+### MTRL (multi-turn RL) — deferred
 
-```jsonl
-{"prompt": [{"role": "user", "content": "Explain gravity to a 5-year-old"}], "reward_model": "s3://my-bucket/reward-prompts/clarity-judge.txt"}
-{"prompt": [{"role": "user", "content": "Write a professional email declining a meeting"}], "reward_model": "s3://my-bucket/reward-prompts/tone-judge.txt"}
-```
-
-**Required keys**: `prompt` (array of message objects), `reward_model` (string — S3 URI to reward prompt)
-
-Use the `--reward-prompt` flag to specify the reward prompt location:
-
-```bash
-./do/tune --technique rlaif \
-  --dataset s3://my-bucket/prompts.jsonl \
-  --reward-prompt s3://my-bucket/reward-prompts/clarity-judge.txt
-```
+MTRL trains an agent across multiple turns. Its reward lives **inside a
+`CustomAgentLambda` you author** (not a reward function/prompt), and its dataset is a
+plain `prompt` column passed through unparsed. `do/tune` wires `--agent-env` for it,
+but MTRL is **not yet runnable**: no model in the Supported Model Catalog advertises
+MTRL recipes, and the agent-authoring path isn't shipped. Use RLVR or RLAIF for managed
+RL today.
 
 ## Managed RL evaluators (RLVR, RLAIF, MTRL)
 
@@ -351,10 +395,11 @@ The RFT techniques score each generated response with an **evaluator** — a nat
 SageMaker AI Registry asset. There are two evaluator types, registered with two
 verbs, and each technique uses one:
 
-| Technique | Evaluator type | Register with | Source |
+| Technique | Reward mechanism | Register with | Source |
 |---|---|---|---|
-| RLVR, MTRL | reward **function** (code) | `do/register evaluator` | a Lambda (ARN) |
+| RLVR | reward **function** (code) | `do/register evaluator` | a Lambda (ARN) |
 | RLAIF | reward **prompt** (LLM-as-judge) | `do/register prompt` | an S3 prompt file |
+| MTRL _(deferred)_ | an **agent** (not an evaluator) | author a `CustomAgentLambda`, pass `--agent-env` | your agent Lambda |
 
 Together with the dataset verb, that is the **three register verbs** of the RL
 workflow: `do/register dataset` (the prompt corpus), `do/register evaluator` (a
@@ -364,7 +409,7 @@ evaluators are separate assets in separate registries; `do/tune` resolves both.
 List what you have registered with `--list` on either evaluator verb:
 
 ```bash
-./do/register evaluator --list   # registered reward functions (RLVR / MTRL)
+./do/register evaluator --list   # registered reward functions (RLVR)
 ./do/register prompt --list      # registered reward prompts (RLAIF)
 ```
 
@@ -399,20 +444,37 @@ before `--finalize`, or the create fails with a Lambda trust error.
 
 #### Reward-function contract
 
-The Lambda is invoked once per sampled response. The editable sample normalizes
-the common producer payloads (verl / HuggingFace / SageMaker Evaluation) and
-returns a single scalar reward:
+The managed container invokes the Lambda **per batch**: the `event` is a **list of
+sample records**, and the Lambda must return a **list of score objects**, one per
+record, each with `aggregate_reward_score` (float) and the record's `id`:
 
 ```python
 def handler(event, context=None):
-    # event carries the prompt, the model's output, and the ground truth
-    # (field names vary by producer; the sample's _extract() normalizes them).
-    # Return a JSON-serializable dict with a float `reward` (0.0–1.0 is conventional).
-    return {"reward": 1.0}
+    # event is a LIST of records (one batch). Each record carries the prompt,
+    # the model's output, and the ground truth (field names vary — normalize them).
+    scores = []
+    for idx, rec in enumerate(event):
+        rid = rec.get("id", idx)
+        reward = 1.0  # ← your real scoring here (0.0–1.0 conventional)
+        scores.append({"aggregate_reward_score": reward, "id": rid})
+    return scores
 ```
 
+!!! warning "Return a LIST, not a single dict"
+    A single `{"reward": 1.0}` dict is **rejected** by the managed RLVR container
+    (*"Lambda response must be a list of score objects ... like
+    [{\"aggregate_reward_score\": 0.5, \"id\": 0}]"*). The shipped
+    `register_evaluator_sample.py` sample currently uses the old single-dict shape —
+    update it to the per-batch list contract above.
+
 A reward function must never raise — a crash fails the whole RL step, so catch
-errors and return a `0.0` floor.
+errors and floor that record to `0.0`.
+
+!!! note "Reward Lambda IAM"
+    The execution role needs `lambda:InvokeFunction` on the reward Lambda. The shipped
+    policy scopes to `function:mlcc-*`, so a bring-your-own reward Lambda with a
+    different name needs an explicit grant for its ARN. (RLAIF additionally needs
+    `bedrock:InvokeModel` for the judge model — provisioned in the core bootstrap.)
 
 !!! info "Two different 'reward functions' in v1.9"
     This BL117 reward function is a **registered Lambda evaluator asset** consumed
@@ -962,13 +1024,25 @@ Your configured model isn't in the Supported Model Catalog. Run `./do/tune --lis
 
 ### Dataset validation fails
 
-The script validates the first 10 lines of your dataset. Check that:
+For **SFT/DPO**, `do/tune` validates the first 10 JSONL lines. Check that:
 
 - The file is valid JSONL (one JSON object per line)
-- Each line contains the required keys for your technique
-- Values match the expected types (strings for SFT/DPO, arrays for RLVR/RLAIF prompts)
+- Each line contains the required keys for your technique (SFT: `prompt`/`completion`;
+  DPO: `prompt`/`chosen`/`rejected`)
 
 The error message shows the first malformed line and the expected format.
+
+For **RLVR/RLAIF**, the dataset must be **parquet** in the verl 5-field schema (see
+[Managed RL dataset format](#managed-rl-dataset-format-rlvr--rlaif)). Common failures,
+all caught in preflight or early in the job:
+
+- `do/tune` refuses a non-parquet RL dataset before submitting (fail-loud guard).
+- In-container `ArrowInvalid: Parquet magic bytes not found` → the channel prefix
+  contains a non-parquet file (often the `_dataset.json` sidecar). Keep the prefix
+  parquet-only.
+- `Missing required field: 'reward_model'` → the row is missing the `reward_model`
+  struct (a flat `ground_truth` column is not accepted — it must be nested under
+  `reward_model`).
 
 ### "Schema divergence detected across files"
 

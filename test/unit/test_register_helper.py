@@ -88,10 +88,18 @@ class TestMetadataTruncation:
         assert result["long"].endswith("…")
         assert result["medium"] == "c" * 100
 
-    def test_none_values_converted_to_empty_string(self):
-        """None values become empty strings."""
-        result = _truncate_metadata({"key": None})
-        assert result["key"] == ""
+    def test_none_and_empty_values_omitted(self):
+        """None/empty values are OMITTED, not emitted as empty strings.
+
+        SageMaker's CreateModelPackage rejects a CustomerMetadataProperties entry
+        with a zero-length value ("Invalid length ... min length: 1"), so
+        _truncate_metadata drops empty values entirely (BL135). A present-but-empty
+        key would fail the whole registration.
+        """
+        result = _truncate_metadata({"key": None, "blank": "", "kept": "v"})
+        assert "key" not in result
+        assert "blank" not in result
+        assert result["kept"] == "v"
 
     def test_numeric_values_converted_to_string(self):
         """Non-string values are converted to strings."""
@@ -192,17 +200,24 @@ class TestBuildMetadata:
         # No benchmark_ keys
         assert not any(k.startswith("benchmark_") for k in result)
 
-    def test_empty_args_produce_empty_strings(self):
-        """Missing/empty args produce empty string values (not None)."""
+    def test_empty_args_are_omitted_not_emitted(self):
+        """Missing/empty args are OMITTED from metadata (BL135).
+
+        SageMaker rejects zero-length CustomerMetadataProperties values, so an
+        empty optional field (e.g. modelFormat on a transformers project) must be
+        dropped, not sent as "". Non-empty fields are still present.
+        """
         args = self._make_args(
             model_name="",
             base_image="",
             model_format="",
         )
         result = _build_metadata(args)
-        assert result["modelName"] == ""
-        assert result["baseImage"] == ""
-        assert result["modelFormat"] == ""
+        assert "modelName" not in result
+        assert "baseImage" not in result
+        assert "modelFormat" not in result
+        # A field that IS set still comes through.
+        assert result.get("deploymentConfig")
 
     def test_long_base_image_truncated(self):
         """A long base image value is truncated (AC-1.8)."""
@@ -381,16 +396,20 @@ class TestBuildAdapterMetadata:
         for key, val in result.items():
             assert isinstance(val, str), f"Value for '{key}' should be string, got {type(val)}"
 
-    def test_adapter_metadata_empty_optional_fields(self):
-        """Empty optional fields become empty strings."""
+    def test_adapter_metadata_empty_optional_fields_omitted(self):
+        """Empty optional fields are OMITTED, not emitted as empty strings (BL135).
+
+        SageMaker rejects zero-length metadata values, so an empty tuneTechnique /
+        datasetS3Uri must be dropped. isAdapter is always set, so it remains.
+        """
         args = self._make_adapter_args(
             tune_technique="",
             dataset_s3_uri="",
         )
         result = _build_adapter_metadata(args)
-        assert result["tuneTechnique"] == ""
-        assert result["datasetS3Uri"] == ""
-        # isAdapter should always be "true"
+        assert "tuneTechnique" not in result
+        assert "datasetS3Uri" not in result
+        # isAdapter is always "true", so it is present.
         assert result["isAdapter"] == "true"
 
     def test_adapter_metadata_truncates_long_values(self):
@@ -675,9 +694,11 @@ class TestRegisterEvaluator:
         assert output["name"] == "math-reward-fn"
         assert output["type"] == "reward_function"
         assert output["reference"] == "arn:aws:lambda:us-west-2:123456789012:function:math-reward"
-        assert output["technique"] == "rlvr"
         assert output["registered"] is True
         assert output["version"] == "1.0.0"
+        # `technique` was intentionally dropped: it was never persisted/resolved and
+        # the evaluator TYPE (reward_function/reward_prompt) carries the distinction.
+        assert "technique" not in output
 
     def test_register_evaluator_calls_native_create_with_arn(self):
         """The ARN path passes source=<lambda-arn>, type=reward_function."""
@@ -775,8 +796,10 @@ class TestRegisterPrompt:
         output = json.loads(capsys.readouterr().out)
         assert output["name"] == "pairwise-judge"
         assert output["type"] == "reward_prompt"
-        assert output["technique"] == "rlaif"
         assert output["reference"] == "s3://bucket/evaluators/judge-prompt.txt"
+        # `technique` was intentionally dropped (dead metadata); the reward_prompt
+        # TYPE already identifies this as the RLAIF evaluator.
+        assert "technique" not in output
 
     def test_register_prompt_requires_prompt(self, capsys):
         args = self._make_prompt_args(prompt=None, arn_or_uri=None)
