@@ -2,6 +2,78 @@
 
 All notable changes to ml-container-creator are documented here.
 
+## [1.9.1] — 2026-10-11
+
+### 🩹 Managed-RL patch — reward-function sample + reward-Lambda IAM
+
+Two fixes that make 1.9.0's managed-RLVR path usable out of the box. No new features,
+no contract changes.
+
+### Fixed
+
+- **Reward-function sample emitted the wrong response shape** — the
+  `do/register evaluator --from-sample` scaffold (`register_evaluator_sample.py`)
+  returned a single `{"reward": <float>}` dict, which the managed RLVR training
+  container **rejects** (*"Lambda response must be a list of score objects"*). The
+  sample now implements the real contract: the Lambda is invoked **per batch** (the
+  event is a LIST of records) and returns a **LIST** of
+  `{"aggregate_reward_score": <float>, "id": <int>}`, one per record. `_extract` now
+  reads a single record (and the verl-nested `reward_model.ground_truth`), and the
+  contract comment documents the batch shape. Anyone who scaffolded a reward function
+  on 1.9.0 should re-generate it or update the return shape.
+- **Reward-Lambda IAM too narrow for the `--from-sample --finalize` path** — the core
+  execution role's `LambdaInvokeForReward` statement (`core/stack.ts`) scoped invoke
+  to `function:mlcc-*` only. It now also covers `function:SageMaker-evaluator-*` (the
+  name SageMaker gives Lambdas created from a local reward `.py`). A genuinely
+  bring-your-own reward Lambda with an arbitrary name still needs an explicit
+  per-function grant by design — the shared role does not blanket-grant invoke on
+  every Lambda in the account.
+
+## [1.9.0] — 2026-10-11
+
+### 🎯 Managed Reinforcement Learning — RLAIF + RLVR validated end to end
+
+All four managed `do/tune` techniques (SFT, DPO, RLVR, RLAIF) now work end to end,
+each producing and auto-registering a LoRA adapter. Validated against a live account
+(Qwen3-32B, hyperpod-eks, us-west-2). See `.kiro/v1.9-release-notes.md`.
+
+### Added
+
+- **Managed RLVR / RLAIF on `do/tune`** — reinforcement fine-tuning via SageMaker
+  Managed Model Customization. RLVR uses a code reward **function** (a Lambda,
+  registered with `do/register evaluator`); RLAIF uses a reward **prompt**
+  (LLM-as-judge scored by a Bedrock model, registered with `do/register prompt`).
+  `do/tune` resolves the evaluator by name to its hub-content ARN.
+- **Managed-RL dataset contract + preflight guard** — RLVR/RLAIF datasets are parquet
+  in verl's 5-field schema (`data_source`, `prompt` message-list, `ability`,
+  `reward_model {style, ground_truth}`, `extra_info`). `do/tune` fails loud in
+  preflight when an RL dataset is not parquet, instead of failing minutes into a GPU
+  job.
+- **Bedrock judge IAM** — the core execution role (`core/stack.ts`) now grants
+  `bedrock:InvokeModel` / `InvokeModelWithResponseStream` on foundation-model and
+  inference-profile ARNs, required by the RLAIF judge.
+- **`do/tune --agent-env`** — wiring for MTRL (`MultiTurnRLTrainer`). MTRL itself is
+  deferred (no MTRL-capable catalog model yet; needs a `CustomAgentLambda`); `do/tune`
+  fails early with a clear message.
+- **`hey` advisor RL awareness** — capability matrix + system prompt updated:
+  managed SFT/DPO/RLVR/RLAIF green with dataset/reward contracts; MTRL red/deferred.
+- **Fine-tuning docs** — corrected RL dataset format (parquet/5-field, not jsonl),
+  the per-batch list reward-Lambda contract, and MTRL-deferred status.
+
+### Fixed
+
+| Component | Bug | Fix |
+|---|---|---|
+| `templates/do/tune`, `tune_submit.py` | RFT reward routed all RLAIF/RLVR to SFTTrainer, silently dropping the reward (reward-less SFT jobs) | Route to dedicated RLAIF/RLVR trainers with the correct type-specific reward kwarg |
+| `templates/do/tune`, `tune_submit.py` | RLVR passed the Lambda ref as `custom_reward_function`, triggering an in-SDK `Evaluator.create` that resolved the caller role → "IAM role .../role/<you> cannot be used for training" | Pass the hub-content evaluator ARN (skips `Evaluator.create`); set `skip_reward_validation=True` (its pre-submit check reads jsonl but the trainer needs parquet) |
+| `templates/do/tune` | S3-prefix dataset validation `aws s3 cp <prefix> - \| head` SIGPIPE-exited the script silently under `set -e`/`pipefail` | Prefix-aware sampling; parquet skips the jsonl line-check; RL techniques hard-error on non-parquet |
+| `templates/do/tune` | Resolved execution role could silently fall back to the caller identity | Fail-loud guard: reject an empty / non-`role/` / caller-identity role before submit |
+| `templates/do/lib/python/register_model.py` | `do/register` sent empty-string `CustomerMetadataProperties` → SageMaker rejects (min length 1), blocking base + adapter registration | `_truncate_metadata` drops empty values before the API call |
+| `templates/do/lib/python/register_model.py` | Model-package descriptions were terse/overly-verbose (adapter embedded the full parent ARN) | Base: `Base model <name> · <config> · on <instance>`; adapter: `<TECHNIQUE> adapter of <name> (base v<N>)` |
+| `templates/do/lib/python/dataset_qol.py` | RLAIF/RLVR `prompt` typed as `array`, disabling auto-flatten; produced the wrong shape for the loader | Typed as `string` so a message-list prompt flattens correctly (with regression tests) |
+| `test/property/batch-transform-validation.property.test.js` | Property generator emitted `${`-containing strings that `_validateChoice` intentionally exempts → seed-dependent flake | Exclude `${` from the generator domain (matches the sibling async test) |
+| `test/unit/test_register_helper.py` | Tests asserted empty metadata → `""` and a removed `technique` output field | Updated to the current contract (empty omitted; `technique` dropped as dead metadata) |
+
 ## [1.3.4] — 2026-07-15
 
 ### 🔧 Validation Run Patch — `do/optimize` Refactor + 25 Bug Fixes

@@ -47,18 +47,12 @@
       }
     },
     "training.managed.sft": {
-      "status": "yellow",
-      "message": "Managed SFT via do/tune (SageMaker Managed Model Customization). Wired and catalog-supported across the model families, but not end-to-end validated in the current round (RLAIF and RLVR were the validated managed paths). Dataset is JSONL prompt/completion pairs. Should work; run once to confirm for your model.",
-      "alternatives": [
-        "training.custom.sft (do/train) is the validated self-managed SFT path"
-      ]
+      "status": "green",
+      "message": "Managed SFT via do/tune (SageMaker Managed Model Customization) validated end-to-end on Qwen3-32B: a JSONL prompt/completion dataset registered with `do/register dataset --technique sft` is resolved by name and submitted; produced + auto-registered a LoRA adapter. Dataset is JSONL (prompt/completion) — no evaluator, no parquet (unlike RLVR/RLAIF). Run: do/tune --technique sft --dataset <name>."
     },
     "training.managed.dpo": {
-      "status": "yellow",
-      "message": "Managed DPO via do/tune. Wired and catalog-supported, not end-to-end validated this round. Dataset is JSONL prompt/chosen/rejected. Should work; run once to confirm.",
-      "alternatives": [
-        "training.custom.dpo (do/train) is the validated self-managed DPO path"
-      ]
+      "status": "green",
+      "message": "Managed DPO via do/tune validated end-to-end on Qwen3-32B: a JSONL prompt/chosen/rejected preference dataset registered with `do/register dataset --technique dpo` is resolved by name and submitted; produced + auto-registered a LoRA adapter. Dataset is JSONL (prompt/chosen/rejected) — no evaluator, no parquet. Run: do/tune --technique dpo --dataset <name>."
     },
     "training.managed.mtrl": {
       "status": "red",
