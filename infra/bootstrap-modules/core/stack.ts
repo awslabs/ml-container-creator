@@ -220,10 +220,25 @@ export class MlccCoreStack extends cdk.Stack {
         }));
 
         // Reward-function invocation for RLVR/RLAIF tuning.
+        // Reward-function invocation for RLVR tuning. The managed training job
+        // (running as this role) invokes the reward Lambda per batch. Cover the
+        // two MLCC-managed naming conventions:
+        //   • mlcc-*                — MLCC-owned reward Lambdas
+        //   • SageMaker-evaluator-* — Lambdas SageMaker creates from a local .py
+        //     via `do/register evaluator --from-sample --finalize`
+        //     (see _LAMBDA_NAME_PREFIX in register_evaluator.py).
+        // A genuinely bring-your-own reward Lambda with an arbitrary name
+        // (`do/register evaluator --arn <any-lambda>`) is NOT covered here by
+        // design — the shared role must not blanket-grant invoke on every Lambda
+        // in the account. Grant invoke on that specific function ARN separately
+        // (an inline policy on this role scoped to the one function).
         this.role.addToPolicy(new iam.PolicyStatement({
             sid: 'LambdaInvokeForReward',
             actions: ['lambda:InvokeFunction'],
-            resources: ['arn:aws:lambda:*:' + this.account + ':function:mlcc-*'],
+            resources: [
+                'arn:aws:lambda:*:' + this.account + ':function:mlcc-*',
+                'arn:aws:lambda:*:' + this.account + ':function:SageMaker-evaluator-*',
+            ],
         }));
 
         // Bedrock judge-model invocation for RLAIF (LLM-as-judge reward). The

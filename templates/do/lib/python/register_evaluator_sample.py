@@ -50,46 +50,53 @@ _RLVR_CUSTOM_SAMPLE = '''\
 #  replace with your real scoring logic before finalizing registration.
 # ─────────────────────────────────────────────────────────────────────────────
 #
-#  Reward-function contract (REWARD_FUNCTION evaluator / RLVR / MTRL):
-#    - SageMaker invokes this as a managed Lambda, once per sampled response.
-#    - The event shape varies by producer (verl, HuggingFace, SageMaker
-#      Evaluation). `_extract(event)` below normalizes them to
+#  Reward-function contract (REWARD_FUNCTION evaluator / RLVR):
+#    - SageMaker invokes this as a managed Lambda PER BATCH: the `event` is a
+#      LIST of sample records (one call scores several completions at once).
+#    - You must return a LIST of score objects, one per record, each shaped
+#      {"aggregate_reward_score": <float>, "id": <int>}. A single {"reward": ...}
+#      dict is REJECTED by the training container ("Lambda response must be a list
+#      of score objects ... like [{\"aggregate_reward_score\": 0.5, \"id\": 0}]").
+#    - Each record's fields vary by producer (verl, HuggingFace, SageMaker
+#      Evaluation). `_extract(record)` below normalizes one record to
 #      (prompt, model_output, ground_truth) so your `score()` stays shape-free.
-#    - Return a JSON-serializable dict carrying a single scalar `reward` (float).
 #      A reward in [0.0, 1.0] is conventional; higher = better.
 #    - NEVER raise: a reward fn that crashes fails the whole RL step. Catch and
-#      return a 0.0 floor instead.
+#      floor that record to 0.0 instead.
 
 
-def _extract(event):
-    """Normalize the common reward payloads to (prompt, model_output, ground_truth).
+def _extract(record):
+    """Normalize ONE batch record to (prompt, model_output, ground_truth).
 
-    Handles the three shapes seen in practice without assuming which producer
-    sent the event:
-      - verl / SageMaker Evaluation: {"model_output": ..., "ground_truth": ...}
+    Field names vary by producer; this is defensive across the shapes seen in
+    practice. Confirm against a real CloudWatch invocation event and prune to the
+    exact fields your producer sends:
+      - verl / SageMaker Evaluation: {"model_output": ..., "reward_model": {"ground_truth": ...}}
       - HuggingFace-style:           {"completion": ..., "prompt": ..., "label": ...}
       - nested extra_info:           {"extra_info": {"question": ...}}
     """
-    event = event or {}
-    extra = event.get("extra_info") or {}
+    record = record or {}
+    extra = record.get("extra_info") or {}
+    reward_model = record.get("reward_model") or {}
 
     prompt = (
-        event.get("prompt")
-        or event.get("question")
+        record.get("prompt")
+        or record.get("question")
         or extra.get("question")
         or ""
     )
     model_output = (
-        event.get("model_output")
-        or event.get("completion")
-        or event.get("response")
-        or event.get("output")
+        record.get("model_output")
+        or record.get("completion")
+        or record.get("response")
+        or record.get("output")
         or ""
     )
     ground_truth = (
-        event.get("ground_truth")
-        or event.get("label")
-        or event.get("answer")
+        record.get("ground_truth")
+        or record.get("label")
+        or record.get("answer")
+        or (reward_model.get("ground_truth") if isinstance(reward_model, dict) else None)
         or extra.get("ground_truth")
         or ""
     )
@@ -118,13 +125,28 @@ def score(prompt, model_output, ground_truth):
 
 
 def handler(event, context=None):
-    """Lambda entrypoint SageMaker invokes. Keep this wrapper; edit `score()`."""
-    try:
-        prompt, model_output, ground_truth = _extract(event)
-        reward = float(score(prompt, model_output, ground_truth))
-    except Exception:  # noqa: BLE001 — a reward fn must never crash the RL step
-        reward = 0.0
-    return {"reward": reward}
+    """Lambda entrypoint SageMaker invokes PER BATCH. Keep this wrapper; edit `score()`.
+
+    `event` is a LIST of sample records. Return a LIST of score objects, one per
+    record: {"aggregate_reward_score": <float>, "id": <int>}.
+    """
+    # Tolerate a dict-wrapped batch just in case, but the contract is a bare list.
+    records = event
+    if isinstance(event, dict):
+        records = event.get("records") or event.get("samples") or event.get("inputs") or [event]
+    if not isinstance(records, list):
+        records = [records]
+
+    scores = []
+    for idx, record in enumerate(records):
+        rid = record.get("id", idx) if isinstance(record, dict) else idx
+        try:
+            prompt, model_output, ground_truth = _extract(record)
+            reward = float(score(prompt, model_output, ground_truth))
+        except Exception:  # noqa: BLE001 — a reward fn must never crash the RL step
+            reward = 0.0
+        scores.append({"aggregate_reward_score": reward, "id": rid})
+    return scores
 '''
 
 _SAMPLE_BODIES = {

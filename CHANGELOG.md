@@ -2,6 +2,33 @@
 
 All notable changes to ml-container-creator are documented here.
 
+## [1.9.1] — 2026-10-11
+
+### 🩹 Managed-RL patch — reward-function sample + reward-Lambda IAM
+
+Two fixes that make 1.9.0's managed-RLVR path usable out of the box. No new features,
+no contract changes.
+
+### Fixed
+
+- **Reward-function sample emitted the wrong response shape** — the
+  `do/register evaluator --from-sample` scaffold (`register_evaluator_sample.py`)
+  returned a single `{"reward": <float>}` dict, which the managed RLVR training
+  container **rejects** (*"Lambda response must be a list of score objects"*). The
+  sample now implements the real contract: the Lambda is invoked **per batch** (the
+  event is a LIST of records) and returns a **LIST** of
+  `{"aggregate_reward_score": <float>, "id": <int>}`, one per record. `_extract` now
+  reads a single record (and the verl-nested `reward_model.ground_truth`), and the
+  contract comment documents the batch shape. Anyone who scaffolded a reward function
+  on 1.9.0 should re-generate it or update the return shape.
+- **Reward-Lambda IAM too narrow for the `--from-sample --finalize` path** — the core
+  execution role's `LambdaInvokeForReward` statement (`core/stack.ts`) scoped invoke
+  to `function:mlcc-*` only. It now also covers `function:SageMaker-evaluator-*` (the
+  name SageMaker gives Lambdas created from a local reward `.py`). A genuinely
+  bring-your-own reward Lambda with an arbitrary name still needs an explicit
+  per-function grant by design — the shared role does not blanket-grant invoke on
+  every Lambda in the account.
+
 ## [1.9.0] — 2026-10-11
 
 ### 🎯 Managed Reinforcement Learning — RLAIF + RLVR validated end to end
