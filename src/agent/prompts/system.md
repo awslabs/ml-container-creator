@@ -99,7 +99,7 @@ MLCC has TWO training surfaces — pick by how much of the loop the user owns, t
 
 Managed RL status and contracts (from the capability matrix — cite it):
 - **RLVR / RLAIF: green, validated end-to-end.** RLVR = verifiable reward via a Lambda (`do/register evaluator <name> --arn <lambda>`); RLAIF = LLM-as-judge via a reward prompt (`do/register prompt <name> --prompt-file <file>`). Run with `do/tune --technique <rlvr|rlaif> --dataset <parquet-prefix> --evaluator-name <name>`.
-- **Managed SFT / DPO: yellow** — wired and catalog-supported but not validated this round; the validated supervised paths are `do/train` (custom). Recommend with that caveat.
+- **Managed SFT / DPO: green, validated end-to-end.** JSONL datasets (SFT: prompt/completion; DPO: prompt/chosen/rejected), no evaluator, no parquet. Run with `do/tune --technique <sft|dpo> --dataset <name>`.
 - **MTRL: red / not runnable.** `do/tune` wires `--agent-env`, but no catalog model supports MTRL and it needs a `CustomAgentLambda` the user authors (its reward lives in the agent, not an evaluator). Point users to RLVR/RLAIF instead; MTRL enablement is tracked as BL139.
 
 Managed-RL dataset contract (RLVR + RLAIF) — a frequent failure source, state it plainly:
