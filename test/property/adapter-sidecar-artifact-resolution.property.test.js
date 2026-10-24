@@ -9,8 +9,11 @@
  * the artifact resolver SHALL return a valid directory path containing the adapter
  * files ready for the model server.
  *
- * This test invokes the Python ArtifactResolver via subprocess with generated
- * filesystem fixtures to validate the contract across many random inputs.
+ * This test invokes the real Python ArtifactResolver from
+ * templates/code/adapter_sidecar.py via subprocess (with ADAPTER_ALLOWED_ROOTS
+ * set to the fixture directory) to validate the contract across many random
+ * inputs. Every failure must surface the same generic message so a caller
+ * cannot use the resolver as a filesystem oracle.
  *
  * Feature: sagemaker-adapter-contract, Property 3: Artifact Resolution
  * **Validates: Requirements 2.2, 2.3, 6.1, 6.2, 6.3**
@@ -19,13 +22,16 @@
 import fc from 'fast-check';
 import { describe, it, beforeEach, afterEach } from 'mocha';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync } from 'node:fs';
-import { execSync } from 'node:child_process';
-import { join } from 'node:path';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync, realpathSync } from 'node:fs';
+import { execSync, execFileSync } from 'node:child_process';
+import { join, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { NUM_RUNS } from '../helpers/property-config.js';
 
 const PROPERTY_CONFIG = { numRuns: NUM_RUNS, timeout: 120000, verbose: false };
+const SIDECAR_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'templates', 'code', 'adapter_sidecar.py');
+const GENERIC_ARTIFACT_ERROR = 'Adapter artifacts not found or not usable';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -57,66 +63,29 @@ const arbAdapterConfig = fc.record({
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Create a Python script that runs ArtifactResolver.resolve() and prints the result.
- * This avoids import issues by inlining just the ArtifactResolver class.
+ * Create a Python script that loads the real ArtifactResolver from the
+ * template and prints the result of resolve() as JSON. aiohttp is only needed
+ * by the HTTP layer, so a stub is installed when it is not available.
  */
-function createResolverScript(tmpDir, _srcPath) {
+function createResolverScript(tmpDir) {
     const scriptContent = `
-import sys
-import os
-import tarfile
+import importlib.util
 import json
-
-# Inline the ArtifactResolver class from the template
-class ArtifactResolver:
-    @staticmethod
-    def resolve(src):
-        if not os.path.exists(src):
-            raise FileNotFoundError(f'Adapter artifact path does not exist: {src}')
-
-        if os.path.isfile(src) and src.endswith('.tar.gz'):
-            extract_dir = os.path.dirname(src)
-            ArtifactResolver._extract_tar_gz(src, extract_dir)
-            return extract_dir
-
-        if not os.path.isdir(src):
-            raise FileNotFoundError(f'Adapter artifact path is not a directory: {src}')
-
-        contents = os.listdir(src)
-        if not contents:
-            raise FileNotFoundError(f'Adapter artifact path is empty: {src}')
-
-        if 'adapter_config.json' in contents:
-            return src
-
-        tar_files = [f for f in contents if f.endswith('.tar.gz')]
-        if len(tar_files) == 1:
-            tar_path = os.path.join(src, tar_files[0])
-            ArtifactResolver._extract_tar_gz(tar_path, src)
-            return src
-
-        if 'adapter_config.json' in os.listdir(src):
-            return src
-
-        raise FileNotFoundError(
-            f'Adapter artifact path does not contain adapter_config.json or a tar.gz archive: {src}'
-        )
-
-    @staticmethod
-    def _extract_tar_gz(tar_path, extract_dir):
-        try:
-            with tarfile.open(tar_path, 'r:gz') as tar:
-                if hasattr(tarfile, 'data_filter'):
-                    tar.extractall(path=extract_dir, filter='data')
-                else:
-                    tar.extractall(path=extract_dir)
-        except (tarfile.TarError, OSError, PermissionError) as e:
-            raise RuntimeError(f'Failed to extract tar.gz archive {tar_path}: {e}')
-
-# Run the resolver
-src_path = sys.argv[1]
+import sys
+import types
 try:
-    result = ArtifactResolver.resolve(src_path)
+    import aiohttp  # noqa: F401
+except ImportError:
+    stub = types.ModuleType('aiohttp')
+    stub.web = types.SimpleNamespace()
+    stub.ClientSession = object
+    stub.ClientTimeout = object
+    sys.modules['aiohttp'] = stub
+spec = importlib.util.spec_from_file_location('adapter_sidecar', sys.argv[1])
+sidecar = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(sidecar)
+try:
+    result = sidecar.ArtifactResolver.resolve(sys.argv[2])
     print(json.dumps({"status": "ok", "path": result}))
 except FileNotFoundError as e:
     print(json.dumps({"status": "not_found", "error": str(e)}))
@@ -127,15 +96,15 @@ except RuntimeError as e:
     writeFileSync(scriptPath, scriptContent);
     return scriptPath;
 }
-
 /**
- * Run the ArtifactResolver via Python subprocess.
+ * Run the real ArtifactResolver via Python subprocess, confined to allowedRoot.
  */
-function runResolver(scriptPath, srcPath) {
+function runResolver(scriptPath, srcPath, allowedRoot) {
     try {
-        const output = execSync(`python3 "${scriptPath}" "${srcPath}"`, {
+        const output = execFileSync('python3', [scriptPath, SIDECAR_PATH, srcPath], {
             encoding: 'utf-8',
-            timeout: 10000
+            timeout: 10000,
+            env: { ...process.env, ADAPTER_ALLOWED_ROOTS: allowedRoot }
         }).trim();
         return JSON.parse(output);
     } catch (e) {
@@ -143,7 +112,6 @@ function runResolver(scriptPath, srcPath) {
         throw new Error(`Python resolver failed: ${e.message}`);
     }
 }
-
 /**
  * Create a valid tar.gz file containing adapter files.
  */
@@ -190,8 +158,9 @@ describe('Feature: sagemaker-adapter-contract, Property 3: Artifact Resolution',
     let resolverScript;
 
     beforeEach(() => {
-        tmpDir = mkdtempSync(join(tmpdir(), 'artifact-res-'));
-        resolverScript = createResolverScript(tmpDir, '');
+        // Canonicalize: the resolver returns realpaths (macOS tmpdir is a symlink).
+        tmpDir = realpathSync(mkdtempSync(join(tmpdir(), 'artifact-res-')));
+        resolverScript = createResolverScript(tmpDir);
     });
 
     afterEach(() => {
@@ -219,7 +188,7 @@ describe('Feature: sagemaker-adapter-contract, Property 3: Artifact Resolution',
                     }
 
                     // Resolve and verify
-                    const result = runResolver(resolverScript, adapterDir);
+                    const result = runResolver(resolverScript, adapterDir, tmpDir);
 
                     assert.equal(result.status, 'ok',
                         `Expected ok status, got: ${JSON.stringify(result)}`);
@@ -261,7 +230,7 @@ describe('Feature: sagemaker-adapter-contract, Property 3: Artifact Resolution',
                     createTarGz(adapterDir, 'adapter.tar.gz', tarFiles);
 
                     // Resolve and verify
-                    const result = runResolver(resolverScript, adapterDir);
+                    const result = runResolver(resolverScript, adapterDir, tmpDir);
 
                     assert.equal(result.status, 'ok',
                         `Expected ok status, got: ${JSON.stringify(result)}`);
@@ -307,7 +276,7 @@ describe('Feature: sagemaker-adapter-contract, Property 3: Artifact Resolution',
                     const tarPath = createTarGz(parentDir, `${adapterName}.tar.gz`, tarFiles);
 
                     // Resolve using the direct tar.gz path
-                    const result = runResolver(resolverScript, tarPath);
+                    const result = runResolver(resolverScript, tarPath, tmpDir);
 
                     assert.equal(result.status, 'ok',
                         `Expected ok status, got: ${JSON.stringify(result)}`);
@@ -335,12 +304,12 @@ describe('Feature: sagemaker-adapter-contract, Property 3: Artifact Resolution',
                 (adapterName) => {
                     const nonExistentPath = join(tmpDir, 'nonexistent', adapterName);
 
-                    const result = runResolver(resolverScript, nonExistentPath);
+                    const result = runResolver(resolverScript, nonExistentPath, tmpDir);
 
                     assert.equal(result.status, 'not_found',
                         `Expected not_found status for non-existent path, got: ${JSON.stringify(result)}`);
-                    assert.ok(result.error.includes('does not exist'),
-                        'Error message must indicate path does not exist');
+                    assert.equal(result.error, GENERIC_ARTIFACT_ERROR,
+                        'Error message must be the generic artifact error (no filesystem oracle)');
                 }
             ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
@@ -357,12 +326,12 @@ describe('Feature: sagemaker-adapter-contract, Property 3: Artifact Resolution',
                     const emptyDir = join(tmpDir, adapterName);
                     mkdirSync(emptyDir, { recursive: true });
 
-                    const result = runResolver(resolverScript, emptyDir);
+                    const result = runResolver(resolverScript, emptyDir, tmpDir);
 
                     assert.equal(result.status, 'not_found',
                         `Expected not_found status for empty directory, got: ${JSON.stringify(result)}`);
-                    assert.ok(result.error.includes('empty'),
-                        'Error message must indicate path is empty');
+                    assert.equal(result.error, GENERIC_ARTIFACT_ERROR,
+                        'Error message must be the generic artifact error (no filesystem oracle)');
 
                     // Clean up for next iteration
                     rmSync(emptyDir, { recursive: true, force: true });
@@ -400,7 +369,7 @@ describe('Feature: sagemaker-adapter-contract, Property 3: Artifact Resolution',
                         }
                     }
 
-                    const result = runResolver(resolverScript, adapterDir);
+                    const result = runResolver(resolverScript, adapterDir, tmpDir);
 
                     assert.equal(result.status, 'ok',
                         `Expected ok status, got: ${JSON.stringify(result)}`);
