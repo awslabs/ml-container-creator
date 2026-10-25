@@ -63,7 +63,8 @@ jobs:
       - name: Python tests
         if: matrix.node-version == '24.x'
         run: |
-          python3 -m pip install -q pytest questionary
+          # aiohttp: exercises the adapter sidecar's HTTP handlers (test_adapter_sidecar_security.py)
+          python3 -m pip install -q pytest questionary aiohttp==3.14.5
           python3 -m pytest test/unit/ -q --tb=short
 
       - name: Validate namespaces
