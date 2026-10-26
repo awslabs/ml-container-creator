@@ -197,9 +197,12 @@ def collect_cloudwatch(endpoint_name, variant_name, ic_name, start_time, end_tim
 
     Prefix cache hit rate is NOT forwarded to CloudWatch (Phase 2 /metrics only).
 
-    Prerequisites (user-provisioned, not enforced here): the endpoint config has
-    ``EnableDetailedObservability`` + BYOC ``ContainerMetricsConfig`` set, and the
-    account has OTel enrichment enabled (``aws cloudwatch start-otel-enrichment``).
+    Prerequisites (not enforced here): the endpoint config has
+    ``MetricsConfig.EnableDetailedObservability`` true (the SageMaker default for
+    endpoint configs created after 2026-06-17), the container serves Prometheus
+    metrics at the BYOC default ``/metrics`` on port 8080 (a non-default path needs
+    ``ContainerMetricsConfig`` on the container spec), and the account has OTel
+    enrichment enabled (``aws cloudwatch start-otel-enrichment``).
     When these are absent, queries return no data → keys are simply omitted.
 
     Args:

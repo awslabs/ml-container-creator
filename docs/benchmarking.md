@@ -212,12 +212,15 @@ CloudWatch via an AWS-managed OTel collector. After a benchmark run completes,
 aws cloudwatch start-otel-enrichment --region <your-region>
 ```
 
-**2. Redeploy to add `ContainerMetricsConfig`** — MLCC now automatically includes
-`ContainerMetricsConfig` (path `/metrics`, port 8080) in realtime-inference endpoint
-configs. If your endpoint was deployed before v1.7, redeploy it to pick this up:
+**2. Make sure detailed observability is on for the endpoint config** —
+`MetricsConfig.EnableDetailedObservability` [defaults to true](https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_MetricsConfig.html)
+for endpoint configs created after June 17, 2026, so a fresh `./do/deploy` needs no extra
+setting. Older endpoint configs default to false; redeploy to get a new config:
 
 ```bash
-./do/deploy
+aws sagemaker describe-endpoint-config --endpoint-config-name <config-name> \
+    --query 'MetricsConfig.EnableDetailedObservability'
+./do/deploy   # only if the query above prints false or None
 ```
 
 **3. Run a benchmark** — metrics are collected after the job completes:
@@ -244,11 +247,16 @@ for line in sys.stdin:
 - `metrics_source: "none"` → OTel enrichment not enabled, endpoint not redeployed, or
   detailed observability not yet collecting (can take a few minutes after first deploy)
 
-!!! note "BYOC requirement"
-    SageMaker cannot auto-detect the metrics endpoint for custom containers. MLCC adds
-    `ContainerMetricsConfig` automatically; if you provision endpoints outside of MLCC,
-    add `ContainerMetricsConfig: {MetricsEndpoints: [{MetricsEndpointPath: "/metrics", Port: 8080}]}`
-    to your `CreateEndpointConfig` call manually.
+!!! note "BYOC metrics path"
+    For custom (BYOC) containers, SageMaker scrapes Prometheus metrics at the default path
+    `/metrics` on port 8080 ([MetricsConfig](https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_MetricsConfig.html),
+    [getting started](https://docs.aws.amazon.com/sagemaker/latest/dg/monitoring-detailed-observability-getting-started.html)).
+    The MLCC vLLM, SGLang and llama.cpp containers serve metrics there, so MLCC sets no
+    extra metrics configuration. If a container uses a different path, set
+    `ContainerMetricsConfig: {MetricsEndpoints: [{MetricsEndpointPath: "/custom"}]}` on the
+    container spec (the inference component's `Specification.Container`, or the model's
+    `ContainerDefinition`). `CreateEndpointConfig` has no `ContainerMetricsConfig` option,
+    and the port is always 8080.
 
 ---
 
@@ -282,8 +290,8 @@ for overlapping columns when non-null.
 
 Phase 1 (CloudWatch OTel) currently only applies to `realtime-inference` endpoints. HyperPod
 EKS deployments go through the `InferenceEndpointConfig` CRD operator, which provisions the
-underlying compute outside of the standard `CreateEndpointConfig` path — so the BYOC
-`ContainerMetricsConfig` added for realtime-inference doesn't apply here.
+underlying compute outside of the standard `CreateEndpointConfig` path — so the
+detailed-observability defaults that realtime-inference endpoint configs get don't apply here.
 
 **What this means in practice:**
 - HyperPod EKS benchmarks rely on **Phase 2 only** for engine metrics: set `HP_BENCHMARK_METRICS_ENABLED=true` in `do/config`.

@@ -185,26 +185,27 @@ create_endpoint_config() {
 
     cmd_args+=(--production-variants "${variant_json}")
 
-    # BL086 / BL081: enable SageMaker AI detailed observability engine-metric
-    # scraping for BYOC containers on the IC-based real-time path only.
+    # BL086 / BL081: SageMaker AI detailed observability (engine + DCGM metrics
+    # via the AWS-managed OTel collector) needs no extra arguments here.
     #
-    # MLCC generates custom (BYOC) containers, so the OTel collector cannot
-    # auto-detect the metrics endpoint. It must be told explicitly via
-    # ContainerMetricsConfig that the container exposes Prometheus metrics at
-    # /metrics on port 8080. Without this, detailed observability forwards only
-    # DCGM GPU metrics (no KVCacheUtilization / QueueDepth / BatchSize) for
-    # MLCC SageMaker endpoints.
+    # - MetricsConfig.EnableDetailedObservability defaults to true for endpoint
+    #   configs created after 2026-06-17, so new configs get it without asking.
+    #   https://docs.aws.amazon.com/sagemaker/latest/dg/monitoring-detailed-observability-getting-started.html
+    #   https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_MetricsConfig.html
+    # - For custom (BYOC) containers the collector scrapes Prometheus metrics at
+    #   the default path /metrics on port 8080, which is what the MLCC vLLM,
+    #   SGLang and llama.cpp images expose (serve.d manifests, metrics_endpoint).
     #
-    # Scope: IC-based real-time flow (ROLE_ARN set, MODEL_NAME_SM unset). Skipped
-    # for the model-based async flow and never applied to HyperPod EKS (which
-    # collects via the Phase 2 /metrics port-forward, not this pipeline).
+    # Non-default settings go in two different places (neither is needed today):
+    # - Endpoint config: --metrics-config '{"EnableDetailedObservability":...,
+    #   "MetricPublishFrequencyInSeconds":10}' (CreateEndpointConfig MetricsConfig).
+    # - A non-default metrics PATH: ContainerMetricsConfig on the container spec
+    #   (InferenceComponentContainerSpecification for create-inference-component,
+    #   or ContainerDefinition for create-model). CreateEndpointConfig has NO
+    #   container-metrics option, and MetricsEndpoint has no Port member.
     #
     # Account-level OTel enrichment (aws cloudwatch start-otel-enrichment) is a
-    # user prerequisite and is NOT performed here.
-    if [ -n "${ROLE_ARN:-}" ] && [ -z "${MODEL_NAME_SM:-}" ]; then
-        cmd_args+=(--container-metrics-config '{"MetricsEndpoints":[{"MetricsEndpointPath":"/metrics","Port":8080}]}')
-        echo "   ✓ Container metrics: /metrics on port 8080 (detailed observability)"
-    fi
+    # user prerequisite for PromQL queries and is NOT performed here.
 
     # Optional: async inference config
     if [ -n "${ASYNC_INFERENCE_CONFIG:-}" ]; then

@@ -251,9 +251,7 @@ clean_endpoint() {
                             --inference-component-name "${adapter_ic_name}" \
                             --region "${AWS_REGION}" 2>/dev/null; then
                             echo "⏳ Waiting for adapter deletion..."
-                            aws sagemaker wait inference-component-deleted \
-                                --inference-component-name "${adapter_ic_name}" \
-                                --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                            sleep 15  # the AWS CLI has no IC-deleted waiter (test_aws_cli_flags.py)
                             echo "✅ Adapter deleted: ${adapter_display_name}"
 
                             # Mark adapter IC as deleted in manifest (non-blocking)
@@ -287,9 +285,7 @@ clean_endpoint() {
                         --inference-component-name "${ic_deployed_name}" \
                         --region "${AWS_REGION}" 2>/dev/null; then
                         echo "⏳ Waiting for inference component deletion..."
-                        aws sagemaker wait inference-component-deleted \
-                            --inference-component-name "${ic_deployed_name}" \
-                            --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                        sleep 15  # the AWS CLI has no IC-deleted waiter (test_aws_cli_flags.py)
                         echo "✅ Inference component deleted: ${ic_deployed_name}"
 
                         # Mark inference component as deleted in manifest (non-blocking)
@@ -316,9 +312,7 @@ clean_endpoint() {
                     --inference-component-name "${IC_NAME}" \
                     --region "${AWS_REGION}" 2>/dev/null; then
                     echo "⏳ Waiting for inference component deletion..."
-                    aws sagemaker wait inference-component-deleted \
-                        --inference-component-name "${IC_NAME}" \
-                        --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                    sleep 15  # the AWS CLI has no IC-deleted waiter (test_aws_cli_flags.py)
                     echo "✅ Inference component deleted: ${IC_NAME}"
 
                     # Mark inference component as deleted in manifest (non-blocking)
@@ -420,9 +414,7 @@ clean_endpoint() {
                         --inference-component-name "${adapter_ic_name}" \
                         --region "${AWS_REGION}" 2>/dev/null; then
                         echo "⏳ Waiting for adapter deletion..."
-                        aws sagemaker wait inference-component-deleted \
-                            --inference-component-name "${adapter_ic_name}" \
-                            --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                        sleep 15  # the AWS CLI has no IC-deleted waiter (test_aws_cli_flags.py)
                         echo "✅ Adapter deleted: ${adapter_display_name}"
 
                         # Mark adapter IC as deleted in manifest (non-blocking)
@@ -452,9 +444,7 @@ clean_endpoint() {
                 --inference-component-name "${ic_deployed_name}" \
                 --region "${AWS_REGION}" 2>/dev/null; then
                 echo "⏳ Waiting for inference component deletion..."
-                aws sagemaker wait inference-component-deleted \
-                    --inference-component-name "${ic_deployed_name}" \
-                    --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                sleep 15  # the AWS CLI has no IC-deleted waiter (test_aws_cli_flags.py)
                 echo "✅ Inference component deleted: ${ic_deployed_name}"
 
                 # Mark inference component as deleted in manifest (non-blocking)
@@ -475,9 +465,7 @@ clean_endpoint() {
             --inference-component-name "${IC_NAME}" \
             --region "${AWS_REGION}" &> /dev/null; then
             echo "⏳ Waiting for inference component deletion..."
-            aws sagemaker wait inference-component-deleted \
-                --inference-component-name "${IC_NAME}" \
-                --region "${AWS_REGION}" 2>/dev/null || sleep 15
+            sleep 15  # the AWS CLI has no IC-deleted waiter (test_aws_cli_flags.py)
             echo "✅ Inference component deleted"
 
             # Mark inference component as deleted in manifest (non-blocking)
@@ -590,9 +578,7 @@ clean_ic() {
         --inference-component-name "${ic_deployed_name}" \
         --region "${AWS_REGION}" 2>/dev/null; then
         echo "⏳ Waiting for inference component deletion..."
-        aws sagemaker wait inference-component-deleted \
-            --inference-component-name "${ic_deployed_name}" \
-            --region "${AWS_REGION}" 2>/dev/null || sleep 15
+        sleep 15  # the AWS CLI has no IC-deleted waiter (test_aws_cli_flags.py)
         echo "✅ Inference component deleted: ${ic_deployed_name}"
 
         # Mark inference component as deleted in manifest (non-blocking)
@@ -672,9 +658,7 @@ clean_adapter() {
         --inference-component-name "${adapter_ic_name}" \
         --region "${AWS_REGION}" 2>/dev/null; then
         echo "⏳ Waiting for adapter IC deletion..."
-        aws sagemaker wait inference-component-deleted \
-            --inference-component-name "${adapter_ic_name}" \
-            --region "${AWS_REGION}" 2>/dev/null || sleep 15
+        sleep 15  # the AWS CLI has no IC-deleted waiter (test_aws_cli_flags.py)
         echo "✅ Adapter IC deleted: ${adapter_ic_name}"
 
         # Mark adapter IC as deleted in manifest (non-blocking)
@@ -749,9 +733,7 @@ clean_adapters() {
                 --inference-component-name "${adapter_ic_name}" \
                 --region "${AWS_REGION}" 2>/dev/null; then
                 echo "⏳ Waiting for adapter deletion..."
-                aws sagemaker wait inference-component-deleted \
-                    --inference-component-name "${adapter_ic_name}" \
-                    --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                sleep 15  # the AWS CLI has no IC-deleted waiter (test_aws_cli_flags.py)
                 echo "✅ Adapter deleted: ${adapter_display_name}"
 
                 # Mark adapter IC as deleted in manifest (non-blocking)

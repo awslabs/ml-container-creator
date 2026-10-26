@@ -1193,11 +1193,16 @@ _preflight_rft_inputs() {
         rlvr|rlaif|mtrl) ;;
         *) return 0 ;;  # sft/dpo: dataset only, nothing to check
     esac
+    # Uppercase via tr, not the bash-4-only uppercase expansion: do/ scripts must
+    # run on macOS /bin/bash 3.2, where that expansion is a "bad substitution"
+    # that kills the echo before the guard's exit 1.
+    local tech_upper
+    tech_upper=$(printf '%s' "${ARG_TECHNIQUE}" | tr '[:lower:]' '[:upper:]')
 
     # (1) Dataset input — already resolved by the dataset-resolution step. If it
     #     is empty, the prompt dataset could not be resolved.
     if [ -z "${RESOLVED_DATASET_S3_URI:-}" ]; then
-        echo "❌ ${ARG_TECHNIQUE^^} requires a prompt dataset, but none could be resolved."
+        echo "❌ ${tech_upper} requires a prompt dataset, but none could be resolved."
         echo "   Register one first:  ./do/register dataset <name> --s3-uri <uri> --technique ${ARG_TECHNIQUE}"
         echo "   then:                ./do/tune --technique ${ARG_TECHNIQUE} --dataset <name> ..."
         exit 1
@@ -1238,7 +1243,7 @@ _preflight_rft_inputs() {
 
     # Otherwise an evaluator MUST be named and resolvable from the registry.
     if [ -z "${ARG_EVALUATOR_NAME}" ]; then
-        echo "❌ ${ARG_TECHNIQUE^^} requires a ${reward_kind} evaluator, but none was provided."
+        echo "❌ ${tech_upper} requires a ${reward_kind} evaluator, but none was provided."
         echo "   Register it first:   ${reward_verb}"
         echo "   then pass it with:   --evaluator-name <name>  (or --reward-function/--reward-prompt directly)"
         exit 1
@@ -1250,7 +1255,7 @@ _preflight_rft_inputs() {
         --name "${ARG_EVALUATOR_NAME}" --region "${AWS_REGION}" 2>/dev/null) || ev_resolve_result=""
 
     if [ -z "${ev_resolve_result}" ]; then
-        echo "❌ ${ARG_TECHNIQUE^^}: evaluator '${ARG_EVALUATOR_NAME}' is not registered."
+        echo "❌ ${tech_upper}: evaluator '${ARG_EVALUATOR_NAME}' is not registered."
         echo "   Register the ${reward_kind} first:  ${reward_verb}"
         exit 1
     fi
@@ -1260,7 +1265,7 @@ _preflight_rft_inputs() {
     ev_arn=$(echo "${ev_resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('arn') or '')" 2>/dev/null) || ev_arn=""
 
     if [ -z "${ev_reference}" ] && [ -z "${ev_arn}" ]; then
-        echo "❌ ${ARG_TECHNIQUE^^}: evaluator '${ARG_EVALUATOR_NAME}' resolved but has no source reference."
+        echo "❌ ${tech_upper}: evaluator '${ARG_EVALUATOR_NAME}' resolved but has no source reference."
         echo "   Re-register the ${reward_kind}:  ${reward_verb}"
         exit 1
     fi
