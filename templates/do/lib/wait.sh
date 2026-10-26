@@ -44,7 +44,7 @@ _get_ic_status() {
 #   Returns the first match or empty string.
 _find_active_ic_on_endpoint() {
     aws sagemaker list-inference-components \
-        --endpoint-name "$1" \
+        --endpoint-name-equals "$1" \
         --status-equals InService \
         --region "${AWS_REGION}" \
         --query 'InferenceComponents[0].InferenceComponentName' \

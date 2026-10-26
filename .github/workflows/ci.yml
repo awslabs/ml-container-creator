@@ -64,7 +64,8 @@ jobs:
         if: matrix.node-version == '24.x'
         run: |
           # aiohttp: exercises the adapter sidecar's HTTP handlers (test_adapter_sidecar_security.py)
-          python3 -m pip install -q pytest questionary aiohttp==3.14.5
+          # botocore: bundled SageMaker service model for test_aws_cli_flags.py (bump to adopt newer APIs)
+          python3 -m pip install -q pytest questionary aiohttp==3.14.5 botocore==1.43.118
           python3 -m pytest test/unit/ -q --tb=short
 
       - name: Validate namespaces
