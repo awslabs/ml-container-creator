@@ -5,6 +5,53 @@
 # CUDA compatibility setup (required for newer SageMaker inference AMIs)
 source /usr/bin/cuda_compat.sh 2>/dev/null || true
 
+# >>> MLCC secret-ARN resolution (BL212) — keep identical in code/serve and diffusors/serve
+# The deploy passes secrets BY REFERENCE (HF_TOKEN_ARN / NGC_API_KEY_ARN), never
+# the value, so it is not visible in SageMaker Describe* APIs or CloudTrail.
+# Resolve each reference here with the container's execution role. An already-set
+# value (e.g. a Kubernetes secretKeyRef on HyperPod/EKS) wins. Never echo values.
+_mlcc_resolve_secret_arn() {
+    local var="$1"
+    local arn_var="${1}_ARN"
+    local ref="${!arn_var:-}"
+    local value=""
+    local region=""
+    if [ -n "${!var:-}" ] || [ -z "$ref" ]; then
+        return 0
+    fi
+    # Region: from the ARN (arn:aws:secretsmanager:<region>:...), else the env.
+    case "$ref" in
+        arn:*:secretsmanager:*) region=$(echo "$ref" | cut -d: -f4) ;;
+    esac
+    region="${region:-${AWS_REGION:-${AWS_DEFAULT_REGION:-}}}"
+    if command -v aws >/dev/null 2>&1; then
+        value=$(aws secretsmanager get-secret-value --secret-id "$ref" \
+            ${region:+--region "$region"} \
+            --query SecretString --output text 2>/dev/null) || value=""
+    elif command -v python3 >/dev/null 2>&1 && python3 -c "import boto3" >/dev/null 2>&1; then
+        value=$(MLCC_SECRET_REF="$ref" MLCC_SECRET_REGION="$region" python3 -c '
+import os, sys, boto3
+client = boto3.client("secretsmanager", region_name=os.environ.get("MLCC_SECRET_REGION") or None)
+sys.stdout.write(client.get_secret_value(SecretId=os.environ["MLCC_SECRET_REF"]).get("SecretString") or "")
+' 2>/dev/null) || value=""
+    else
+        echo "Error: cannot resolve ${arn_var}: this image has neither the AWS CLI nor python3 with boto3" >&2
+        exit 1
+    fi
+    if [ -z "$value" ] || [ "$value" = "None" ]; then
+        echo "Error: failed to resolve ${arn_var} (${ref}) from Secrets Manager." >&2
+        echo "  Check that the execution role allows secretsmanager:GetSecretValue on this secret" >&2
+        echo "  (and kms:Decrypt if it uses a customer-managed KMS key)." >&2
+        exit 1
+    fi
+    export "${var}=${value}"
+    echo "Resolved ${var} from ${arn_var} (value not shown)"
+}
+_mlcc_resolve_secret_arn HF_TOKEN
+_mlcc_resolve_secret_arn NGC_API_KEY
+unset -f _mlcc_resolve_secret_arn
+# <<< MLCC secret-ARN resolution
+
 echo "Starting vLLM-Omni server (diffusion model serving)"
 
 # Resolve model URI prefixes that engines cannot handle natively.

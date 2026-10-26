@@ -8,7 +8,8 @@
     "cdk": "cdk",
     "synth": "cdk synth",
     "deploy": "cdk deploy",
-    "destroy": "cdk destroy"
+    "destroy": "cdk destroy",
+    "test": "ts-node test/core-stack.test.ts"
   },
   "dependencies": {
     "@aws-cdk/lambda-layer-kubectl-v31": "^2.1.0",
