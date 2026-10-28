@@ -140,28 +140,74 @@ if [ -n "${HF_TOKEN_ARN:-}" ]; then
 fi
 ```
 
+### Deploy-time (`do/deploy`): by reference only
+
+SageMaker deploys (`realtime-inference`, `async-inference`, `batch-transform`) never put a secret value in the container `Environment`. SageMaker returns that map from `DescribeModel`, `DescribeInferenceComponent` and `DescribeEndpointConfig`, and CloudTrail records it as request parameters, so anyone with describe or CloudTrail read access could read a value placed there.
+
+Instead, `do/deploy` passes the reference:
+
+| Configured | Container `Environment` gets |
+|---|---|
+| `HF_TOKEN_ARN` (do/config, or the bootstrap profile secret `hfToken`) | `HF_TOKEN_ARN=<arn>` |
+| `NGC_API_KEY_ARN` (do/config, or the profile secret `ngcApiKey`) | `NGC_API_KEY_ARN=<arn>` |
+| `IC_ENV_HF_TOKEN_ARN` (realtime IC override) | `HF_TOKEN_ARN=<arn>` |
+
+At startup the container entrypoint (`code/serve`, used by the vLLM, SGLang, TensorRT-LLM and diffusors images) resolves each `*_ARN` with the SageMaker execution role (`aws secretsmanager get-secret-value`, or `boto3` if the image has no AWS CLI) and exports `HF_TOKEN` / `NGC_API_KEY` for the model server. The value is never printed. If the lookup fails, the container exits with an error naming the variable and the missing permission. A value that is already set (for example from a Kubernetes `secretKeyRef`) is left alone.
+
+`do/deploy` checks the secret with `DescribeSecret` (metadata only) and warns if it can't describe it, or if its name is outside the prefixes the bootstrap execution role can read (see below).
+
+**Plaintext tokens are refused.** If only `HF_TOKEN` / `NGC_API_KEY` (or `IC_ENV_HF_TOKEN` / `IC_ENV_NGC_API_KEY`) is set, with no matching `*_ARN`, `do/deploy` exits with code 3 before creating anything:
+
+```bash
+# Store the token once, then deploy by reference
+ml-container-creator secrets create --type hf-token --name production --secret-value hf_***
+mcc bootstrap add-secret hfToken arn:aws:secretsmanager:<region>:<account>:secret:mlcc/hf-token/production-AbCdEf
+./do/deploy
+```
+
+If the model doesn't need a token, run `unset HF_TOKEN`. To deploy the plaintext value anyway, pass `./do/deploy --allow-plaintext-secret`. It prints a warning that the value will be visible in SageMaker Describe APIs and CloudTrail.
+
+!!! warning "Endpoints deployed before this change"
+    Releases from v0.9.0 up to this fix resolved the ARN on your machine and wrote the **plaintext** token into the SageMaker container `Environment`. Those models and inference components keep the plaintext value until you redeploy them. Check with `aws sagemaker describe-inference-component --inference-component-name <ic> --query 'keys(Specification.Container.Environment)'` (or `describe-model ... --query 'keys(PrimaryContainer.Environment)'`). If `HF_TOKEN` or `NGC_API_KEY` is listed, **rotate the token** at Hugging Face / NGC, update the secret (`aws secretsmanager put-secret-value`), and redeploy (`./do/deploy --force` on realtime-inference). Then delete the superseded models and inference components, which still carry the old value.
+
+**Images whose entrypoint MLCC doesn't own.** LMI/DJL, llama.cpp and Triton images start through the AWS DLC or Triton entrypoint, which doesn't resolve `*_ARN`. For gated models on those engines, stage the weights to S3 first (`./do/stage`), so the container needs no token. If you can't stage them, use `--allow-plaintext-secret` and accept the exposure.
+
+**HyperPod EKS / EKS.** These targets resolve `HF_TOKEN_ARN` on your machine only to create the in-cluster Kubernetes Secret `hf-token-secret`. Pods read it through `secretKeyRef` / `tokenSecretRef`, never as a plain env value, and no SageMaker API payload carries it.
+
 ## IAM Permissions
 
-The bootstrap stack provisions an IAM policy that grants `secretsmanager:GetSecretValue` scoped to the `mlcc/*` prefix:
+The serving container resolves `*_ARN` **as the SageMaker execution role**, so that role (not just your CLI user) needs `secretsmanager:GetSecretValue` on the secret. The bootstrap `core` stack (`infra/bootstrap-modules/core/stack.ts`) grants it on the secret names MLCC creates:
 
 ```json
 {
     "Sid": "SecretsManagerRead",
     "Effect": "Allow",
-    "Action": [
-        "secretsmanager:GetSecretValue",
-        "secretsmanager:DescribeSecret"
-    ],
-    "Resource": "arn:aws:secretsmanager:*:*:secret:mlcc/*",
+    "Action": ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+    "Resource": [
+        "arn:aws:secretsmanager:*:<account>:secret:mlcc/*",
+        "arn:aws:secretsmanager:*:<account>:secret:ml-container-creator/*",
+        "arn:aws:secretsmanager:*:<account>:secret:mlcc-hf-token-*"
+    ]
+},
+{
+    "Sid": "SecretsManagerKmsDecrypt",
+    "Effect": "Allow",
+    "Action": "kms:Decrypt",
+    "Resource": "arn:aws:kms:*:<account>:key/*",
     "Condition": {
-        "StringEquals": {
-            "aws:ResourceTag/mlcc:managed-by": "ml-container-creator"
+        "StringLike": {
+            "kms:ViaService": "secretsmanager.*.amazonaws.com",
+            "kms:EncryptionContext:SecretARN": ["<the three secret ARN patterns above>"]
         }
     }
 }
 ```
 
-No IAM changes are needed when adding new secret types — the policy covers any secret under the `mlcc/` prefix that carries the `mlcc:managed-by` tag.
+`kms:Decrypt` only matters for secrets created with a customer-managed key (`secrets create --kms-key-id`). The default `aws/secretsmanager` key needs no grant. Run `mcc bootstrap` again to apply the `mlcc-hf-token-*` and KMS statements to an existing role.
+
+If you registered a secret with another name (`mcc bootstrap add-secret hfToken <arn>` accepts any ARN), or you deploy with your own `ROLE_ARN`, grant that role `secretsmanager:GetSecretValue` on the secret yourself. Otherwise the container fails at startup.
+
+No IAM changes are needed when adding new secret types, as long as the secret uses the `mlcc/` prefix.
 
 ## Naming Convention
 
@@ -196,7 +242,7 @@ Use one or the other. The ARN-based approach is recommended for all environments
 
 ## Backward Compatibility
 
-Plaintext flags (`--hf-token`, `--ngc-token`) continue to work exactly as before. If you don't use `--*-arn` flags, the generated `do/config` exports the plaintext value directly and no Secrets Manager resolution occurs.
+Plaintext flags (`--hf-token`, `--ngc-token`) still generate a `do/config` that exports the plaintext value, and `do/build` / `do/run` use it locally. `do/deploy` to a SageMaker target now refuses it unless you pass `--allow-plaintext-secret` (see [Deploy-time](#deploy-time-dodeploy-by-reference-only)).
 
 !!!tip
     Migrate existing projects to Secrets Manager by creating a secret with `secrets create`, then updating `do/config` to replace the plaintext export with the `_ARN` export.

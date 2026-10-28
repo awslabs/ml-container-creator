@@ -301,6 +301,48 @@ export HF_TOKEN=hf_your_token_here
 ml-container-creator
 ```
 
+### `do/deploy` refuses: "HF_TOKEN is set as a plaintext value"
+
+```
+❌ HF_TOKEN is set as a plaintext value and no HF_TOKEN_ARN is configured.
+```
+
+`do/deploy` won't write a plaintext token into the SageMaker container `Environment`. SageMaker Describe* APIs return that map and CloudTrail records it. Store the token in Secrets Manager and deploy by reference:
+
+```bash
+ml-container-creator secrets create --type hf-token --name production --secret-value hf_***
+mcc bootstrap add-secret hfToken <secret-arn>    # or: export HF_TOKEN_ARN=<secret-arn> in do/config
+./do/deploy
+```
+
+If the model isn't gated, run `unset HF_TOKEN` (it may come from your shell profile). The same applies to `NGC_API_KEY`, `IC_ENV_HF_TOKEN` and `IC_ENV_NGC_API_KEY`. `./do/deploy --allow-plaintext-secret` keeps the old behavior with a warning. See [Secrets: deploy-time](secrets.md#deploy-time-dodeploy-by-reference-only).
+
+### Container exits: "failed to resolve HF_TOKEN_ARN"
+
+```
+Error: failed to resolve HF_TOKEN_ARN (arn:aws:secretsmanager:...) from Secrets Manager.
+```
+
+The serving container resolves the secret at startup **as the SageMaker execution role**. Check that:
+
+1. The role allows `secretsmanager:GetSecretValue` on the secret. The bootstrap role covers `mlcc/*`, `ml-container-creator/*` and `mlcc-hf-token-*`. For any other name, or for your own `ROLE_ARN`, add a grant. `do/deploy` warns when the name is outside those prefixes.
+2. The role allows `kms:Decrypt` if the secret uses a customer-managed KMS key. Re-run `mcc bootstrap` to pick up the `SecretsManagerKmsDecrypt` statement.
+3. The endpoint can reach Secrets Manager: from a VPC with no internet path, add a `com.amazonaws.<region>.secretsmanager` interface endpoint.
+
+LMI/DJL, llama.cpp and Triton images don't run `code/serve`, so they never resolve `*_ARN`. For gated models, stage the weights with `./do/stage`.
+
+### Endpoints deployed before the secrets-by-reference fix still expose the token
+
+Endpoints created by earlier releases have `HF_TOKEN` / `NGC_API_KEY` in plaintext in their container `Environment`. List the keys without printing values:
+
+```bash
+aws sagemaker describe-inference-component --inference-component-name <ic> \
+    --query 'keys(Specification.Container.Environment)'
+aws sagemaker describe-model --model-name <model> --query 'keys(PrimaryContainer.Environment)'
+```
+
+If a secret key is listed, rotate the token at the provider, update the secret, redeploy, and delete the superseded models and inference components.
+
 ## LoRA Adapter Issues
 
 ### "Not Found" error on first adapter invocation

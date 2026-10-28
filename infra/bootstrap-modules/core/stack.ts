@@ -183,14 +183,39 @@ export class MlccCoreStack extends cdk.Stack {
             ],
         }));
 
-        // Secrets Manager — server-side jobs resolve the HF token themselves.
+        // Secrets Manager — server-side jobs and serving containers resolve the
+        // HF token / NGC key themselves. BL212: do/deploy passes only
+        // HF_TOKEN_ARN / NGC_API_KEY_ARN in the container Environment and the
+        // container (code/serve) calls GetSecretValue as this role at startup.
+        // Scoped to the names MLCC creates:
+        //   • mlcc/<type>/<label>          — `ml-container-creator secrets create`
+        //   • ml-container-creator/...     — do/benchmark's HF token secret
+        //   • mlcc-hf-token-<project>      — default name from the generate-time prompt
+        // do/lib/secrets.sh warns when a configured secret is outside these
+        // (drift-checked by test/unit/test_container_secrets_guard.py).
+        const mlccSecretArns = [
+            `arn:aws:secretsmanager:*:${this.account}:secret:mlcc/*`,
+            `arn:aws:secretsmanager:*:${this.account}:secret:ml-container-creator/*`,
+            `arn:aws:secretsmanager:*:${this.account}:secret:mlcc-hf-token-*`,
+        ];
         this.role.addToPolicy(new iam.PolicyStatement({
             sid: 'SecretsManagerRead',
             actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
-            resources: [
-                `arn:aws:secretsmanager:*:${this.account}:secret:mlcc/*`,
-                `arn:aws:secretsmanager:*:${this.account}:secret:ml-container-creator/*`,
-            ],
+            resources: mlccSecretArns,
+        }));
+        // Customer-managed KMS keys (`secrets create --kms-key-id`): decrypt only
+        // when Secrets Manager calls KMS on our behalf for one of the secrets above.
+        // Secrets encrypted with the AWS-managed aws/secretsmanager key need no grant.
+        this.role.addToPolicy(new iam.PolicyStatement({
+            sid: 'SecretsManagerKmsDecrypt',
+            actions: ['kms:Decrypt'],
+            resources: [`arn:aws:kms:*:${this.account}:key/*`],
+            conditions: {
+                StringLike: {
+                    'kms:ViaService': 'secretsmanager.*.amazonaws.com',
+                    'kms:EncryptionContext:SecretARN': mlccSecretArns,
+                },
+            },
         }));
 
         this.role.addToPolicy(new iam.PolicyStatement({

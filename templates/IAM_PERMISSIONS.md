@@ -36,7 +36,8 @@ Read and write model artifacts, adapters, benchmark results:
 Create log groups/streams and put log events.
 
 ### Secrets Manager
-Read and write secrets prefixed with `mlcc/` or `ml-container-creator/` (used for HF tokens, API keys).
+Read and write secrets prefixed with `mlcc/` or `ml-container-creator/` (used for HF tokens, API keys); read `mlcc-hf-token-*`. `kms:Decrypt` through Secrets Manager for those secrets when they use a customer-managed key.
+The serving container resolves `HF_TOKEN_ARN` / `NGC_API_KEY_ARN` at startup **as this role**. `do/deploy` passes only the ARN, never the value, so the token does not appear in SageMaker Describe* output or CloudTrail.
 
 ### SNS
 Publish notifications to `mlcc-*` and `ml-container-creator-*` topics (benchmark completion alerts).
@@ -114,7 +115,7 @@ This project includes a HuggingFace token baked into the Docker image. Key pract
 - **Use read-only tokens** — never bake write tokens into containers
 - **Rotate regularly** — every 30–90 days, or immediately if compromised
 - **Restrict ECR access** — limit who can pull images containing the token
-- **Consider runtime injection** — pass `HF_TOKEN` as a SageMaker environment variable instead of baking it in (avoids token in image layers, enables rotation without rebuild)
+- **Prefer runtime resolution** — store the token in Secrets Manager and set `HF_TOKEN_ARN` instead of baking it in. The container resolves it at startup with the execution role, so the token is not in image layers, Describe* output or CloudTrail, and you can rotate it without a rebuild. Do not pass a plaintext `HF_TOKEN` as a SageMaker environment variable: `do/deploy` refuses it unless you pass `--allow-plaintext-secret`.
 
 To rotate: generate a new token on [HuggingFace](https://huggingface.co/settings/tokens), rebuild with `./do/submit`, revoke the old token.
 

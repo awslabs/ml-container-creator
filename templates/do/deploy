@@ -200,6 +200,12 @@ while [ $# -gt 0 ]; do
             FLAG_DRY_RUN=1
             shift
             ;;
+        --allow-plaintext-secret)
+            # BL212: opt in to writing a plaintext HF_TOKEN / NGC_API_KEY (no *_ARN)
+            # into the SageMaker container Environment. Read by do/lib/secrets.sh.
+            export MLCC_ALLOW_PLAINTEXT_SECRET=true
+            shift
+            ;;
         --help|-h)
             echo "Usage: ./do/deploy [--target <mode>] [OPTIONS]"
             echo ""
@@ -221,6 +227,10 @@ while [ $# -gt 0 ]; do
             echo "  --status                Show deployment state for all targets; no deployment"
             echo "  --dry-run               Show resolved config without deploying"
             echo "  --reconfigure           Re-prompt all deployment settings for active target"
+            echo "  --allow-plaintext-secret"
+            echo "                          Allow a plaintext HF_TOKEN / NGC_API_KEY (no *_ARN) in the"
+            echo "                          container Environment. Visible in SageMaker Describe* APIs"
+            echo "                          and CloudTrail; prefer HF_TOKEN_ARN / NGC_API_KEY_ARN."
             echo ""
             echo "Managed / Async Inference flags:"
             echo "  --endpoint-name <name>      Endpoint name (default: \${PROJECT_NAME}-ep)"

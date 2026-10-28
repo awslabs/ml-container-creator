@@ -1,4 +1,4 @@
-"""Guard: every ``aws sagemaker <op> --flag`` MLCC emits must exist in the API.
+"""Guard: every ``aws sagemaker|secretsmanager <op> --flag`` MLCC emits must exist in the API.
 
 Regression guard for the v1.7.0 bug where ``templates/do/lib/endpoint-config.sh``
 passed ``--container-metrics-config`` to ``aws sagemaker create-endpoint-config``.
@@ -29,6 +29,9 @@ How it works
    unique prefix (``--endpoint-name`` for ``--endpoint-name-equals``), but that
    breaks silently as soon as the API gains a second member with that prefix.
 
+The same checks run for ``aws secretsmanager <op>`` (BL212: the deploy and the
+serving container both call Secrets Manager), against botocore's bundled
+Secrets Manager model.
 botocore is pinned in ``.github/workflows/ci.yml``. If MLCC adopts a SageMaker
 API newer than the pinned model, this test fails with "unknown operation" or
 "unknown flag"; bump the pin rather than allow-listing the flag.
@@ -41,6 +44,7 @@ import pytest
 
 try:
     import botocore
+    import botocore.exceptions
     import botocore.session
     from botocore import xform_name
 except ImportError:  # pragma: no cover - depends on the environment
@@ -63,6 +67,11 @@ REQUIRED_OPERATIONS = {
     "create-model",
     "create-transform-job",
 }
+REQUIRED_SECRETSMANAGER_OPERATIONS = {
+    "get-secret-value",
+    "describe-secret",
+}
+SERVICES = ("sagemaker", "secretsmanager")
 
 # AWS CLI v2 global options (``aws help``, GLOBAL OPTIONS).
 GLOBAL_OPTIONS = {
@@ -77,7 +86,7 @@ OPERATION_OPTIONS = {"--cli-input-json", "--cli-input-yaml", "--generate-cli-ske
 PAGINATION_OPTIONS = {"--starting-token", "--page-size", "--max-items"}
 
 FLAG_RE = re.compile(r"^--[a-z0-9][a-z0-9-]*$")
-AWS_SM_RE = re.compile(r"\baws[ \t]+sagemaker[ \t]+")
+AWS_SM_RE = re.compile(r"\baws[ \t]+(sagemaker|secretsmanager)[ \t]+")
 ARRAY_RE = re.compile(
     r"^[ \t]*(?:local[ \t]+(?:-a[ \t]+)?)?([A-Za-z_][A-Za-z0-9_]*)(\+?)=\(", re.M
 )
@@ -86,7 +95,7 @@ PY_LIST_RE = re.compile(
     r"""\[\s*["']aws["']\s*,\s*["']sagemaker["']\s*,\s*["']([a-z][a-z0-9-]*)["']([^\]]*)\]"""
 )
 PY_STR_RE = re.compile(r"""["'](--[a-z0-9][a-z0-9-]*)["']""")
-JS_TEMPLATE_RE = re.compile(r"`(?:aws[ \t]+)?sagemaker[ \t]+([a-z][a-z0-9-]*)([^`]*)`")
+JS_TEMPLATE_RE = re.compile(r"`(?:aws[ \t]+)?(sagemaker|secretsmanager)[ \t]+([a-z][a-z0-9-]*)([^`]*)`")
 JS_FLAG_RE = re.compile(r"(?:^|\s)(--[a-z0-9][a-z0-9-]*)")
 EJS_OUTPUT_RE = re.compile(r"<%[=-].*?%>", re.S)
 EJS_CONTROL_RE = re.compile(r"<%.*?%>", re.S)
@@ -300,8 +309,8 @@ def _strip_ejs(text):
     return EJS_CONTROL_RE.sub("", text)
 
 
-def _invocation(path, line, words, kind):
-    """Build an invocation from words that start right after ``aws sagemaker``."""
+def _invocation(path, line, words, kind, service="sagemaker"):
+    """Build an invocation from words that start right after ``aws <service>``."""
     if not words:
         return None
     op = words[0]
@@ -321,7 +330,7 @@ def _invocation(path, line, words, kind):
             array_refs.append(m.group(1))
     return {
         "file": path, "line": line, "op": op, "waiter": waiter,
-        "flags": flags, "array_refs": array_refs, "kind": kind,
+        "flags": flags, "array_refs": array_refs, "kind": kind, "service": service,
     }
 
 
@@ -329,7 +338,7 @@ def extract_invocations(text, path="<text>"):
     """Return every SageMaker CLI invocation found in ``text``."""
     text = _strip_ejs(text)
     found = []
-    arrays = {}  # name -> {"op": (op, waiter, line) | None, "flags": [(flag, line)]}
+    arrays = {}  # name -> {"op": (op, waiter, line, service) | None, "flags": [(flag, line)]}
 
     def lineno(pos):
         return text.count("\n", 0, pos) + 1
@@ -340,9 +349,9 @@ def extract_invocations(text, path="<text>"):
         words = lex_words(text, m.end(), multiline=True)
         entry = arrays.setdefault(name, {"op": None, "flags": []})
         ln = lineno(m.start())
-        if not append and len(words) >= 3 and words[0] == "aws" and words[1] == "sagemaker":
-            inv = _invocation(path, ln, words[2:], "array")
-            entry["op"] = (inv["op"], inv["waiter"], ln)
+        if not append and len(words) >= 3 and words[0] == "aws" and words[1] in SERVICES:
+            inv = _invocation(path, ln, words[2:], "array", words[1])
+            entry["op"] = (inv["op"], inv["waiter"], ln, words[1])
             entry["flags"].extend((f, ln) for f in inv["flags"])
             continue
         entry["flags"].extend((w.split("=", 1)[0], ln) for w in words
@@ -361,7 +370,7 @@ def extract_invocations(text, path="<text>"):
         else:
             words = lex_words(_string_body(text, m.end(), ctx), 0)
             kind = "hint"
-        inv = _invocation(path, ln, words, kind)
+        inv = _invocation(path, ln, words, kind, m.group(1))
         if inv is None:
             continue
         for ref in inv["array_refs"]:
@@ -376,12 +385,12 @@ def extract_invocations(text, path="<text>"):
     for name, entry in arrays.items():
         if entry["op"] is None:
             continue
-        op, waiter, ln = entry["op"]
+        op, waiter, ln, service = entry["op"]
         found.append({
             "file": path, "line": ln, "op": op, "waiter": waiter,
             "flags": [f for f, _ in entry["flags"]], "array_refs": [],
             "flag_lines": [fl for _, fl in entry["flags"]],
-            "kind": "array:" + name,
+            "kind": "array:" + name, "service": service,
         })
 
     # 3. Python argv lists.
@@ -389,6 +398,7 @@ def extract_invocations(text, path="<text>"):
         found.append({
             "file": path, "line": lineno(m.start()), "op": m.group(1), "waiter": None,
             "flags": PY_STR_RE.findall(m.group(2)), "array_refs": [], "kind": "py-list",
+            "service": "sagemaker",
         })
     return found
 
@@ -396,12 +406,13 @@ def extract_invocations(text, path="<text>"):
 def extract_js_invocations(text, path="<text>"):
     found = []
     for m in JS_TEMPLATE_RE.finditer(text):
-        if "aws sagemaker" in m.group(0):
+        if "aws " + m.group(1) in m.group(0):
             continue  # already covered by the shell extractor
         found.append({
             "file": path, "line": text.count("\n", 0, m.start()) + 1,
-            "op": m.group(1), "waiter": None,
-            "flags": JS_FLAG_RE.findall(m.group(2)), "array_refs": [], "kind": "js",
+            "op": m.group(2), "waiter": None,
+            "flags": JS_FLAG_RE.findall(m.group(3)), "array_refs": [], "kind": "js",
+            "service": m.group(1),
         })
     return found
 
@@ -423,7 +434,7 @@ def collect_repo_invocations():
             text = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        if "sagemaker" not in text:
+        if not any(svc in text for svc in SERVICES):
             continue
         rel = str(p.relative_to(REPO))
         out.extend(extract_invocations(text, rel))
@@ -434,17 +445,24 @@ def collect_repo_invocations():
 
 # ── service model ────────────────────────────────────────────────────────────
 
-class SageMakerCli:
-    def __init__(self):
+class ServiceCli:
+    def __init__(self, service="sagemaker"):
         session = botocore.session.get_session()
-        self.model = session.get_service_model("sagemaker")
+        self.service = service
+        self.model = session.get_service_model(service)
         self.ops = {xform_name(name, "-"): name for name in self.model.operation_names}
-        waiter_model = session.get_waiter_model("sagemaker")
-        self.waiters = {
-            xform_name(w, "-"): waiter_model.get_waiter(w).operation
-            for w in waiter_model.waiter_names
-        }
-        self.paginated = set(session.get_paginator_model("sagemaker")._paginator_config)
+        try:
+            waiter_model = session.get_waiter_model(service)
+            self.waiters = {
+                xform_name(w, "-"): waiter_model.get_waiter(w).operation
+                for w in waiter_model.waiter_names
+            }
+        except (botocore.exceptions.DataNotFoundError, botocore.exceptions.UnknownServiceError):
+            self.waiters = {}  # secretsmanager has no waiters
+        try:
+            self.paginated = set(session.get_paginator_model(service)._paginator_config)
+        except (botocore.exceptions.DataNotFoundError, botocore.exceptions.UnknownServiceError):
+            self.paginated = set()
 
     def allowed_flags(self, op_name):
         shape = self.model.operation_model(op_name).input_shape
@@ -470,25 +488,34 @@ class SageMakerCli:
             if "$" in waiter:
                 return []
             if waiter not in self.waiters:
-                return ["{}: unknown waiter 'aws sagemaker wait {}'".format(where, waiter)]
+                return ["{}: unknown waiter 'aws {} wait {}'".format(where, self.service, waiter)]
             op_name = self.waiters[waiter]
         else:
             if op not in self.ops:
-                return ["{}: unknown operation 'aws sagemaker {}'".format(where, op)]
+                return ["{}: unknown operation 'aws {} {}'".format(where, self.service, op)]
             op_name = self.ops[op]
         allowed = self.allowed_flags(op_name)
         flag_lines = inv.get("flag_lines") or [inv["line"]] * len(inv["flags"])
         shown_op = op if op != "wait" else "wait " + inv["waiter"]
         return [
-            "{}:{} ({}): 'aws sagemaker {}' has no option {} ({} input shape)".format(
-                inv["file"], fl, inv["kind"], shown_op, flag, op_name)
+            "{}:{} ({}): 'aws {} {}' has no option {} ({} input shape)".format(
+                inv["file"], fl, inv["kind"], self.service, shown_op, flag, op_name)
             for flag, fl in zip(inv["flags"], flag_lines) if flag not in allowed
         ]
 
 
+# Backward-compatible name for the SageMaker-only checker.
+SageMakerCli = ServiceCli
+
+
 @pytest.fixture(scope="module")
-def cli():
-    return SageMakerCli()
+def clis():
+    return {svc: ServiceCli(svc) for svc in SERVICES}
+
+
+@pytest.fixture(scope="module")
+def cli(clis):
+    return clis["sagemaker"]
 
 
 @pytest.fixture(scope="module")
@@ -591,15 +618,24 @@ def test_validator_rejects_the_v170_container_metrics_flag(cli):
 # ── the repo guard ───────────────────────────────────────────────────────────
 
 def test_extractor_covers_required_operations(repo_invocations):
-    ops = {inv["op"] for inv in repo_invocations}
+    ops = {inv["op"] for inv in repo_invocations if inv["service"] == "sagemaker"}
     missing = REQUIRED_OPERATIONS - ops
     assert not missing, "extractor found no invocation of: {}".format(sorted(missing))
+    sm_ops = {inv["op"] for inv in repo_invocations if inv["service"] == "secretsmanager"}
+    missing = REQUIRED_SECRETSMANAGER_OPERATIONS - sm_ops
+    assert not missing, "extractor found no secretsmanager invocation of: {}".format(sorted(missing))
 
 
-def test_every_sagemaker_cli_flag_exists_in_service_model(cli, repo_invocations):
+def test_validator_rejects_unknown_secretsmanager_flag(clis):
+    text = 'v=$(aws secretsmanager get-secret-value --secret-id "$A" --secret-string x --query SecretString --output text)\n'
+    problems = [p for inv in extract_invocations(text) for p in clis[inv["service"]].problems(inv)]
+    assert len(problems) == 1 and "--secret-string" in problems[0]
+
+
+def test_every_sagemaker_cli_flag_exists_in_service_model(clis, repo_invocations):
     problems = []
     for inv in repo_invocations:
-        problems.extend(cli.problems(inv))
+        problems.extend(clis[inv["service"]].problems(inv))
     assert not problems, (
         "AWS CLI would reject these SageMaker options (botocore {}):\n  ".format(
             botocore.__version__) + "\n  ".join(sorted(set(problems))))
