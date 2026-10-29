@@ -13,10 +13,10 @@
 import { describe, it, before } from 'mocha';
 import assert from 'node:assert';
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { requireBootstrapModulesDeps } from '../helpers/bootstrap-modules-deps.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MODULES_ROOT = resolve(__dirname, '../../infra/bootstrap-modules');
@@ -26,11 +26,10 @@ const { declaredBucketsForStack } = require('../../infra/bootstrap-modules/bucke
 describe('bootstrap eks module — S3 CSI add-on role + grants (Wave 6.1 R5)', function () {
     this.timeout(180000);
     const tsNodeRegister = resolve(MODULES_ROOT, 'node_modules/ts-node/register/index.js');
-    const haveDeps = existsSync(tsNodeRegister) && existsSync(resolve(MODULES_ROOT, 'node_modules/aws-cdk-lib'));
     let result;
 
     before(function () {
-        if (!haveDeps) this.skip(); // bootstrap-modules deps not installed (npm install in infra/bootstrap-modules)
+        requireBootstrapModulesDeps(this); // skip locally without deps; fail in CI (BL238)
         const vars = { account: '111111111111', region: 'us-west-2', profileName: 'zz-test' };
         const byId = (stack, id) => {
             const hit = declaredBucketsForStack(stack, vars).find(b => b.logicalId === id);

@@ -10,11 +10,12 @@
 import { describe, it, before } from 'mocha';
 import assert from 'node:assert';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
+import { requireBootstrapModulesDeps } from '../helpers/bootstrap-modules-deps.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(__dirname, '../..');
@@ -23,10 +24,9 @@ const MODULES_ROOT = resolve(REPO, 'infra/bootstrap-modules');
 describe('Wave 11 — HpTrainRole (training bootstrap module) CDK assertions + profile wiring', function () {
     this.timeout(180000);
     const tsNodeRegister = resolve(MODULES_ROOT, 'node_modules/ts-node/register/index.js');
-    const haveDeps = existsSync(tsNodeRegister) && existsSync(resolve(MODULES_ROOT, 'node_modules/aws-cdk-lib'));
     let result;
     before(function () {
-        if (!haveDeps) this.skip(); // bootstrap-modules deps not installed (npm install in infra/bootstrap-modules)
+        requireBootstrapModulesDeps(this); // skip locally without deps; fail in CI (BL238)
         const out = execFileSync(process.execPath, ['-r', tsNodeRegister, 'test/hp-train-role.assertions.ts'], {
             cwd: MODULES_ROOT,
             encoding: 'utf8',
