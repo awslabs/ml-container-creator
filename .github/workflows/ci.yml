@@ -33,6 +33,17 @@ jobs:
       - name: Security audit
         run: npm audit --audit-level=critical || echo "⚠️  Non-critical vulnerabilities found"
 
+      # infra/bootstrap-modules CDK app (BL238). Must run BEFORE `Tests`: its `npm ci`
+      # provides the ts-node + aws-cdk-lib that the root-mocha wrappers
+      # (test/unit/bootstrap-*-cdk.test.js) need to run test/*.assertions.ts. Under
+      # CI=true those wrappers FAIL instead of skipping if this install is missing.
+      # Its own `npm test` runs only test/core-stack.test.ts (node:test), so the
+      # *.assertions.ts files are not double-run here. tsc type-checks the stacks.
+      - name: Bootstrap modules CDK tests
+        if: matrix.node-version == '24.x'
+        working-directory: infra/bootstrap-modules
+        run: npm ci && npm test && npx tsc --noEmit
+
       - name: Tests
         run: npm run test:ci
         env:

@@ -13,9 +13,10 @@
 import { describe, it, before } from 'mocha';
 import assert from 'node:assert';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { requireBootstrapModulesDeps } from '../helpers/bootstrap-modules-deps.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(__dirname, '../..');
@@ -38,10 +39,9 @@ function writerColumns() {
 describe('bootstrap benchmark + ci stacks — Wave 9 CDK assertions', function () {
     this.timeout(180000);
     const tsNodeRegister = resolve(MODULES_ROOT, 'node_modules/ts-node/register/index.js');
-    const haveDeps = existsSync(tsNodeRegister) && existsSync(resolve(MODULES_ROOT, 'node_modules/aws-cdk-lib'));
     let result;
     before(function () {
-        if (!haveDeps) this.skip(); // bootstrap-modules deps not installed (npm install in infra/bootstrap-modules)
+        requireBootstrapModulesDeps(this); // skip locally without deps; fail in CI (BL238)
         const out = execFileSync(process.execPath, ['-r', tsNodeRegister, 'test/benchmark-w9.assertions.ts'], {
             cwd: MODULES_ROOT,
             encoding: 'utf8',
