@@ -472,6 +472,7 @@ def mcp_recommend_instance(
     model_name: str,
     precision: str,
     project_dir: str | None = None,
+    engine: str | None = None,
 ) -> dict[str, Any] | None:
     """Call MCP instance-sizer/recommend and return the recommendation.
 
@@ -486,19 +487,26 @@ def mcp_recommend_instance(
         precision: Data type string (e.g. "float16", "int8").
         project_dir: Absolute path to the project directory. When provided,
             the instance-sizer checks .mlcc/model-sizes.json for local catalog entries.
+        engine: Serving engine (serve.d name), sent as context.backend so the
+            sizer budgets KV cache for that engine's default served context (BL240).
 
     Returns:
         Dict with ``instance_type``, and optionally ``gpu_count`` and
         ``instances``, or None on failure/timeout. Callers should fall
         back to the built-in heuristic when None is returned.
     """
+    context: dict[str, Any] = {}
+    if project_dir:
+        context["projectDir"] = project_dir
+    if engine:
+        context["backend"] = engine
     result = call_tool(
         client,
         "instance-sizer/recommend",
         {
             "model": model_name,
             "precision": precision,
-            **({"context": {"projectDir": project_dir}} if project_dir else {}),
+            **({"context": context} if context else {}),
         },
     )
 

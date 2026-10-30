@@ -39,6 +39,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve, dirname, join } from 'node:path';
 import { resolveModelMetadata, hasUsableSize } from './lib/model-resolver.js';
 import { estimateVram, computeMaxModelLen } from './lib/vram-estimator.js';
+import { resolveServedContext } from './lib/served-context.js';
 import { filterAndRankInstances, applyAvailabilityRanking, getPerGpuMemoryGb } from './lib/instance-ranker.js';
 import { QuotaResolver } from './lib/quota-resolver.js';
 import { queryBedrock } from '../lib/bedrock-client.js';
@@ -444,9 +445,17 @@ async function handleGetInstanceRecommendation(params) {
     }
 
     // Step 2: Estimate VRAM
-    // Use model's max_position_embeddings as the sequence length when no explicit value is provided.
-    // This ensures KV cache is sized for the model's actual context window, not the 4096 default.
-    const resolvedMaxSeqLen = effectiveMaxSeqLen || modelMetadata.maxPositionEmbeddings || undefined;
+    // BL240: budget the KV cache for the context the server will SERVE, not the
+    // model's native maximum: an explicit request wins, otherwise
+    // min(max_position_embeddings, engine default max_model_len) where the
+    // engine default is derived from serve.d + model-servers.json
+    // (lib/served-context.js). The native maximum is still reported below.
+    const served = resolveServedContext({
+        requested: effectiveMaxSeqLen,
+        maxPositionEmbeddings: modelMetadata.maxPositionEmbeddings,
+        engine: context?.backend
+    });
+    const resolvedMaxSeqLen = served.servedContext;
     const vramEstimate = estimateVram({
         parameterCount: modelMetadata.parameterCount,
         dtype: modelMetadata.dtype,
@@ -703,6 +712,8 @@ async function handleGetInstanceRecommendation(params) {
                     ...(modelMetadata.parameterCountSource ? { parameterCountSource: modelMetadata.parameterCountSource } : {}),
                     dtype: modelMetadata.dtype,
                     maxPositionEmbeddings: modelMetadata.maxPositionEmbeddings || null,
+                    servedContextLength: resolvedMaxSeqLen,
+                    servedContextSource: served.source,
                     quantization: quantization || null,
                     estimatedVramGb: vramEstimate.vramGb,
                     vramBreakdown: vramEstimate.breakdown,
@@ -726,7 +737,7 @@ async function handleGetInstanceRecommendation(params) {
 
 const INSTANCE_CONTEXT_SCHEMA = z.object({
     architecture: z.string().optional(),
-    backend: z.string().optional(),
+    backend: z.string().optional().describe('Serving engine (serve.d name, e.g. vllm); selects the default served context the KV cache is budgeted for'),
     deploymentTarget: z.string().optional(),
     projectDir: z.string().optional().describe('Absolute path to the project directory (for .mlcc/ local catalog overrides)'),
     profileEnvVars: z.record(z.string()).optional().describe('Serving profile ENV overrides (e.g., VLLM_MAX_MODEL_LEN)')
