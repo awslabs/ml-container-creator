@@ -13,6 +13,8 @@ This guide covers installation and two end-to-end walkthroughs: deploying a pred
 
 You also need an AWS IAM role with permissions for ECR, SageMaker AI, and (optionally) CodeBuild.
 
+**Gated models** (e.g. Llama): store your Hugging Face token in Secrets Manager with `ml-container-creator secrets create --type hf-token --name <label> --secret-value hf_***`, then `mcc bootstrap add-secret hfToken <secret-arn>`. `do/deploy` refuses plaintext tokens. See [Secrets](secrets.md).
+
 !!! note "Service quota for large model staging"
     If you plan to stage models >15B parameters via `do/stage` (SageMaker Processing Job),
     your account's default EBS volume quota for Processing Jobs may be too low (100-500 GB).

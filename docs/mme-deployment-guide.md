@@ -32,7 +32,7 @@ Walk through the interactive prompts with these selections:
 | Infrastructure | Build target | `codebuild` |
 | Core ML | Deployment configuration | `Transformers with DJL (Deep Java Library)` |
 | Core ML | Model name | Your HuggingFace model ID (e.g., `openai/gpt-oss-20b`) |
-| Core ML | HuggingFace token | Your token or `$HF_TOKEN` for env var |
+| Core ML | HuggingFace token | Select a managed secret (Secrets Manager ARN); see [Secrets](secrets.md) |
 | Module | Include testing | `Yes` |
 | Project | Project name | Your project name (e.g., `bright-gpt-deployment`) |
 

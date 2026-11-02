@@ -284,7 +284,7 @@ For private or gated models:
 
 1. Verify the model ID at `https://huggingface.co/<model-id>`
 2. Accept the model's license agreement on HuggingFace (for gated models like Llama)
-3. Provide a valid token: `--hf-token='$HF_TOKEN'`
+3. Store the token in Secrets Manager and reference it: `ml-container-creator secrets create --type hf-token --name <label> --secret-value hf_***`, then `mcc bootstrap add-secret hfToken <secret-arn>` (see the plaintext-token entry below)
 
 See [HuggingFace Authentication](configuration.md#huggingface-authentication) for details.
 

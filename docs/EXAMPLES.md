@@ -96,7 +96,7 @@ LLM containers are large. Use CodeBuild for the image build:
 ./do/test
 ```
 
-For gated models (e.g., Llama), add `--hf-token='$HF_TOKEN'` and export the token in your environment. See [HuggingFace Authentication](configuration.md#huggingface-authentication).
+For gated models (e.g., Llama), store the token in Secrets Manager and pass `--hf-token-arn <secret-arn>` (or set it once with `mcc bootstrap add-secret hfToken <secret-arn>`). See [Secrets](secrets.md) and [HuggingFace Authentication](configuration.md#huggingface-authentication).
 
 ## Transformers: SGLang
 

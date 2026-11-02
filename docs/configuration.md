@@ -110,7 +110,7 @@ Parameters supported by MCC, organized by category. Each can be set via CLI flag
 
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
-| `hfToken` | `--hf-token` | string | — | HuggingFace token (or $HF_TOKEN for env var reference) |
+| `hfToken` | `--hf-token` | string | — | Plaintext HuggingFace token (not recommended: baked into the image; `do/deploy` refuses it without `--allow-plaintext-secret`). Prefer `--hf-token-arn` |
 | `hfTokenArn` | `--hf-token-arn` | string | — | HuggingFace token ARN from Secrets Manager (env: `ML_HF_TOKEN_ARN`) |
 | `ngcToken` | `--ngc-token` | string | — | NVIDIA NGC token (or $NGC_API_KEY for env var reference) |
 | `ngcTokenArn` | `--ngc-token-arn` | string | — | NVIDIA NGC token ARN from Secrets Manager (env: `ML_NGC_TOKEN_ARN`) |
@@ -355,62 +355,54 @@ Authentication is required for:
 
 ### Providing Your Token
 
-**CLI option:**
+Store the token in AWS Secrets Manager and give MLCC the ARN. The serving container resolves the ARN at startup with the SageMaker execution role, so the value is never baked into the image or written to the SageMaker container `Environment`.
+
+**1. Store the token once:**
 
 ```bash
-ml-container-creator my-llm-project \
-  --deployment-config=transformers-vllm \
-  --model-name=meta-llama/Llama-3.1-8B-Instruct \
-  --hf-token='$HF_TOKEN' \
-  --skip-prompts
+ml-container-creator secrets create --type hf-token --name production --secret-value hf_***
 ```
 
-**Config file:**
+**2. Point MLCC at the ARN**, either for every project in the bootstrap profile:
 
-```json
-{
-  "deploymentConfig": "transformers-vllm",
-  "modelName": "meta-llama/Llama-3.1-8B-Instruct",
-  "hfToken": "$HF_TOKEN"
-}
+```bash
+mcc bootstrap add-secret hfToken arn:aws:secretsmanager:us-east-1:123456789012:secret:mlcc/hf-token/production-AbCdEf
 ```
 
-**Interactive prompt:** When you enter a custom model ID during generation, you will be prompted for a token. You can enter the token directly, reference `$HF_TOKEN`, or leave it empty for public models.
-
-### Secrets Manager Alternative
-
-For improved security, use AWS Secrets Manager instead of plaintext tokens. Pass an ARN instead of a literal value:
+or per project at generation time:
 
 ```bash
 ml-container-creator my-project \
   --deployment-config=transformers-vllm \
   --model-name=meta-llama/Llama-3.1-8B-Instruct \
-  --hf-token-arn=arn:aws:secretsmanager:us-east-1:123456789012:secret:mlcc/hf-token \
+  --hf-token-arn=arn:aws:secretsmanager:us-east-1:123456789012:secret:mlcc/hf-token/production-AbCdEf \
   --skip-prompts
 ```
 
-This resolves the token at build-time and runtime without baking it into the image. See [Secrets Management](secrets.md) for the full workflow, including creating and managing secrets.
+(config file key: `"hfTokenArn"`; `do/config` variable: `HF_TOKEN_ARN`). `do/build` resolves the ARN but does not pass the value into `docker build`; the container resolves it at startup. See [Secrets Management](secrets.md) for the full workflow.
+
+**Interactive prompt:** when you enter a custom model ID during generation, the CLI lists your existing `mlcc/hf-token/*` secrets so you can pick one, or leave it empty for public models.
+
+!!! warning "Plaintext tokens (not recommended)"
+    `--hf-token` (config key `hfToken`) still exists, but the value is baked into the Dockerfile as `ENV HF_TOKEN` and written to `do/config`. Anyone who can pull the image can read it. `./do/deploy` refuses a plaintext `HF_TOKEN` with no `HF_TOKEN_ARN` (exit 3) unless you pass `--allow-plaintext-secret`, which is the explicit opt-out.
 
 !!! note
     You cannot use both `--hf-token` and `--hf-token-arn` simultaneously. Choose one approach per project.
 
 ### Security
 
-Tokens are baked into the Docker image. Anyone with access to the image can extract the token via `docker inspect`.
-
-- Use `$HF_TOKEN` (environment variable reference) in config files and CI/CD pipelines instead of literal tokens.
+- Prefer the Secrets Manager ARN path above; rotate the token by updating the secret, with no rebuild.
 - Never commit tokens to version control.
 - Use read-only tokens with minimal permissions.
 - Rotate tokens periodically. Generate new ones at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
-- Consider using [Secrets Manager](secrets.md) for zero-knowledge images and automatic rotation.
 
 ### Troubleshooting Authentication
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | "Repository not found" or "Access denied" | Invalid token, expired token, or license not accepted | Verify token at huggingface.co; accept model license |
-| "HF_TOKEN environment variable not set" | `$HF_TOKEN` referenced but not exported | `export HF_TOKEN=hf_...` |
-| Container builds but fails at runtime | Model requires auth but no token provided | Rebuild with `--hf-token` |
+| `do/deploy` exits 3 on a plaintext token | `HF_TOKEN` set with no `HF_TOKEN_ARN` | Store the token in Secrets Manager and set the ARN (above), or `unset HF_TOKEN` if the model is public |
+| Container builds but fails at runtime | Model requires auth but no token provided | Store the token in Secrets Manager, set `HF_TOKEN_ARN` (or `mcc bootstrap add-secret hfToken <arn>`), then `./do/deploy --force` |
 
 ## Validation
 

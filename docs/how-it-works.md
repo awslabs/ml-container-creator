@@ -84,12 +84,13 @@ In interactive generation, the transformers model prompt auto-lists both the man
 
 #### HuggingFace authentication
 
-Some models are gated and require a HuggingFace API token. You can provide it via:
+Some models are gated and require a HuggingFace API token. Store it in AWS Secrets Manager and pass the ARN:
 
-- CLI flag: `--hf-token="hf_..."` or `--hf-token='$HF_TOKEN'`
-- Environment variable: `export HF_TOKEN="hf_..."` then reference `$HF_TOKEN`
-- Interactive prompt (when selecting a custom model)
-- Config file: `"hfToken": "$HF_TOKEN"`
+- Bootstrap profile (every project): `mcc bootstrap add-secret hfToken <secret-arn>`
+- CLI flag: `--hf-token-arn <secret-arn>` (config file key `hfTokenArn`)
+- Interactive prompt: pick an existing `mlcc/hf-token/*` secret when you select a custom model
+
+Create the secret with `ml-container-creator secrets create --type hf-token ...` (see [Secrets](secrets.md)). The container resolves the ARN at startup. A plaintext `--hf-token` is baked into the image, and `do/deploy` refuses it unless you pass `--allow-plaintext-secret`.
 
 See the [Configuration Guide](configuration.md#huggingface-authentication) for details and security best practices.
 
