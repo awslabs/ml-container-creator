@@ -181,5 +181,12 @@
     "*.js": [
       "eslint --fix --quiet --max-warnings 0"
     ]
+  },
+  "nyc": {
+    "extension": [
+      ".js",
+      ".mjs"
+    ],
+    "//": "BL238: no .cjs/.ts hooks. Under nyc a child ts-node run (test/unit/bootstrap-*-cdk.test.js) otherwise resolves '../bucket-declarations' to the sibling .cjs runtime file instead of the .ts source. infra/** is not part of root coverage."
   }
 }
