@@ -46,8 +46,13 @@ def get_instance_recommendation(
     """Get instance type recommendation, trying MCP first then built-in heuristic.
 
     Attempts to use MCP instance-sizer for the recommendation. If MCP is
-    unavailable or returns no result, falls back to the built-in heuristic
-    in instance_sizer.py.
+    unavailable (no client, timeout, malformed reply), falls back to the
+    built-in heuristic in instance_sizer.py.
+
+    If the sizer answers but makes no sized recommendation (BL237
+    ``sizingUnavailable``, or nothing fits), its message is printed to stderr
+    and None is returned so the caller asks for the instance type
+    (--instance-type) — a heuristic guess is NOT substituted (BL241).
 
     A warning is printed to stderr (not stdout) when falling back, to avoid
     polluting the JSON answer output contract.
@@ -61,8 +66,9 @@ def get_instance_recommendation(
             served context the KV cache is budgeted for (BL240).
 
     Returns:
-        SageMaker instance type string (e.g. "ml.g6.xlarge"), or None if
-        neither MCP nor the built-in heuristic can determine a recommendation.
+        SageMaker instance type string (e.g. "ml.g6.xlarge"), or None if the
+        sizer made no recommendation or neither MCP nor the built-in heuristic
+        can determine one.
 
     Validates: Requirements FR-2.4, FR-10.1, FR-10.2, FR-10.4
     """
@@ -74,7 +80,16 @@ def get_instance_recommendation(
             client, model_name, precision, project_dir=project_dir, **engine_kw
         )
         if result is not None:
-            return result.get("instance_type")
+            if result.get("instance_type"):
+                return result["instance_type"]
+            message = result.get("message") or (
+                f"instance-sizer made no recommendation for {model_name}."
+            )
+            print(
+                f"\u26a0\ufe0f  {message}\n   Enter an instance type, or pass --instance-type <ml.instance>.",
+                file=sys.stderr,
+            )
+            return None
 
     # MCP unavailable or returned None — fall back to built-in heuristic
     print(_MCP_FALLBACK_WARNING, file=sys.stderr)
