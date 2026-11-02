@@ -24,7 +24,7 @@ by technique flavor. Pick the surface first, then the technique.
 !!! info "GRPO is on `do/train`, not `do/tune`"
     GRPO (Group Relative Policy Optimization) is **self-managed** reinforcement
     learning: the reward is an in-process Python callable you author in the recipe
-    (`training/grpo/reward_example.py`), with no managed evaluator service in the
+    (`do/training/grpo/reward_example.py`), with no managed evaluator service in the
     loop. See [Custom Training → GRPO](custom-training.md#grpo-group-relative-policy-optimization).
     The managed RL path on `do/tune` is the opposite: its reward is a
     separately-registered evaluator asset (an ARN). Both are called a "reward
@@ -34,12 +34,12 @@ by technique flavor. Pick the surface first, then the technique.
 
 | Requirement | Details |
 |---|---|
-| Deployed endpoint | Endpoint must be `InService` (run `./do/deploy` first) |
+| Deployed endpoint | Needed only for the automatic adapter deploy after the job (run `./do/deploy` first); pass `--no-register` to tune without one |
 | AWS credentials | Configured via `aws configure` or environment variables |
 | Framework | `transformers` only |
 | Deployment target | Any target except `batch-transform` |
 | Bootstrapped account | Run `ml-container-creator bootstrap` to provision IAM permissions and tune S3 bucket |
-| Python SDK | `sagemaker-core>=1.0.0` — install via `uv pip install -r requirements.txt` |
+| Python SDK | `sagemaker[train]>=3.0.0` and the rest of `requirements.txt` — install via `uv pip install -r requirements.txt` |
 
 !!! note "Supported Models Only"
     `do/tune` works with models in the Supported Model Catalog. If your model isn't supported, the script will tell you which models are available and suggest `do/train` for custom training workflows.
@@ -66,7 +66,7 @@ graph LR
 
 3. **Adapter automatically deployed** — When `do/tune` completes a LoRA job, it automatically:
    1. Stages adapter weights to S3 via a Processing Job
-   2. Deploys the adapter as an inference component on your endpoint
+   2. Deploys the adapter: an adapter inference component on `realtime-inference`, a vLLM hot-load into the running pod on `hyperpod-eks` / `eks`
    3. Registers the adapter through the MLflow → Model Registry bridge (as a `lora_adapter`, linked to its base) — see [Deployment Registry](deployment-registry.md)
 
    The auto-deployed adapter is named `tuned-<technique>-<dataset-slug>` (e.g. `tuned-sft-alpaca`).
@@ -164,10 +164,11 @@ and, for `do/adapter`, `--from-hub <repo>`) and resolve them the same way on
 every deployment target ([ADR-013](adr/ADR-013-additive-deploy-artifact-kind-contract.md)).
 The target only picks the load mechanism:
 
-| Target | `do/adapter` (LoRA adapter) | `do/add-ic` (full model) |
+| Target | `do/adapter` (LoRA adapter) | Full fine-tuned model |
 |---|---|---|
-| `realtime-inference` | adapter Inference Component | Inference Component |
-| `hyperpod-eks` / `eks` | vLLM hot-load into the running pod | not supported yet (see below) |
+| `realtime-inference` | adapter Inference Component | `do/add-ic` — Inference Component |
+| `hyperpod-eks` | vLLM hot-load into the running pod | `do/add-pod` — a second InferenceEndpointConfig ([details](deployments.md#serving-a-full-fine-tune-next-to-the-base-doadd-pod)) |
+| `eks` | vLLM hot-load into the running pod | not supported yet (planned post-2.0) |
 
 On a cluster, a tuned LoRA hot-loads straight from the tune output. There is no
 hand-copied S3 URI and no new pod:
@@ -179,10 +180,11 @@ hand-copied S3 URI and no new pod:
 ```
 
 The artifact kind decides which verb is legal. `do/adapter` refuses a full
-fine-tuned model and `do/add-ic` refuses a LoRA adapter, each pointing at the
-other verb. A full model on `hyperpod-eks`/`eks` is refused honestly as "not
-servable on this target yet": the cluster full-model verb (`do/add-pod`) is
-deferred, so deploy full models on `realtime-inference` with `do/add-ic`. When a
+fine-tuned model, and `do/add-ic` / `do/add-pod` refuse a LoRA adapter, each
+pointing at the right verb. A full model on `hyperpod-eks` goes through
+`./do/add-pod <name> --from-tune`; on plain `eks` it is refused as "not servable
+on this target yet" (planned post-2.0), so deploy it on `realtime-inference` with
+`do/add-ic` or on `hyperpod-eks` with `do/add-pod`. When a
 source has no recorded kind (a raw `--from-weights` URI, a Hub repo, or an older
 registry version), nothing is blocked; the verb runs an advisory
 `adapter_config.json` check and proceeds.
@@ -213,7 +215,7 @@ Each technique's output is tracked independently. You can tune with SFT, then tu
 
 ## Supported Models
 
-The table below shows representative model families that support managed customization via `do/tune`. The catalog (`config/tune-catalog.json`) is synced from SageMaker AI and grows over time; it also includes newer families such as NVIDIA Nemotron 3, Gemma 4 and Ministral 3. `./do/tune --list-models` prints the current list:
+The table below shows representative model families that support managed customization via `do/tune`. The catalog (`config/tune-catalog.json`) is synced from the SageMaker AI model-customization documentation and grows over time; it also includes newer families such as NVIDIA Nemotron 3, Gemma 4 and Ministral 3. `./do/tune --list-models` prints the current list:
 
 | Provider | Model Family | Sizes | Techniques |
 |---|---|---|---|
@@ -964,21 +966,6 @@ HyperPodPyTorchJob on your cluster. SageMaker training jobs stay the default.
 On success the adapter (or full model) found under `s3://<artifacts>/<project>/tune/<job>/output/`
 is promoted and the `TUNE_*` variables are written exactly as for a SageMaker training job.
 
-## `do/tune` vs `do/train`
-
-ML Container Creator offers two paths for model customization:
-
-| | `do/tune` (Managed Serverless) | `do/train` (Bespoke Training) |
-|---|---|---|
-| **Status** | Available now | Available now |
-| **Infrastructure** | Fully managed by SageMaker AI | You choose instance types and containers |
-| **Supported models** | Models in the Supported Model Catalog | Any model |
-| **Techniques** | SFT, DPO, RLAIF, RLVR | Any training script |
-| **Configuration** | Minimal — dataset + technique | Full control over training code |
-| **When to use** | Your model is supported and you want the fastest path | You need custom training logic or an unsupported model |
-
-**Recommendation**: Start with `do/tune` if your model is in the Supported Model Catalog. It's the fastest path from dataset to deployed adapter with zero infrastructure management. Use `do/train` when you need custom training logic or your model isn't supported — see [Custom Training](custom-training.md).
-
 ## CLI Reference
 
 ### Synopsis
@@ -994,8 +981,8 @@ ML Container Creator offers two paths for model customization:
 
 | Flag | Values | Description |
 |---|---|---|
-| `--technique` | `sft`, `dpo`, `rlaif`, `rlvr` | Customization technique to apply |
-| `--dataset` | S3 URI (`s3://bucket/path.jsonl`) or a registered dataset name (optionally `@v<N>`-pinned) | Training dataset location. `hf://` references are not accepted here — stage them with `do/register dataset --hf-id` first. |
+| `--technique` | `sft`, `dpo`, `rlaif`, `rlvr`, `mtrl` | Customization technique to apply (`mtrl` needs `--agent-env`) |
+| `--dataset` | S3 URI (`s3://bucket/path.jsonl`), `hf://org/name[/split][?file=pattern]`, or a registered dataset name (optionally `@v<N>`-pinned) | Training dataset location. An `hf://` dataset is staged to S3 automatically on first use. Quote the value if it contains `?` or `*`. |
 
 ### Training type
 
@@ -1037,19 +1024,24 @@ Each alias is validated against the selected technique's descriptor exactly like
 | Flag | Type | Description |
 |---|---|---|
 | `--column-map` | string | Rename source columns to target columns (e.g., `"input:prompt,output:completion"`) |
+| `--take <n>` | integer | Take only the first N records from the dataset |
+| `--dataset-name <name>` | string | Use a registered dataset by name |
 
 ### Evaluator flags (RLVR/RLAIF only)
 
 | Flag | Type | Description |
 |---|---|---|
-| `--reward-function` | Lambda ARN | ARN of the reward function Lambda (RLVR) |
-| `--reward-prompt` | S3 URI | S3 path to reward prompt file (RLAIF) |
+| `--evaluator-name <name>` | string | Registered evaluator to resolve from the AI Registry (RLVR: a reward function from `./do/register evaluator`; RLAIF: a reward prompt from `./do/register prompt`) |
+| `--reward-function` | ARN | Lambda / hub-content ARN of the reward function (RLVR), bypassing the registry |
+| `--reward-prompt` | ARN | Hub-content evaluator ARN of a reward prompt (RLAIF) — not a bare name or S3 URI; register the file with `./do/register prompt` first |
+| `--agent-env <arn>` | ARN | CustomAgentLambda ARN (MTRL only; MTRL's reward lives in the agent) |
 
 ### Model and infrastructure overrides
 
 | Flag | Type | Description |
 |---|---|---|
-| `--model` | HuggingFace model ID | Override the model to customize (defaults to `MODEL_ID` from `do/config`) |
+| `--model` | Hub content name | Override the model to customize, e.g. `huggingface-reasoning-qwen3-8b` (defaults to `TUNE_MODEL_ID` from `do/config`) |
+| `--lora-alpha <n>` | integer | LoRA alpha scaling factor |
 | `--output-bucket` | S3 bucket name | Override the output bucket (defaults to the profile's artifacts bucket, `ARTIFACTS_S3_BUCKET`) |
 | `--role` | IAM role ARN | Override the execution role |
 
@@ -1058,11 +1050,27 @@ Each alias is validated against the selected technique's descriptor exactly like
 | Flag | Description |
 |---|---|
 | `--force` | Force a new job even if a previous job exists for this technique |
+| `--accept-eula` | Accept the model EULA (required for gated models like Llama) |
+| `--no-register` | Skip the automatic adapter stage + deploy + register after a LoRA job; prints the next-step commands instead |
 | `--no-wait` | Submit the job and exit immediately without polling |
 | `--status` | Show status of all tracked tune jobs |
 | `--dry-run` | Validate inputs and show what would be submitted without creating a job |
 | `--list-models` | Print the Supported Model Catalog and exit |
+| `--discover [filter]` | Query the SageMaker Hub for tune-eligible models (optionally filtered by keyword) |
+| `--no-stale-warning` | Suppress catalog staleness warnings (also `MCC_NO_STALE_WARNING=true`) |
 | `--help` | Show usage information |
+
+### HP-EKS backend (`--backend hp-eks`)
+
+See [Running on HyperPod EKS](#running-on-hyperpod-eks-backend-hp-eks).
+
+| Flag | Description |
+|---|---|
+| `--backend <b>` | `smtj` (default, SageMaker training job) or `hp-eks` (hyperpod-eks projects; SFT / DPO only) |
+| `--instance-group <g>` | Pin the HyperPod instance group |
+| `--startup-timeout <s>` / `--stall-timeout <s>` | Watcher limits (defaults 1200 / 1800 seconds) |
+| `--adapt-shape` | EXPERIMENTAL: rewrite the recipe's 8-GPU / EFA shape to the instance group's allocatable |
+| `--render-only` | Stage the data and write the patched manifest; apply nothing |
 
 ## Examples
 
@@ -1129,9 +1137,9 @@ Use `--force` to explicitly start a new job, overriding the previous one for tha
 
 ## MLflow Integration
 
-When an MLflow tracking server is configured in your SageMaker AI domain, customization jobs automatically log training metrics, hyperparameters, and model artifacts to MLflow. The script displays the MLflow experiment URL after job submission.
+When the bootstrap profile has an MLflow App (the `training` module, `MLFLOW_APP_ARN`), `do/tune` logs to a per-project experiment named after your project, and registers adapters through the MLflow → SageMaker Model Registry bridge (see [Deployment Registry](deployment-registry.md)). The script displays the MLflow experiment URL after job submission.
 
-If no MLflow server is configured, the script proceeds without tracking and prints a note suggesting MLflow setup for experiment comparison.
+If no MLflow App is configured, the script proceeds without tracking and prints a note suggesting MLflow setup for experiment comparison.
 
 ## Future: Bedrock Custom Model Import
 
@@ -1179,10 +1187,10 @@ Run `ml-container-creator bootstrap` to provision the required IAM permissions. 
 
 ### Python SDK not installed
 
-The `do/tune` script requires `sagemaker>=3.0.0` and several other Python packages. These are installed automatically when you run `npm install`. If you manage Python environments manually:
+The `do/tune` script requires `sagemaker>=3.0.0` and several other Python packages. `npm install` does not install them; install them in the Python environment the `do/` scripts use:
 
 ```bash
-pip install -r requirements.txt
+uv pip install -r requirements.txt   # or: pip install -r requirements.txt
 ```
 
 See [`requirements.txt`](https://github.com/awslabs/ml-container-creator/blob/main/requirements.txt) for the full list.

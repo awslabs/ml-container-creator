@@ -461,6 +461,22 @@ and removes the vacated one afterwards (the count is restored on any failure). C
 (`InsufficientCapacity`) are printed verbatim — retry later. If nothing changed in the pod
 template, no rollout is needed and none happens.
 
+### hyperpod-eks: deploy stops with "no node has a free pod slot"
+
+**Symptoms:** a first `./do/deploy --target hyperpod-eks` prints
+`The serving pod cannot start on <instance-type>: no node has a free pod slot` and
+`Nothing was applied`. (`./do/add-pod` prints `No node has room for <name> (GPUs and pod slots, …)`;
+it also accepts `--surge-node`.)
+
+**Root cause:** the nodes have free GPUs, but no free pod slots (the node's allocatable `pods`
+minus its running pods). The serving pod needs one slot, plus one for its Mountpoint-S3 pod when
+the model is mounted from S3. Without that slot the pod would schedule and then hang in
+`ContainerCreating` (`FailedMount`, "Too many pods").
+
+**Fix:** free pod slots on a node of that instance type (remove idle pods), add a node to the
+instance group, or deploy on another instance type. The message prints the per-node counts and a
+suggested fix. A GPU shortage alone only warns: the pod is applied and waits `Pending` for a GPU.
+
 ## `do/stage` Processing Job fails for large models
 
 **Symptom:** Processing Job exits with code 1. CloudWatch logs may show `Killed` or out-of-memory errors during model download. No useful error message from `do/stage` itself.
@@ -580,12 +596,12 @@ echo 'export HP_SHM_SIZE=64Gi' >> do/config
 - `Contract violation: artifact-kind`: "This source is a 'full_model', but this verb accepts 'lora_adapter'" (or the reverse).
 - `Contract violation: target`: "do/add-ic (accepts: full_model) has no load mechanism on hyperpod-eks … not servable on hyperpod-eks yet".
 
-**Root cause:** Additive deploy follows one contract ([ADR-013](adr/ADR-013-additive-deploy-artifact-kind-contract.md)). The source's artifact kind picks the verb, and the target picks the load mechanism. `do/adapter` hot-loads LoRA adapters only. `do/add-ic` deploys full models only, and only on `realtime-inference`. A full model on a cluster isn't supported yet (the cluster verb, `do/add-pod`, is deferred).
+**Root cause:** Additive deploy follows one contract ([ADR-013](adr/ADR-013-additive-deploy-artifact-kind-contract.md)). The source's artifact kind picks the verb, and the target picks the load mechanism. `do/adapter` hot-loads LoRA adapters only. `do/add-ic` deploys full models only, and only on `realtime-inference`. On `hyperpod-eks` a full model goes through `do/add-pod`. Plain `eks` has no full-model verb yet (planned post-2.0).
 
 **Fix:**
 
 - A LoRA adapter: `./do/adapter add <name> --from-tune` (or `--from-weights s3://...`, `--from-registry <arn>`) on `realtime-inference`, `hyperpod-eks`, or `eks`.
-- A full model: `./do/add-ic <name> --from-tune` (or `--from-weights`, `--from-registry`) on `realtime-inference`.
+- A full model: `./do/add-ic <name> --from-tune` (or `--from-weights`, `--from-registry`) on `realtime-inference`, or `./do/add-pod <name> --from-tune` (same `--from-*` flags) on `hyperpod-eks`.
 - An "artifact_kind unknown … falling back to a content check" notice is informational. Raw S3 URIs, Hub repos, and older registry versions carry no recorded kind, so the verb proceeds after an advisory `adapter_config.json` check.
 - "--weights is deprecated" / "--model-data is deprecated" notices: switch to `--from-weights`. The old flags still work.
 

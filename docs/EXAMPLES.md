@@ -314,10 +314,6 @@ ml-container-creator vllm-benchmark-demo \
   --instance-type=ml.g5.2xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
-  --benchmark-concurrency=10 \
-  --benchmark-input-tokens=550 \
-  --benchmark-output-tokens=150 \
-  --benchmark-streaming \
   --skip-prompts
 ```
 
@@ -329,10 +325,10 @@ cd vllm-benchmark-demo
 ./do/deploy
 ```
 
-Run the benchmark against the deployed endpoint:
+Run the benchmark against the deployed endpoint with a named workload profile (it sets the token shape, streaming and concurrency levels):
 
 ```bash
-./do/benchmark
+./do/benchmark --workload multi-turn-chat
 ```
 
 Example output:

@@ -196,11 +196,11 @@ Regardless of golden path status, all MCC projects can apply manual inference tu
 - Speculative decoding (`VLLM_SPECULATIVE_MODEL`)
 - KV cache dtype (`VLLM_KV_CACHE_DTYPE`)
 
-The `do/optimize` script (Epic 11, post-v1) will automate the search over these dimensions using Bayesian optimization, seeded from Athena benchmark history.
+To search these dimensions, use `./do/benchmark --recommend` (Athena-backed config recommendations from your benchmark history) and `./do/optimize` (SageMaker AI Inference Recommendations); see [Optimize](optimize.md).
 
-The E2E catalog (`scripts/e2e-catalog.json`) defines 22 models organized in three tiers:
+The E2E catalog (`scripts/e2e-catalog.json`) organizes its configurations in three tiers. The catalog file is the source of truth for which model runs in which tier; the tables below are a readable summary and may lag it (`jq '.configs[] | {id, tier}' scripts/e2e-catalog.json` prints the current assignment).
 
-### Tier: CI (daily — 6 models, ~$4/run)
+### Tier: CI (daily)
 
 | Model | HuggingFace ID | Instance | max_model_len |
 |---|---|---|---|
@@ -215,7 +215,7 @@ The E2E catalog (`scripts/e2e-catalog.json`) defines 22 models organized in thre
 
 Models requiring `max_model_len` are clamped because their native context (32K–128K) exceeds the KV cache capacity of a single A10G (24GB). Set via `IC_ENV_VLLM_MAX_MODEL_LEN=4096` in `do/ic/default.conf`.
 
-### Tier: Nightly (12 models, ~$44/run)
+### Tier: Nightly
 
 | Model | HuggingFace ID | Instance | Notes |
 |---|---|---|---|
@@ -237,7 +237,7 @@ Models requiring `max_model_len` are clamped because their native context (32K�
 | Qwen 3.6 27B | `Qwen/Qwen3.6-27B` | ml.g5.12xlarge |
 | Nemotron 3 Nano 30B | `nvidia/Nemotron-3-Nano-A3B-BF16-30B` | ml.g5.12xlarge |
 
-### Tier: Weekly (5 models, ~$150/run)
+### Tier: Weekly
 
 | Model | HuggingFace ID | Instance |
 |---|---|---|

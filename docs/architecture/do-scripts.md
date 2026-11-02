@@ -158,17 +158,16 @@ once in `script-contract.sh`:
 3. **Target → load mechanism.** `_additive_verb_mechanisms` (`adapter` →
    `vllm-hotload smai-ic`, `add-ic` → `smai-ic`) intersected with
    `_additive_target_mechanisms` (`realtime-inference` → `smai-ic`,
-   `hyperpod-eks`/`eks` → `vllm-hotload`). The legal verb×target matrix is
+   `hyperpod-eks` → `vllm-hotload pod-apply`, `eks` → `vllm-hotload`). The legal verb×target matrix is
    **derived** from that intersection by `_additive_verb_supported_on`; nothing
    hand-lists it. `do/adapter` also picks its k8s path from the derived mechanism.
 
 The tables are bash-3.2-safe `case` lookup functions inside one
 `# >>> ADDITIVE-DEPLOY CONTRACT … # <<< END` block (no `declare -A`: the do/
-scripts run under macOS's stock `/bin/bash` 3.2). The deferred `do/add-pod`
-(BL149, `full_model` via `pod-apply` on a cluster) is present there but
-commented; until it lands, a full model on `hyperpod-eks`/`eks` gets an honest
-"not servable on this target yet" refusal pointing at `realtime-inference` +
-`do/add-ic`. `test/unit/additive-deploy-contract.test.js` asserts the derivation
+scripts run under macOS's stock `/bin/bash` 3.2). `do/add-pod`
+(BL149, `full_model` via `pod-apply`) is live on `hyperpod-eks`; plain `eks` stays
+deferred (post-2.0), so a full model there gets an honest "not servable on this
+target yet" refusal. `test/unit/additive-deploy-contract.test.js` asserts the derivation
 agrees with the target descriptors' `verbs` flags, each script's `# targets:`
 header, and the real scripts' accept/refuse behavior.
 
