@@ -105,13 +105,10 @@ For workloads with large payloads or long processing times (> 60s). `./do/deploy
 - Requests are submitted and return immediately with an output location
 - Results are written to S3 when processing completes
 - Optional SNS notifications on success/failure
-- Endpoint auto-scales to zero when idle (no cost when not in use)
+- Scale-to-zero is not available for async endpoints in v2; the endpoint keeps its instance count until you clean it up. See [Scale-to-Zero](scale-to-zero.md).
 
 ```bash
-ml-container-creator my-async-project \
-  --deployment-target=async-inference \
-  --async-s3-output-path=s3://my-bucket/async-output/ \
-  ...
+./do/deploy --target async-inference --async-output-path s3://my-bucket/async-output/
 ```
 
 ### Batch Transform (`batch-transform`)

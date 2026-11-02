@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-23T14:27:14.052Z",
+  "generatedAt": "2026-11-02T15:44:38.297Z",
   "version": "1.9.1",
   "cliOptions": [
     {
@@ -1170,20 +1170,24 @@
   },
   "deploymentTargets": [
     {
-      "id": "realtime-inference",
-      "label": "Real-Time Inference"
-    },
-    {
       "id": "async-inference",
-      "label": "Async Inference"
+      "label": "async-inference"
     },
     {
       "id": "batch-transform",
-      "label": "Batch Transform"
+      "label": "batch-transform"
+    },
+    {
+      "id": "eks",
+      "label": "eks"
     },
     {
       "id": "hyperpod-eks",
-      "label": "HyperPod EKS"
+      "label": "hyperpod-eks"
+    },
+    {
+      "id": "realtime-inference",
+      "label": "realtime-inference"
     }
   ],
   "serverEnvVars": {

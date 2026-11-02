@@ -21,7 +21,6 @@ Generate a project with benchmarking enabled:
 ml-container-creator vllm-benchmark-demo \
   --deployment-config=transformers-vllm \
   --model-name=meta-llama/Llama-3.1-8B-Instruct \
-  --deployment-target=realtime-inference \
   --instance-type=ml.g5.2xlarge \
   --skip-prompts
 ```

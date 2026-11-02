@@ -57,7 +57,7 @@ Parameters supported by MCC, organized by category. Each can be set via CLI flag
 
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
-| `deploymentTarget` | `--deployment-target` | enum (6 values) | `realtime-inference` | Deployment target (realtime-inference, async-inference, batch-transform, hyperpod-eks, eks). `managed-inference` is accepted as a deprecated alias of realtime-inference (env: `ML_DEPLOYMENT_TARGET`) |
+| `deploymentTarget` | `--deployment-target` | enum | `realtime-inference` | ~~Deployment target~~ *(deprecated — choose the target at deploy time with `./do/deploy --target <t>`; `./do/deploy --help` lists the targets)*. Still accepted at generation, where it seeds `DEPLOYMENT_TARGET` in `do/config` (`batch-transform` also omits `do/tune`, `do/train` and `do/evaluate`) (env: `ML_DEPLOYMENT_TARGET`) |
 | `instanceType` | `--instance-type` | string | — | SageMaker instance type (e.g. ml.g5.xlarge, ml.m5.large) (env: `ML_INSTANCE_TYPE`) |
 | `region` | `--region` | string | `us-east-1` | AWS region (env: `ML_REGION`) |
 | `roleArn` | `--role-arn` | string | — | IAM role ARN for SageMaker execution (env: `ML_ROLE_ARN`) |
@@ -272,7 +272,6 @@ Use command-line flags for non-interactive generation:
 ml-container-creator my-project \
   --deployment-config=http-flask \
   --model-format=pkl \
-  --deployment-target=realtime-inference \
   --instance-type=ml.m5.large \
   --skip-prompts
 ```
@@ -312,7 +311,6 @@ ml-container-creator --config=production.json --skip-prompts
   "modelFormat": "pkl",
   "includeSample": false,
   "includeTesting": true,
-  "deploymentTarget": "realtime-inference",
   "buildTarget": "codebuild",
   "instanceType": "ml.m5.large",
   "region": "us-east-1",

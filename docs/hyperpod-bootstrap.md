@@ -66,11 +66,11 @@ When you run `bootstrap add-module hyperpod`, the module deploys:
 # Check status
 ml-container-creator bootstrap status
 
-# Generate a project targeting HyperPod (deploy target is NOT deprecated)
-ml-container-creator generate --deployment-target hyperpod-eks
+# Generate a project (the hyperpod-eks deploy target is NOT deprecated; it is chosen at deploy time)
+ml-container-creator my-project --deployment-config=transformers-vllm --model-name=<hf-id> --skip-prompts
 
 # Deploy (after build + push) against a correctly-provisioned cluster
-do/build && do/push && do/deploy --target hyperpod-eks
+./do/build && ./do/push && ./do/deploy --target hyperpod-eks --cluster-name <cluster> --namespace <ns>
 ```
 
 ## Cost

@@ -441,7 +441,7 @@ To add an engine `foo` served as `transformers-foo`:
      forget.
    - `npm run lint` and — **required, not optional** — an end-to-end generation
      smoke test:
-     `node bin/cli.js <name> --project-dir /tmp/<name> --deployment-config=transformers-foo --model-name=... --deployment-target=realtime-inference --instance-type=... --build-target=codebuild --region=us-east-1 --skip-prompts`.
+     `node bin/cli.js <name> --project-dir /tmp/<name> --deployment-config=transformers-foo --model-name=... --instance-type=... --build-target=codebuild --region=us-east-1 --skip-prompts`.
      Only a real generate exercises every seam; the `TemplateManager` allow-list
      (step 7) was discovered this way, because no unit test or validator covered
      it. Inspect the generated `Dockerfile` (`FROM`, `ENTRYPOINT`, engine `ENV`)

@@ -11,7 +11,6 @@ ml-container-creator sklearn-flask-demo \
   --deployment-config=http-flask \
   --model-format=pkl \
   --include-sample \
-  --deployment-target=realtime-inference \
   --instance-type=ml.m5.large \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -42,7 +41,6 @@ ml-container-creator xgboost-fastapi-demo \
   --deployment-config=http-fastapi \
   --model-format=json \
   --include-sample \
-  --deployment-target=realtime-inference \
   --instance-type=ml.m5.large \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -62,7 +60,6 @@ ml-container-creator tf-flask-demo \
   --deployment-config=http-flask \
   --model-format=SavedModel \
   --include-sample \
-  --deployment-target=realtime-inference \
   --instance-type=ml.m5.large \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -81,7 +78,6 @@ Deploy an LLM with vLLM. GPU instance required.
 ml-container-creator vllm-demo \
   --deployment-config=transformers-vllm \
   --model-name=openai/gpt-oss-20b \
-  --deployment-target=realtime-inference \
   --instance-type=ml.g6.12xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -106,7 +102,6 @@ Deploy an LLM with SGLang. Same workflow as vLLM with a different deployment con
 ml-container-creator sglang-demo \
   --deployment-config=transformers-sglang \
   --model-name=openai/gpt-oss-20b \
-  --deployment-target=realtime-inference \
   --instance-type=ml.g6.12xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -125,7 +120,6 @@ Deploy an LLM with NVIDIA TensorRT-LLM. Requires NGC authentication for the base
 ml-container-creator trtllm-demo \
   --deployment-config=transformers-tensorrt-llm \
   --model-name=meta-llama/Llama-3.2-3B-Instruct \
-  --deployment-target=realtime-inference \
   --instance-type=ml.g5.12xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -156,7 +150,6 @@ Deploy an LLM with AWS Large Model Inference (DJL-based). Uses `serving.properti
 ml-container-creator lmi-demo \
   --deployment-config=transformers-lmi \
   --model-name=openai/gpt-oss-20b \
-  --deployment-target=realtime-inference \
   --instance-type=ml.g5.12xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -175,7 +168,6 @@ Deploy an LLM with Deep Java Library serving.
 ml-container-creator djl-demo \
   --deployment-config=transformers-djl \
   --model-name=openai/gpt-oss-20b \
-  --deployment-target=realtime-inference \
   --instance-type=ml.g5.12xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -198,7 +190,6 @@ ml-container-creator llamacpp-cpu-demo \
   --model-name=Qwen/Qwen3-4B-GGUF \
   --server-env=HF_FILE=Qwen3-4B-Q4_K_M.gguf \
   --engine-feature=threads=32 \
-  --deployment-target=realtime-inference \
   --instance-type=ml.c6i.8xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -214,7 +205,6 @@ ml-container-creator llamacpp-gpu-demo \
   --server-env=HF_FILE=Qwen3-4B-Q4_K_M.gguf \
   --base-image=763104351884.dkr.ecr.us-east-1.amazonaws.com/llama-cpp:server-sagemaker-cuda-v1 \
   --engine-feature=gpu_layers=-1 \
-  --deployment-target=realtime-inference \
   --instance-type=ml.g6e.xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -235,7 +225,6 @@ Deploy XGBoost or LightGBM models on NVIDIA Triton Inference Server using the Fo
 ml-container-creator triton-fil-demo \
   --deployment-config=triton-fil \
   --model-format=json \
-  --deployment-target=realtime-inference \
   --instance-type=ml.g5.xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -255,7 +244,6 @@ Deploy ONNX models on Triton.
 ```bash
 ml-container-creator triton-onnx-demo \
   --deployment-config=triton-onnxruntime \
-  --deployment-target=realtime-inference \
   --instance-type=ml.g5.xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -273,7 +261,6 @@ Deploy custom Python models on Triton. The Python backend gives full control ove
 ```bash
 ml-container-creator triton-python-demo \
   --deployment-config=triton-python \
-  --deployment-target=realtime-inference \
   --instance-type=ml.g5.xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -296,15 +283,12 @@ Any of the examples above can use CodeBuild for the image build instead of build
 
 ## HyperPod EKS Deployment
 
-Any of the examples above can target HyperPod EKS instead of managed inference. Set `--deployment-target=hyperpod-eks` and provide your cluster details:
+Any of the examples above can deploy to HyperPod EKS instead of real-time inference. The target is chosen at deploy time, so generate the project as usual and pass the cluster details to `./do/deploy`:
 
 ```bash
 ml-container-creator hyperpod-demo \
   --deployment-config=transformers-vllm \
   --model-name=openai/gpt-oss-20b \
-  --deployment-target=hyperpod-eks \
-  --hyperpod-cluster=my-cluster \
-  --hyperpod-namespace=ml-serving \
   --instance-type=ml.g5.12xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -312,7 +296,9 @@ ml-container-creator hyperpod-demo \
 ```
 
 ```bash
-./do/submit && ./do/deploy && ./do/test hyperpod
+./do/submit
+./do/deploy --target hyperpod-eks --cluster-name my-cluster --namespace ml-serving
+./do/test hyperpod
 ```
 
 ## Benchmarking: Generate → Deploy → Benchmark → Results
@@ -325,7 +311,6 @@ Generate a project with benchmarking enabled:
 ml-container-creator vllm-benchmark-demo \
   --deployment-config=transformers-vllm \
   --model-name=meta-llama/Llama-3.1-8B-Instruct \
-  --deployment-target=realtime-inference \
   --instance-type=ml.g5.2xlarge \
   --build-target=codebuild \
   --region=us-east-1 \

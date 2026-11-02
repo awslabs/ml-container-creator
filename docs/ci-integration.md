@@ -753,7 +753,7 @@ Each entry in `scripts/e2e-catalog.json`:
   "id": "rt-qwen3-4b",
   "tier": "ci",
   "track": "realtime",
-  "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-4B --instance-type=ml.g5.xlarge --region=us-west-2 --deployment-target=realtime-inference",
+  "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-4B --instance-type=ml.g5.xlarge --region=us-west-2",
   "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
   "timeout": 1800,
   "tuneTimeout": 3600,

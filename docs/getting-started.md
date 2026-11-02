@@ -76,7 +76,6 @@ mkdir sklearn-demo && cd sklearn-demo
 ml-container-creator sklearn-demo \
   --deployment-config=http-flask \
   --model-format=pkl \
-  --deployment-target=realtime-inference \
   --instance-type=ml.m5.large \
   --region=us-east-1 \
   --skip-prompts
@@ -221,7 +220,6 @@ This walkthrough deploys [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B) t
 ml-container-creator qwen3-demo \
   --deployment-config=transformers-vllm \
   --model-name=Qwen/Qwen3-4B \
-  --deployment-target=realtime-inference \
   --instance-type=ml.g5.xlarge \
   --region=us-east-1 \
   --skip-prompts

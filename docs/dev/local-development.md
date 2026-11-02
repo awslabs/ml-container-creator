@@ -131,7 +131,6 @@ ml-container-creator my-project \
   --deployment-config=transformers-vllm \
   --model-name=Qwen/Qwen3-4B \
   --instance-type=ml.g5.xlarge \
-  --deployment-target=realtime-inference \
   --region=us-east-1 \
   --skip-prompts
 ```
