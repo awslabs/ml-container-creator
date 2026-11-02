@@ -1,0 +1,29 @@
+{
+  "_comment": "Wave 11 Task 1: AWS HP-EKS payload templates + k8s override params, captured VERBATIM (no edits) from the SageMakerPublicHub RecipeCollection pointers of huggingface-vlm-gemma-4-e4b-it. Read-only `aws s3 cp` from the AWS-owned jumpstart-cache bucket. The patcher conformance test (test/unit/test_hp_payload.py) asserts every hp_payload_sites.json site against these files; the network-only drift check compares them with the live catalog pointer. Re-capture (never hand-edit) when AWS ships a new template version.",
+  "hubContent": "huggingface-vlm-gemma-4-e4b-it",
+  "hubContentVersion": "1.8.2",
+  "region": "us-west-2",
+  "retrieved": "2026-10-28",
+  "files": {
+    "verl-sft-gemma-4-e4b-it-lora_payload_template_k8s_v2.0.9.yaml": {
+      "source": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-gemma-4-e4b-it-lora_payload_template_k8s_v2.0.9.yaml",
+      "sha256": "ca8be878ce169cf579e4d4d5698651d81b64ad4f78b496d0e478cf105d82631d",
+      "technique": "sft", "peft": "lora", "workload_kind": "HyperPodPyTorchJob"
+    },
+    "verl-sft-gemma-4-e4b-it-lora_override_params_k8s_v2.0.9.json": {
+      "source": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-gemma-4-e4b-it-lora_override_params_k8s_v2.0.9.json",
+      "sha256": "c108a92f25bd9596bc786b9b98dba061f904024a03517b9055e636b9e7dfad42",
+      "technique": "sft", "peft": "lora"
+    },
+    "verl-dpo-gemma-4-e4b-it-lora_payload_template_k8s_v2.0.9.yaml": {
+      "source": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-gemma-4-e4b-it-lora_payload_template_k8s_v2.0.9.yaml",
+      "sha256": "dfdd0b3deac0cf5d5b1e238fc9af268e3d09692551aefe9712aebe8bd34716e3",
+      "technique": "dpo", "peft": "lora", "workload_kind": "HyperPodPyTorchJob"
+    },
+    "verl-dpo-gemma-4-e4b-it-lora_override_params_k8s_v2.0.9.json": {
+      "source": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-gemma-4-e4b-it-lora_override_params_k8s_v2.0.9.json",
+      "sha256": "5d4909adfc1cd5c4eb613888326f03bda5b34056ddc04c248e04a016cb89b996",
+      "technique": "dpo", "peft": "lora"
+    }
+  }
+}

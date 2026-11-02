@@ -27,12 +27,11 @@ Walk through the interactive prompts with these selections:
 
 | Phase | Prompt | Selection |
 |-------|--------|-----------|
-| Infrastructure | Deployment target | `realtime-inference` |
 | Infrastructure | Instance type | `ml.g5.12xlarge` (or appropriate GPU instance) |
 | Infrastructure | Build target | `codebuild` |
 | Core ML | Deployment configuration | `Transformers with DJL (Deep Java Library)` |
 | Core ML | Model name | Your HuggingFace model ID (e.g., `openai/gpt-oss-20b`) |
-| Core ML | HuggingFace token | Your token or `$HF_TOKEN` for env var |
+| Core ML | HuggingFace token | Select a managed secret (Secrets Manager ARN); see [Secrets](secrets.md) |
 | Module | Include testing | `Yes` |
 | Project | Project name | Your project name (e.g., `bright-gpt-deployment`) |
 
@@ -53,10 +52,6 @@ You should see this structure:
 │   ├── serve
 │   ├── serving.properties
 │   └── start_server.sh
-├── deploy/
-│   ├── build_and_push.sh
-│   ├── deploy.sh
-│   └── upload_to_s3.sh
 ├── do/
 │   ├── build
 │   ├── push
@@ -150,11 +145,11 @@ export MME_ENABLED="true"
 export MODEL_DATA_URL="s3://YOUR-BUCKET/models/"  # S3 prefix containing model artifacts
 ```
 
-### Step 4: Modify `do/deploy`
+### Step 4: Modify `do/deploy.d/realtime-inference`
 
 This is the most significant change. The deploy script needs to create the model with `Mode: MultiModel` and point `ModelDataUrl` to an S3 prefix rather than a single artifact.
 
-Replace the inference component creation section in `do/deploy` with MME-specific deployment logic. Here are the key AWS CLI commands:
+`do/deploy` is a dispatcher; the real-time deploy logic lives in `do/deploy.d/realtime-inference`. Replace the inference component creation section there with MME-specific deployment logic. Here are the key AWS CLI commands:
 
 ```bash
 # ============================================================

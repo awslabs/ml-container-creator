@@ -92,7 +92,6 @@ ml-container-creator/
 ├── config/
 │   ├── parameter-schema-v2.json       # Source of truth for all 68 CLI parameters
 │   ├── tune-catalog.json              # Fine-tuning model catalog
-│   ├── bootstrap-stack.json           # CloudFormation template for bootstrap
 │   ├── defaults.json                  # Default values
 │   └── presets/                       # Pre-built configuration presets
 ├── scripts/
@@ -132,7 +131,6 @@ ml-container-creator my-project \
   --deployment-config=transformers-vllm \
   --model-name=Qwen/Qwen3-4B \
   --instance-type=ml.g5.xlarge \
-  --deployment-target=realtime-inference \
   --region=us-east-1 \
   --skip-prompts
 ```
@@ -152,6 +150,7 @@ If you've already run `npm link`, changes to `src/` and `templates/` take effect
 | `npm run test:unit` | Unit tests only | ~5s |
 | `npm run test:property` | Property-based tests (fast-check) | ~15s |
 | `npm run test:integration` | Generation + parsing tests | ~10s |
+| `npm run test:node` | Suites that import `node:test` (discovered, run via `node --test`) | ~20s |
 | `npm run test:servers` | MCP server standalone tests | ~5s |
 | `npm run test:watch` | Watch mode — re-runs on file change | continuous |
 | `npm run test:coverage` | Tests + coverage report (nyc) | ~45s |
@@ -258,11 +257,7 @@ cd servers/instance-sizer
 node test.js
 ```
 
-Or invoke a server directly with the MCP CLI:
-
-```bash
-ml-container-creator mcp query instance-sizer '{"framework": "transformers", "modelSizeGb": 8}'
-```
+There is no `mcp query` action (`mcp` supports add, init, list, get, remove). To call a server's tools interactively, point any MCP client at the server's stdio command (`node servers/instance-sizer/index.js`), or exercise it through its own test file as above.
 
 ### Debugging template rendering
 

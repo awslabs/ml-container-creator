@@ -26,6 +26,18 @@ def _error_exit(message, exit_code=1):
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 POLL_INTERVAL_SECONDS = 30
+
+
+def _canonical_output_uri(args):
+    """The canonical destination (s3_layout.parse_adapter_uri must accept it)."""
+    import s3_layout  # noqa: PLC0415 — sibling module in do/lib/python
+    uri = (getattr(args, "output_s3_uri", None) or "").strip()
+    if not uri:
+        _error_exit("--output-s3-uri is required (compose it with: s3_layout.py adapter-uri ...)")
+    if s3_layout.parse_adapter_uri(uri) is None:
+        _error_exit(f"--output-s3-uri {uri} is not a canonical adapter prefix "
+                    f"(<base prefix>/{s3_layout.ADAPTER_SUBDIR}/<project>/<name>/)")
+    return uri.rstrip("/") + "/"
 MAX_RUNTIME_SECONDS = 3600
 INSTANCE_TYPE = "ml.m5.large"
 VOLUME_SIZE_GB = 100
@@ -119,7 +131,10 @@ def cmd_stage_from_tune(args):
     os.environ.setdefault("AWS_REGION", region)
 
     job_name = _generate_job_name(args.project, args.adapter_name)
-    adapter_s3_uri = f"s3://{args.bucket}/{args.project}/adapters/{args.adapter_name}/"
+    # Bucket consolidation R3.4: the destination is the CANONICAL adapter prefix
+    # composed by s3_layout.py (the caller passes it); both legacy schemes
+    # (<adapters-bucket>/<project>/adapters/ and /adapters/<project>/) are retired.
+    adapter_s3_uri = _canonical_output_uri(args)
     container_image = args.container_image or _resolve_container_image(region)
     entrypoint_s3_uri = _upload_entrypoint(args.bucket, job_name, region)
 
@@ -384,7 +399,10 @@ def cmd_stage_from_hub(args):
     os.environ.setdefault("AWS_REGION", region)
 
     job_name = _generate_job_name(args.project, args.adapter_name)
-    adapter_s3_uri = f"s3://{args.bucket}/adapters/{args.project}/{args.adapter_name}/"
+    # Bucket consolidation R3.4: the destination is the CANONICAL adapter prefix
+    # composed by s3_layout.py (the caller passes it); both legacy schemes
+    # (<adapters-bucket>/<project>/adapters/ and /adapters/<project>/) are retired.
+    adapter_s3_uri = _canonical_output_uri(args)
     container_image = args.container_image or _resolve_container_image(region)
 
     # Build and upload entrypoint script

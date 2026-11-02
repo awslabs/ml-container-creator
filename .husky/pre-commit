@@ -56,6 +56,17 @@ if git diff --cached --name-only | grep -q "^servers/lib/catalogs/"; then
         exit 1
     fi
 fi
+# 3c. Tune descriptor validation (BL129)
+#     Validates templates/code/tune.d/<technique>/manifest.json against the tune.d
+#     manifest schema (peft→artifact_kind, verl-5field↔reward_model_style, enums).
+#     Only runs when a tune.d file is staged. Mirrors 3b.
+if git diff --cached --name-only | grep -q "^templates/code/tune.d/"; then
+    if ! node scripts/validate-tune-manifests.js; then
+        echo "❌ Tune descriptor validation failed — fix the manifest(s) above before committing."
+        exit 1
+    fi
+fi
+
 # 4. Command generator sync check
 node scripts/sync-command-generator.js --check
 

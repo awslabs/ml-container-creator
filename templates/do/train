@@ -26,11 +26,14 @@ source "${SCRIPT_DIR}/lib/script-contract.sh"
 _require_python_env
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
+source "${SCRIPT_DIR}/lib/s3-layout.sh"
 source "${SCRIPT_DIR}/lib/resolve-instance.sh"
 
-# CORE_BUCKET (mlcc-core) backs the dataset sidecar registry used for
-# name/version resolution and listing.
-CORE_BUCKET="${CORE_BUCKET:-${CODEBUILD_SOURCE_S3_BUCKET:-${_PROFILE_codebuildSourceS3Bucket:-}}}"
+# CORE_BUCKET (the core models bucket) backs the dataset sidecar registry used for
+# name/version resolution and listing. It comes ONLY from the profile key
+# coreS3Bucket (CORE_S3_BUCKET via do/lib/profile.sh) — never the CodeBuild source
+# bucket (bucket consolidation R2.3).
+CORE_BUCKET="${CORE_BUCKET:-${CORE_S3_BUCKET:-}}"
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 CONFIG_FILE="${SCRIPT_DIR}/training/config.yaml"
@@ -52,9 +55,29 @@ ARG_EPOCHS=""
 ARG_BATCH_SIZE=""
 ARG_LORA_R=""
 ARG_BETA=""
+# BL154: hyperparameter knobs are collected into SET_KNOBS as plain "KNOB=VALUE"
+# strings (an INDEXED array — NOT `declare -A`, which needs bash 4+; do/train must run
+# under macOS's default bash 3.2). Both --set KNOB=VALUE and the five legacy flags
+# (--learning-rate/--epochs/--batch-size/--lora-r/--beta) append to it under the same
+# canonical keys; a later pair for the same knob wins. Resolution + validation happen
+# in .train_helper.py build-config (see _resolve_hyperparameters).
+SET_KNOBS=()
+ARG_ADVANCED=false
+ARG_ALLOW_UNKNOWN=false
 ARG_RESUME=false
 ARG_RESUME_JOB=""
 ARG_COLUMN_MAP=""
+# Wave 11 (R1.2, R4): compute backend + the hp-eks (HyperPodPyTorchJob) knobs.
+ARG_BACKEND=""
+ARG_STOP=false
+ARG_INSTANCE_GROUP=""
+ARG_INSTANCE_TYPE=""
+ARG_GPUS=""
+ARG_STARTUP_TIMEOUT=""
+ARG_STALL_TIMEOUT=""
+ARG_SCRATCH_SIZE=""
+ARG_STORAGE_CLASS=""
+TRAIN_BACKEND_RESOLVED=""
 
 # ── Job Variables (set by _build_job_request) ─────────────────────────────────
 JOB_NAME=""
@@ -83,6 +106,7 @@ TRAIN_CHECKPOINT_PATH=""
 TRAIN_METRIC_DEFINITIONS=""
 TRAIN_ENVIRONMENT=""
 TRAIN_TAGS=""
+_HP_RESOLVED=false
 
 # ── SIGINT Trap ───────────────────────────────────────────────────────────────
 trap '_handle_interrupt' INT
@@ -91,7 +115,11 @@ _handle_interrupt() {
     echo ""
     echo ""
     echo "⚠️  Interrupted — training job continues in background."
-    echo "   The job will keep running in SageMaker."
+    if [ "${TRAIN_BACKEND_RESOLVED:-}" = "hp-eks" ]; then
+        echo "   The HyperPodPyTorchJob keeps running (and holding its GPUs) until --status sees it finish."
+    else
+        echo "   The job will keep running in SageMaker."
+    fi
     echo "   Re-run ./do/train to resume polling, or ./do/train --status to check progress."
     exit 130
 }
@@ -103,6 +131,23 @@ _parse_args() {
         case "$1" in
             --force) ARG_FORCE=true; shift ;;
             --status) ARG_STATUS=true; shift ;;
+            --stop) ARG_STOP=true; shift ;;
+            --backend|--instance-group|--instance-type|--gpus|--startup-timeout|--stall-timeout|--scratch-size|--storage-class)
+                if [ -z "${2:-}" ] || [[ "${2}" == -* ]]; then
+                    echo "❌ $1 requires a value"
+                    exit 2
+                fi
+                case "$1" in
+                    --backend) ARG_BACKEND="$2" ;;
+                    --instance-group) ARG_INSTANCE_GROUP="$2" ;;
+                    --instance-type) ARG_INSTANCE_TYPE="$2" ;;
+                    --gpus) ARG_GPUS="$2" ;;
+                    --startup-timeout) ARG_STARTUP_TIMEOUT="$2" ;;
+                    --stall-timeout) ARG_STALL_TIMEOUT="$2" ;;
+                    --scratch-size) ARG_SCRATCH_SIZE="$2" ;;
+                    --storage-class) ARG_STORAGE_CLASS="$2" ;;
+                esac
+                shift 2 ;;
             --dry-run) ARG_DRY_RUN=true; shift ;;
             --no-wait) ARG_NO_WAIT=true; shift ;;
             --technique)
@@ -127,21 +172,33 @@ _parse_args() {
             --list-datasets) ARG_LIST_DATASETS=true; shift ;;
             --no-register) ARG_NO_REGISTER=true; shift ;;
             --interactive|-i) ARG_INTERACTIVE=true; shift ;;
+            # BL154: generic per-knob setter, repeatable. Keyed by the knob name train.py
+            # reads. Validated against the technique's manifest.json when it has one.
+            --set)
+                if [ -z "${2:-}" ] || [[ "$2" != *=* ]] || [[ "$2" == =* ]]; then
+                    echo "❌ --set requires KNOB=VALUE (e.g., --set learning_rate=1e-4)"
+                    exit 1
+                fi
+                SET_KNOBS+=("$2"); shift 2 ;;
+            --advanced) ARG_ADVANCED=true; shift ;;
+            --allow-unknown) ARG_ALLOW_UNKNOWN=true; shift ;;
+            # Legacy hyperparameter flags: kept as aliases that populate the SAME
+            # SET_KNOBS map as --set <canonical_key>=VALUE (R5).
             --learning-rate)
                 if [ -z "${2:-}" ]; then echo "❌ --learning-rate requires a value"; exit 1; fi
-                ARG_LEARNING_RATE="$2"; shift 2 ;;
+                ARG_LEARNING_RATE="$2"; SET_KNOBS+=("learning_rate=$2"); shift 2 ;;
             --epochs)
                 if [ -z "${2:-}" ]; then echo "❌ --epochs requires a value"; exit 1; fi
-                ARG_EPOCHS="$2"; shift 2 ;;
+                ARG_EPOCHS="$2"; SET_KNOBS+=("epochs=$2"); shift 2 ;;
             --batch-size)
                 if [ -z "${2:-}" ]; then echo "❌ --batch-size requires a value"; exit 1; fi
-                ARG_BATCH_SIZE="$2"; shift 2 ;;
+                ARG_BATCH_SIZE="$2"; SET_KNOBS+=("batch_size=$2"); shift 2 ;;
             --lora-r)
                 if [ -z "${2:-}" ]; then echo "❌ --lora-r requires a value"; exit 1; fi
-                ARG_LORA_R="$2"; shift 2 ;;
+                ARG_LORA_R="$2"; SET_KNOBS+=("lora_r=$2"); shift 2 ;;
             --beta)
                 if [ -z "${2:-}" ]; then echo "❌ --beta requires a value"; exit 1; fi
-                ARG_BETA="$2"; shift 2 ;;
+                ARG_BETA="$2"; SET_KNOBS+=("beta=$2"); shift 2 ;;
             --resume)
                 ARG_RESUME=true
                 # Optional: next arg is a job name (not another flag)
@@ -177,20 +234,55 @@ _show_help() {
     echo "  --technique <name>  Select training technique (overrides config.yaml)"
     echo "  --dataset <source>  Dataset: s3://..., hf://org/name, or registry name"
     echo "  --column-map <map>  Rename columns (e.g., prompt=instruction,completion=output)"
-    echo "  --interactive, -i   Guided interactive configuration builder"
-    echo "  --learning-rate <v> Override learning rate"
-    echo "  --epochs <n>        Override number of epochs"
-    echo "  --batch-size <n>    Override per-device batch size"
-    echo "  --lora-r <n>        Override LoRA rank"
-    echo "  --beta <v>          Override DPO beta (KL penalty)"
+    echo "  --interactive, -i   Guided interactive configuration builder (job questions,"
+    echo "                      then the technique's hyperparameter knobs)"
+    echo ""
+    echo "Hyperparameters:"
+    echo "  --set KNOB=VALUE    Set any hyperparameter (repeatable), e.g. --set lora_alpha=64"
+    echo "  --advanced          With -i: also prompt advanced-tier knobs (no effect without -i)"
+    echo "  --allow-unknown     Pass a --set/flag knob the technique's manifest.json does not"
+    echo "                      declare through to train.py instead of rejecting it. Use it"
+    echo "                      when your train.py reads a key the manifest has not listed"
+    echo "                      yet; without it, undeclared keys fail fast (catches typos"
+    echo "                      like --set learnign_rate=...). No effect without a manifest."
+    echo "  --learning-rate <v> Same as --set learning_rate=<v>"
+    echo "  --epochs <n>        Same as --set epochs=<n>"
+    echo "  --batch-size <n>    Same as --set batch_size=<n>"
+    echo "  --lora-r <n>        Same as --set lora_r=<n>"
+    echo "  --beta <v>          Same as --set beta=<v> (KL coefficient, e.g. DPO)"
+    echo ""
+    echo "  Precedence (lowest -> highest): manifest default < <technique>/defaults.yaml"
+    echo "  < config.yaml hyperparameters < --set / flags = interactive answers."
+    echo "  A technique with do/training/<technique>/manifest.json gets typed, validated"
+    echo "  knobs; one without it passes values through unchanged (descriptor-less)."
+    echo ""
+    echo "Other options:"
     echo "  --resume [job-name] Resume from previous job's checkpoint"
     echo "  --list-datasets     Show registered datasets"
     echo "  --no-register       Skip auto-registration after completion"
     echo "  --force             Create a new job even if a previous job exists"
-    echo "  --status            Show current job status without submitting"
+    echo "  --status            Show current job status without submitting (dispatches on the"
+    echo "                      recorded TRAIN_BACKEND; on hp-eks it also deletes a finished job)"
+    echo "  --stop              Stop the tracked job (hp-eks: deletes the HyperPodPyTorchJob)"
     echo "  --dry-run           Validate inputs and show the request without submitting"
     echo "  --no-wait           Submit job and exit without polling for completion"
     echo "  --help, -h          Show this help message"
+    echo ""
+    echo "Compute backend (Wave 11):"
+    echo "  --backend <b>       smtj (SageMaker training job) or hp-eks (single-node HyperPodPyTorchJob"
+    echo "                      on the project's HyperPod EKS cluster). Allowed values and the default"
+    echo "                      come from the deployment target (default: the first, smtj)."
+    echo "  --instance-group <g>  hp-eks: pin the instance group (else TRAIN_HP_INSTANCE_GROUP, else the"
+    echo "                      first name-sorted Ready GPU group with a whole free node)"
+    echo "  --instance-type <t> hp-eks: only consider nodes of this instance type"
+    echo "  --gpus <n>          hp-eks: GPUs to request (default: the node's allocatable)"
+    echo "  --startup-timeout <s>  hp-eks: fail when not Running within s seconds (default 1200)"
+    echo "  --stall-timeout <s>    hp-eks: fail after s seconds without a log line (default 1800; 0 = off)"
+    echo "  --scratch-size <N>Gi   hp-eks: scratch size when no fsx-claim (default max(50Gi, 2.5x model))"
+    echo "  --storage-class <sc>   hp-eks: StorageClass for the scratch volume (default: cluster default)"
+    echo "  hp-eks needs an EKS Pod Identity association for mlcc-train-sa; the cluster contract"
+    echo "  prints the exact aws eks create-pod-identity-association command when it is missing."
+    echo "  TRAIN_IMAGE must ship hyperpodrun (pip install hyperpod-elastic-agent)."
     echo ""
     echo "Available techniques:"
     echo "  $(_list_techniques)"
@@ -198,6 +290,8 @@ _show_help() {
     echo "Examples:"
     echo "  ./do/train                      # Submit using config.yaml technique"
     echo "  ./do/train --technique sft      # Submit SFT training job"
+    echo "  ./do/train --technique sft --set learning_rate=1e-4 --set lora_r=32"
+    echo "  ./do/train -i --advanced        # Guided setup incl. advanced knobs"
     echo "  ./do/train --status             # Check status of current job"
     echo "  ./do/train --dry-run            # Validate and preview request"
     echo "  ./do/train --force              # Force a new job after failure"
@@ -232,6 +326,18 @@ _list_techniques() {
     echo "${techniques:-none found}"
 }
 
+# ── _have_pyyaml() ───────────────────────────────────────────────────────────
+# YAML parser selection. python3 + PyYAML is preferred everywhere; yq is only a
+# fallback when PyYAML is missing. The two disagree on scalars: mikefarah yq is
+# YAML 1.2 and turns `learning_rate: 2e-4` into the float 0.0002, while PyYAML
+# (YAML 1.1) keeps the string "2e-4". Preferring yq made the same project send
+# different hyperparameter strings depending on whether yq happened to be
+# installed (GitHub runners ship it), breaking the helper's "stringified,
+# nothing coerced" contract.
+_have_pyyaml() {
+    command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1
+}
+
 # ── _resolve_technique() ─────────────────────────────────────────────────────
 # Determine technique from CLI flag or config.yaml, validate directory exists.
 # Sets TECHNIQUE and TRAIN_SCRIPT_PATH.
@@ -241,7 +347,7 @@ _resolve_technique() {
     # Priority: CLI flag > config.yaml > default (custom)
     if [ -n "${ARG_TECHNIQUE}" ]; then
         TECHNIQUE="${ARG_TECHNIQUE}"
-    elif command -v yq &>/dev/null; then
+    elif ! _have_pyyaml && command -v yq &>/dev/null; then
         TECHNIQUE=$(yq -r '.technique // "custom"' "${CONFIG_FILE}")
     elif command -v python3 &>/dev/null; then
         TECHNIQUE=$(python3 -c "
@@ -285,7 +391,7 @@ _load_technique_defaults() {
         return 0
     fi
 
-    if command -v yq &>/dev/null; then
+    if ! _have_pyyaml && command -v yq &>/dev/null; then
         TECHNIQUE_DEFAULTS_JSON=$(yq -o=json '.' "${defaults_file}" 2>/dev/null) || TECHNIQUE_DEFAULTS_JSON="{}"
     elif command -v python3 &>/dev/null; then
         TECHNIQUE_DEFAULTS_JSON=$(python3 -c "
@@ -299,42 +405,99 @@ print(json.dumps(data))
     fi
 }
 
-# ── _merge_hyperparameters() ──────────────────────────────────────────────────
-# Merge hyperparameters with precedence: CLI flags > config.yaml > technique defaults.
-# Modifies TRAIN_HYPERPARAMS (JSON string) in place.
-_merge_hyperparameters() {
-    # Merge: technique defaults as base, config.yaml on top, CLI flags on top of that
-    TRAIN_HYPERPARAMS=$(python3 -c "
+# ── _resolve_hyperparameters() (BL154) ────────────────────────────────────────
+# Resolve the technique's hyperparameters through .train_helper.py build-config:
+#   - technique WITH do/training/<technique>/manifest.json → the shared config-builder
+#     core (same as do/tune): typed + range/enum-validated, tiered prompts with -i;
+#   - technique WITHOUT a manifest (descriptor-less, e.g. custom) → the legacy merge,
+#     unchanged: defaults.yaml < config.yaml < flags/--set, stringified, unvalidated.
+# Precedence: manifest default < defaults.yaml < config.yaml < --set/flag = answer.
+# Sets TRAIN_HYPERPARAMS (JSON of string values). Exits 2 on an invalid manifest and 1
+# on knob errors — both before any AWS call.
+_resolve_hyperparameters() {
+    # SET_KNOBS ("KNOB=VALUE" strings) → JSON. Each pair is a positional arg (robust to
+    # '='/spaces in values); a later pair for the same knob wins. Empty-array-safe under
+    # `set -u` via ${SET_KNOBS[@]+"${SET_KNOBS[@]}"}.
+    local supplied_json
+    supplied_json=$(python3 -c "
 import json, sys
+vals = {}
+for pair in sys.argv[1:]:
+    if '=' in pair:
+        k, v = pair.split('=', 1)
+        vals[k] = v
+print(json.dumps(vals))
+" ${SET_KNOBS[@]+"${SET_KNOBS[@]}"}) || supplied_json="{}"
 
-defaults_json = '''${TECHNIQUE_DEFAULTS_JSON}'''
-config_json = '''${TRAIN_HYPERPARAMS}'''
+    local empty_obj='{}'
+    local bc_args=(
+        --technique "${TECHNIQUE}"
+        --training-dir "${SCRIPT_DIR}/training"
+        --supplied "${supplied_json}"
+        --defaults "${TECHNIQUE_DEFAULTS_JSON:-$empty_obj}"
+        --config-hp "${TRAIN_HYPERPARAMS:-$empty_obj}"
+    )
+    # Knob prompts ONLY with -i/--interactive (do/train is non-interactive by default).
+    if [ "${ARG_INTERACTIVE}" = true ]; then
+        bc_args+=(--interactive --write-config "${CONFIG_FILE}")
+    fi
+    [ "${ARG_ADVANCED}" = true ] && bc_args+=(--advanced)
+    [ "${ARG_ALLOW_UNKNOWN}" = true ] && bc_args+=(--allow-unknown)
 
-defaults = json.loads(defaults_json) if defaults_json and defaults_json != '{}' else {}
-config_hp = json.loads(config_json) if config_json and config_json != '{}' else {}
+    # BL178: do NOT 2>/dev/null this call — the interactive prompts and the structured
+    # manifest-error message render on stderr; stdout carries only the JSON result.
+    local bc_result bc_rc=0
+    bc_result=$(python3 "${SCRIPT_DIR}/.train_helper.py" build-config "${bc_args[@]}") || bc_rc=$?
+    if [ "${bc_rc}" -eq 2 ]; then
+        exit 2  # invalid manifest.json — the helper already printed what to fix
+    fi
+    if [ "${bc_rc}" -ne 0 ]; then
+        echo "❌ Failed to resolve hyperparameters for technique '${TECHNIQUE}'." >&2
+        exit 1
+    fi
+    bc_result=$(printf '%s\n' "${bc_result}" | grep -E '^\{' | tail -1) || bc_result=""
 
-# Layer 1: technique defaults as base
-merged = {str(k): str(v) for k, v in defaults.items()}
-
-# Layer 2: config.yaml hyperparameters override defaults
-merged.update({str(k): str(v) for k, v in config_hp.items()})
-
-# Layer 3: CLI flags override everything (highest priority)
-cli_overrides = {}
-if '${ARG_LEARNING_RATE}':
-    cli_overrides['learning_rate'] = '${ARG_LEARNING_RATE}'
-if '${ARG_EPOCHS}':
-    cli_overrides['epochs'] = '${ARG_EPOCHS}'
-if '${ARG_BATCH_SIZE}':
-    cli_overrides['batch_size'] = '${ARG_BATCH_SIZE}'
-if '${ARG_LORA_R}':
-    cli_overrides['lora_r'] = '${ARG_LORA_R}'
-if '${ARG_BETA}':
-    cli_overrides['beta'] = '${ARG_BETA}'
-
-merged.update(cli_overrides)
-print(json.dumps(merged))
-" 2>/dev/null) || true
+    # Print errors / notes / the source summary (stderr) and emit the resolved JSON.
+    local resolved_json fmt_rc=0
+    resolved_json=$(printf '%s' "${bc_result}" | python3 -c "
+import json, sys
+technique = sys.argv[1]
+err = sys.stderr
+try:
+    d = json.loads(sys.stdin.read() or '')
+except ValueError:
+    print('\u274c No usable response from the hyperparameter resolver.', file=err)
+    sys.exit(3)
+errors = d.get('errors') or []
+if errors:
+    print(\"\u274c Hyperparameter validation failed for technique '%s':\" % technique, file=err)
+    for e in errors:
+        print('   \u2022 ' + e, file=err)
+    sys.exit(3)
+for n in d.get('notes') or []:
+    print('\u2139\ufe0f  ' + n, file=err)
+resolved = d.get('resolved') or {}
+sources = d.get('sources') or {}
+passthrough = d.get('passthrough') or []
+if resolved:
+    mode = 'manifest.json' if d.get('descriptor') else 'descriptor-less: values are not validated'
+    print('', file=err)
+    print('\u2699\ufe0f  Hyperparameters this job will use (%s, %s):' % (technique, mode), file=err)
+    width = max(len(k) for k in resolved)
+    for k in sorted(resolved):
+        print('   {0:<{w}}  {1:<16}  ({2})'.format(k, resolved[k], sources.get(k, '?'), w=width), file=err)
+if passthrough:
+    print('\u2139\ufe0f  Not declared in %s/manifest.json, passed to train.py unchanged: %s'
+          % (technique, ', '.join(passthrough)), file=err)
+if resolved or passthrough:
+    print('', file=err)
+print(json.dumps(resolved))
+" "${TECHNIQUE}") || fmt_rc=$?
+    if [ "${fmt_rc}" -ne 0 ]; then
+        exit 1
+    fi
+    TRAIN_HYPERPARAMS="${resolved_json}"
+    _HP_RESOLVED=true
 }
 
 # ── _list_datasets_cmd() ─────────────────────────────────────────────────────
@@ -404,6 +567,16 @@ _resolve_dataset() {
         # HuggingFace — stage via helper
         _stage_hf_dataset "${dataset}"
 
+    elif [[ "${dataset}" == fsx://* ]]; then
+        # Wave 11 R5.1: an existing fsx-claim subpath, mounted read-only (hp-eks only).
+        if [ "${TRAIN_BACKEND_RESOLVED}" != "hp-eks" ]; then
+            echo "❌ --dataset fsx://... is only valid with --backend hp-eks (an FSx subpath on the cluster)"
+            exit 2
+        fi
+        echo "📂 Dataset: ${dataset} (fsx-claim subpath, read-only)"
+        TRAIN_DATASET="${dataset}"
+        return 0
+
     else
         # Treat as a registry name
         _resolve_dataset_from_registry "${dataset}" ""
@@ -411,8 +584,12 @@ _resolve_dataset() {
 
     # Persist resolved URI
     if [ -n "${RESOLVED_DATASET_S3_URI}" ]; then
+        # Same key form the readers use (_additive_upper in script-contract.sh:
+        # uppercase, hyphens -> underscores). A raw uppercase would write e.g.
+        # TRAIN_DATASET_S3_URI_SFT-NEFTUNE, which is not a valid shell name and makes
+        # do/config unsourceable for every do/ script.
         local technique_upper
-        technique_upper=$(echo "${TECHNIQUE}" | tr '[:lower:]' '[:upper:]')
+        technique_upper=$(_additive_upper "${TECHNIQUE}")
         _update_config_var "TRAIN_DATASET_S3_URI_${technique_upper}" "${RESOLVED_DATASET_S3_URI}"
     fi
 }
@@ -574,7 +751,9 @@ _parse_config() {
         exit 1
     fi
 
-    if command -v yq &>/dev/null; then
+    if _have_pyyaml; then
+        _parse_config_python
+    elif command -v yq &>/dev/null; then
         _parse_config_yq
     elif command -v python3 &>/dev/null; then
         _parse_config_python
@@ -735,7 +914,10 @@ _validate_config() {
         has_error=true
     fi
 
-    if [ -z "${TRAIN_SCRIPT}" ]; then
+    # hp-eks ships the plugin (do/training/<technique>/) in a ConfigMap and picks the
+    # node from live cluster state, so the SMTJ-only script / instance_type fields
+    # are not required there (Wave 11 R4).
+    if [ -z "${TRAIN_SCRIPT}" ] && [ "${TRAIN_BACKEND_RESOLVED}" != "hp-eks" ]; then
         echo "❌ Missing required field: script"
         echo "   The training script S3 path is required in do/training/config.yaml"
         echo ""
@@ -744,7 +926,7 @@ _validate_config() {
         has_error=true
     fi
 
-    if [ -z "${TRAIN_INSTANCE_TYPE}" ]; then
+    if [ -z "${TRAIN_INSTANCE_TYPE}" ] && [ "${TRAIN_BACKEND_RESOLVED}" != "hp-eks" ]; then
         echo "❌ Missing required field: instance_type"
         echo "   The SageMaker instance type is required in do/training/config.yaml"
         echo ""
@@ -763,17 +945,15 @@ _validate_config() {
     fi
 
     if [ -z "${TRAIN_OUTPUT_PATH}" ]; then
-        # Auto-resolve from profile: use benchmarkS3Bucket or construct from project name
-        if [ -n "${_PROFILE_benchmarkS3Bucket:-}" ]; then
-            TRAIN_OUTPUT_PATH="s3://${_PROFILE_benchmarkS3Bucket}/${PROJECT_NAME}/training-output/"
-        elif [ -n "${BENCHMARK_S3_OUTPUT_PATH:-}" ]; then
-            # Derive from benchmark output path (replace /benchmarks/ with /training-output/)
-            TRAIN_OUTPUT_PATH="${BENCHMARK_S3_OUTPUT_PATH%/benchmarks/*}/training-output/${PROJECT_NAME}/"
+        # Auto-resolve from the profile's artifacts bucket: <project>/train/
+        # (bucket consolidation R2.3 — formerly, wrongly, the benchmark bucket).
+        if [ -n "${ARTIFACTS_S3_BUCKET:-}" ]; then
+            TRAIN_OUTPUT_PATH="s3://${ARTIFACTS_S3_BUCKET}/${PROJECT_NAME}/train/"
         fi
         if [ -z "${TRAIN_OUTPUT_PATH}" ]; then
             echo "❌ Missing required field: output_path"
             echo "   The S3 output path is required in do/training/config.yaml"
-            echo "   Or run 'ml-container-creator bootstrap' to configure an S3 bucket."
+            _require_bucket ARTIFACTS_S3_BUCKET || true
             echo ""
             echo "   Expected format: output_path: \"s3://my-bucket/output/\""
             echo ""
@@ -815,6 +995,33 @@ _check_idempotency() {
     # Check if TRAIN_JOB_NAME is set and non-empty (sourced from do/config)
     if [ -z "${TRAIN_JOB_NAME:-}" ]; then
         return 0
+    fi
+    # Wave 11: the tracked job belongs to the backend that recorded it (a config
+    # without TRAIN_BACKEND predates Wave 11 and is an SMTJ job).
+    if [ "${TRAIN_BACKEND:-smtj}" != "${TRAIN_BACKEND_RESOLVED:-smtj}" ]; then
+        return 0
+    fi
+    if [ "${TRAIN_BACKEND_RESOLVED}" = "hp-eks" ]; then
+        echo "🔍 Found existing hp-eks training job: ${TRAIN_JOB_NAME}"
+        local _st _rc=0
+        _st=$(_hp_watch status "${TRAIN_JOB_NAME}") || _rc=$?
+        case "$(_hp_json_field "${_st}" state)" in
+            Running|Pending)
+                echo "⏳ Still running — resuming the watch..."
+                JOB_NAME="${TRAIN_JOB_NAME}"
+                _hp_poll_job
+                exit 0 ;;
+            Succeeded)
+                _hp_after_watch "${_rc}" "${_st}" "${TRAIN_JOB_NAME}"
+                exit 0 ;;
+            Unknown)
+                return 0 ;;
+            *)
+                echo "❌ Previous training job failed: ${TRAIN_JOB_NAME} ($(_hp_json_field "${_st}" reason))"
+                echo "   To submit a new job, re-run with --force:"
+                echo "     ./do/train --backend hp-eks --force"
+                exit 2 ;;
+        esac
     fi
 
     echo "🔍 Found existing training job: ${TRAIN_JOB_NAME}"
@@ -891,6 +1098,36 @@ _check_idempotency() {
     esac
 }
 
+# ── _merge_mlflow_env() ───────────────────────────────────────────────────────
+# Shared by the SMTJ request and the hp-eks render (BL166 parity with do/tune).
+_merge_mlflow_env() {
+    # ── BL166: MLflow parity with do/tune ────────────────────────────────────
+    # Ensure the per-project experiment exists (idempotent, non-fatal), then merge
+    # the MLflow job env (tracking ref + MLFLOW_EXPERIMENT_NAME) into the training
+    # job's Environment so the container's autolog publishes to the shared App
+    # under the project experiment. Unconfigured profile → empty merge → no change.
+    local _mlflow_env
+    _mlflow_env=$(python3 -c "
+import sys, json
+sys.path.insert(0, '${SCRIPT_DIR}/lib/python')
+import mlcc_mlflow as m
+m.ensure_project_experiment('${PROJECT_NAME}')
+print(json.dumps(m.mlflow_env_for_job('${PROJECT_NAME}')))
+" 2>/dev/null || echo "{}")
+    if [ -n "${_mlflow_env}" ] && [ "${_mlflow_env}" != "{}" ]; then
+        # Merge _mlflow_env into TRAIN_ENVIRONMENT (job env wins on key clash is
+        # avoided: user-set env takes precedence, MLflow fills only unset keys).
+        TRAIN_ENVIRONMENT=$(python3 -c "
+import sys, json
+base = json.loads('''${TRAIN_ENVIRONMENT:-{}}''' or '{}')
+extra = json.loads('''${_mlflow_env}''')
+for k, v in extra.items():
+    base.setdefault(k, v)
+print(json.dumps(base))
+" 2>/dev/null || echo "${TRAIN_ENVIRONMENT}")
+    fi
+
+}
 # ── _build_job_request() ──────────────────────────────────────────────────────
 # Construct the CreateTrainingJob JSON request body.
 # Sets JOB_NAME and JOB_REQUEST_FILE for use by _submit_job.
@@ -899,6 +1136,8 @@ _build_job_request() {
     local timestamp
     timestamp=$(date +%Y%m%d-%H%M%S)
     JOB_NAME="${PROJECT_NAME}-train-${timestamp}"
+
+    _merge_mlflow_env
 
     # Construct the JSON request file using python3
     JOB_REQUEST_FILE="/tmp/train-request-${JOB_NAME}.json"
@@ -937,174 +1176,6 @@ _build_job_request() {
     fi
 }
 
-<% if (deploymentTarget === 'hyperpod-eks') { %>
-# ── _submit_job() ─────────────────────────────────────────────────────────────
-# HyperPod EKS: Generate and apply a K8s Job manifest for single-pod training.
-# Multi-node (parallelism > 1) requires PyTorchJob CRD — see Epic 8.
-_submit_job() {
-    local manifest_file="${SCRIPT_DIR}/../.train-job.yaml"
-
-    # Handle --dry-run: generate manifest and print without applying
-    if [ "${ARG_DRY_RUN}" = true ]; then
-        _generate_k8s_manifest "${manifest_file}"
-        echo ""
-        echo "🔍 Dry run — K8s Job manifest:"
-        echo ""
-        cat "${manifest_file}"
-        echo ""
-        rm -f "${manifest_file}"
-        exit 0
-    fi
-
-    echo ""
-    echo "🚀 Submitting training job to HyperPod EKS..."
-
-    _generate_k8s_manifest "${manifest_file}"
-
-    # Apply the manifest
-    kubectl apply -f "${manifest_file}" 2>&1 || {
-        echo "❌ Failed to apply K8s Job manifest"
-        echo "   Check: kubectl access, namespace exists, PVC available"
-        exit 1
-    }
-
-    # Persist job name to do/config
-    _update_config_var "TRAIN_JOB_NAME" "${JOB_NAME}"
-    echo "   ✅ Job submitted: ${JOB_NAME}"
-    echo "   Namespace: ${HP_NAMESPACE:-default}"
-    echo ""
-}
-
-# ── _generate_k8s_manifest() ─────────────────────────────────────────────────
-# Generate a K8s batch/v1 Job YAML for single-node multi-GPU training.
-_generate_k8s_manifest() {
-    local manifest_file="$1"
-    local gpu_count="${TRAIN_INSTANCE_COUNT:-1}"
-
-    # Detect EFA availability on cluster nodes
-    local efa_count
-    efa_count=$(kubectl get nodes -o jsonpath='{.items[0].status.allocatable.vpc\.amazonaws\.com/efa}' 2>/dev/null || echo "0")
-
-    # Build EFA resource request if available
-    local efa_resource=""
-    local nccl_env=""
-    if [ "${efa_count}" != "0" ] && [ "${efa_count}" != "" ]; then
-        efa_resource="            vpc.amazonaws.com/efa: ${efa_count}"
-        nccl_env="        - name: NCCL_SOCKET_IFNAME
-          value: \"eth0\"
-        - name: FI_PROVIDER
-          value: \"efa\"
-        - name: FI_EFA_USE_DEVICE_RDMA
-          value: \"1\""
-    fi
-
-    cat > "${manifest_file}" <<MANIFEST
-# Generated by do/train for HyperPod EKS (single-node)
-# Multi-node distributed training requires PyTorchJob CRD — see Epic 8.
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${JOB_NAME}
-  namespace: ${HP_NAMESPACE:-default}
-  labels:
-    app: ml-container-creator
-    project: ${PROJECT_NAME}
-    technique: ${TECHNIQUE:-custom}
-spec:
-  parallelism: 1
-  completions: 1
-  backoffLimit: 0
-  template:
-    metadata:
-      labels:
-        app: ml-container-creator
-        job-name: ${JOB_NAME}
-    spec:
-      containers:
-      - name: training
-        image: ${TRAIN_IMAGE}
-        command: ["accelerate", "launch", "--config_file", "/workspace/training/${TECHNIQUE:-custom}/accelerate_config.yaml", "/workspace/training/${TECHNIQUE:-custom}/train.py"]
-        env:
-        - name: DATA_DIR
-          value: "/data/training"
-        - name: OUTPUT_DIR
-          value: "/output/model"
-        - name: CHECKPOINT_DIR
-          value: "/output/checkpoints"
-        - name: HF_MODEL_ID
-          value: "${HF_MODEL_ID:-}"
-        - name: NUM_GPUS
-          value: "${gpu_count}"
-        - name: TRAIN_TECHNIQUE
-          value: "${TECHNIQUE:-custom}"
-${nccl_env}
-        resources:
-          limits:
-            nvidia.com/gpu: ${gpu_count}
-${efa_resource}
-        volumeMounts:
-        - name: data
-          mountPath: /data
-        - name: output
-          mountPath: /output
-        - name: workspace
-          mountPath: /workspace
-      volumes:
-      - name: data
-        persistentVolumeClaim:
-          claimName: ${DATA_PVC:-training-data}
-      - name: output
-        persistentVolumeClaim:
-          claimName: ${OUTPUT_PVC:-training-output}
-      - name: workspace
-        configMap:
-          name: ${PROJECT_NAME}-training-scripts
-      restartPolicy: Never
-MANIFEST
-}
-
-# ── _poll_job() ───────────────────────────────────────────────────────────────
-# HyperPod EKS: Poll K8s Job status via kubectl.
-_poll_job() {
-    local job_name="${JOB_NAME:-$TRAIN_JOB_NAME}"
-    local namespace="${HP_NAMESPACE:-default}"
-
-    echo "⏳ Polling K8s Job: ${job_name} (namespace: ${namespace})"
-    echo "   (Ctrl+C to stop polling — job continues in cluster)"
-    echo ""
-
-    while true; do
-        local status
-        status=$(kubectl get job "${job_name}" -n "${namespace}" -o jsonpath='{.status.conditions[0].type}' 2>/dev/null) || status=""
-
-        local active
-        active=$(kubectl get job "${job_name}" -n "${namespace}" -o jsonpath='{.status.active}' 2>/dev/null) || active="0"
-
-        local succeeded
-        succeeded=$(kubectl get job "${job_name}" -n "${namespace}" -o jsonpath='{.status.succeeded}' 2>/dev/null) || succeeded="0"
-
-        local failed
-        failed=$(kubectl get job "${job_name}" -n "${namespace}" -o jsonpath='{.status.failed}' 2>/dev/null) || failed="0"
-
-        if [ "${succeeded}" = "1" ]; then
-            echo "   ✅ Completed"
-            echo ""
-            echo "✅ Training job completed: ${job_name}"
-            break
-        elif [ "${failed}" = "1" ] || [ "${status}" = "Failed" ]; then
-            echo "   ❌ Failed"
-            echo ""
-            echo "❌ Training job failed: ${job_name}"
-            echo "   Logs: kubectl logs job/${job_name} -n ${namespace}"
-            exit 2
-        else
-            echo "   🔄 Running (active: ${active:-0})"
-        fi
-
-        sleep "${POLL_INTERVAL}"
-    done
-}
-<% } else { %>
 # ── _submit_job() ─────────────────────────────────────────────────────────────
 # Submit training job via .train_helper.py (SDK v3).
 # Handles --dry-run, error detection, and config persistence.
@@ -1149,8 +1220,9 @@ _submit_job() {
         exit 1
     fi
 
-    # Success — persist job name to do/config
+    # Success — persist job name (and the backend --status dispatches on) to do/config
     _update_config_var "TRAIN_JOB_NAME" "${JOB_NAME}"
+    _update_config_var "TRAIN_BACKEND" "smtj"
     echo "   ✅ Job submitted successfully: ${JOB_NAME}"
     echo ""
 }
@@ -1242,38 +1314,276 @@ _poll_job() {
         sleep "${POLL_INTERVAL}"
     done
 }
-<% } %>
+
+# ══ Wave 11: compute backend (R1.2) + hp-eks HyperPodPyTorchJob path (R4–R6) ══
+# The backend is resolved at RUN time from the deployment-target descriptor's
+# compute_backends (first entry = default; OQ-11.5 keeps smtj the default on
+# hyperpod-eks) — there is no gen-time target fork in this script.
+
+# _allowed_backends — the target's compute_backends, space-separated.
+_allowed_backends() {
+    local _b
+    _b=$(python3 "${SCRIPT_DIR}/lib/python/target_manifest.py" compute_backends "${DEPLOYMENT_TARGET:-}" 2>/dev/null \
+        | tr -d '[]",') || _b=""
+    _b=$(echo ${_b})
+    echo "${_b:-smtj}"
+}
+
+# _resolve_backend [recorded] — --backend > recorded backend (status/stop) > default.
+# Refuses (exit 3) a backend the target does not offer, naming the allowed set.
+_resolve_backend() {
+    local _allowed _req
+    _allowed=$(_allowed_backends)
+    _req="${ARG_BACKEND:-${1:-}}"
+    [ -n "${_req}" ] || _req="${_allowed%% *}"
+    case " ${_allowed} " in
+        *" ${_req} "*) ;;
+        *)
+            _contract_violation "backend" \
+                "--backend ${_req} is not available for do/train on ${DEPLOYMENT_TARGET:-<unset>}." \
+                "Allowed backends here: $(echo "${_allowed}" | sed 's/ /, /g') (default: ${_allowed%% *})."
+            ;;
+    esac
+    TRAIN_BACKEND_RESOLVED="${_req}"
+    if [ "${_req}" != "hp-eks" ]; then
+        local _f
+        for _f in "${ARG_INSTANCE_GROUP}" "${ARG_INSTANCE_TYPE}" "${ARG_GPUS}" "${ARG_STARTUP_TIMEOUT}" \
+                  "${ARG_STALL_TIMEOUT}" "${ARG_SCRATCH_SIZE}" "${ARG_STORAGE_CLASS}"; do
+            if [ -n "${_f}" ]; then
+                echo "ℹ  --instance-group/--instance-type/--gpus/--*-timeout/--scratch-size/--storage-class apply to --backend hp-eks only; ignoring them."
+                break
+            fi
+        done
+    fi
+    if [ -n "${ARG_GPUS}" ]; then
+        case "${ARG_GPUS}" in
+            ''|*[!0-9]*|0) echo "❌ --gpus must be a positive integer (got '${ARG_GPUS}')"; exit 2 ;;
+        esac
+    fi
+}
+
+# _hp_py <module> args... — run a do/lib/python helper.
+_hp_py() {
+    local _m="$1"
+    shift
+    python3 "${SCRIPT_DIR}/lib/python/${_m}" "$@"
+}
+
+# _hp_json_field <json> <key> — one top-level / resolved.* field ("" if absent).
+_hp_json_field() {
+    printf '%s' "$1" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except ValueError:
+    d = {}
+k = sys.argv[1]
+v = d.get(k, (d.get('resolved') or {}).get(k, ''))
+print('' if v is None else v)
+" "$2" 2>/dev/null || true
+}
+
+# _hp_contract_script — the descriptor's cluster_contract script (ADR-008), never a literal.
+_hp_contract_script() {
+    _hp_py target_manifest.py cluster_contract "${DEPLOYMENT_TARGET}" 2>/dev/null \
+        | python3 -c "import json,sys; print((json.load(sys.stdin) or {}).get('script',''))" 2>/dev/null || true
+}
+
+_hp_namespace() {
+    echo "${TRAIN_HP_NAMESPACE:-${HP_NAMESPACE:-default}}"
+}
+
+# _hp_watch_args — the shared watcher flags (job, namespace, artifacts, timeouts).
+_hp_watch() {
+    local _sub="$1" _job="$2"
+    local _deadline=$(( ${TRAIN_MAX_RUNTIME:-86400} + ${ARG_STARTUP_TIMEOUT:-1200} ))
+    _hp_py hp_job.py "${_sub}" --job "${_job}" --namespace "$(_hp_namespace)" \
+        --artifacts-bucket "${ARTIFACTS_S3_BUCKET:-}" --project "${PROJECT_NAME}" --kind train \
+        --startup-timeout "${ARG_STARTUP_TIMEOUT:-1200}" --stall-timeout "${ARG_STALL_TIMEOUT:-1800}" \
+        --deadline "${_deadline}" --poll "${POLL_INTERVAL}"
+}
+
+# _hp_submit_job — contract → render → (dry-run | ServiceAccount + apply).
+_hp_submit_job() {
+    if [ -z "${HP_CLUSTER_NAME:-}" ]; then
+        echo "❌ HP_CLUSTER_NAME is not set (hp-eks submits to the project's HyperPod cluster)"
+        exit 1
+    fi
+    if [ -z "${ARTIFACTS_S3_BUCKET:-}" ]; then
+        echo "❌ The profile has no artifacts bucket (ARTIFACTS_S3_BUCKET): ml-container-creator bootstrap update --module training"
+        exit 1
+    fi
+    case "${TRAIN_DATASET:-}" in
+        s3://*|fsx://*|"") ;;
+        *) echo "❌ hp-eks needs an s3:// (or fsx://) dataset; got '${TRAIN_DATASET}'"; exit 3 ;;
+    esac
+    local _ns
+    _ns=$(_hp_namespace)
+    JOB_NAME="$(echo "${PROJECT_NAME}" | tr '[:upper:]_' '[:lower:]-')-train-$(date +%Y%m%d-%H%M%S)"
+    _merge_mlflow_env
+
+    echo ""
+    echo "🔎 Cluster contract (hp-eks train, read-only):"
+    local _script _cjson _crc=0
+    _script="$(_hp_contract_script)"
+    if [ -z "${_script}" ]; then
+        echo "❌ ${DEPLOYMENT_TARGET} declares no cluster_contract; hp-eks cannot be verified"
+        exit 3
+    fi
+    _cjson=$(python3 "${SCRIPT_DIR}/${_script}" contract --verb train --namespace "${_ns}" \
+        --project "${PROJECT_NAME}" --group "${ARG_INSTANCE_GROUP:-${TRAIN_HP_INSTANCE_GROUP:-}}" \
+        --instance-type "${ARG_INSTANCE_TYPE}" --gpus "${ARG_GPUS:-0}" --dataset "${TRAIN_DATASET:-}" \
+        --job "${JOB_NAME}" --storage-class "${ARG_STORAGE_CLASS}") || _crc=$?
+    if [ "${_crc}" -eq 4 ]; then
+        if [ "${ARG_DRY_RUN}" != true ]; then
+            echo ""
+            echo "❌ The cluster contract has blocking findings (above); nothing was submitted."
+            exit 4
+        fi
+        echo "   ⚠  dry run: a real submit would stop here (exit 4)."
+    elif [ "${_crc}" -ne 0 ]; then
+        echo "❌ The cluster contract could not run (exit ${_crc})"
+        exit 1
+    fi
+    local _group _gpus _scratch _sc
+    _group=$(_hp_json_field "${_cjson}" group)
+    _gpus=$(_hp_json_field "${_cjson}" gpus)
+    _scratch=$(_hp_json_field "${_cjson}" scratch)
+    _sc=$(_hp_json_field "${_cjson}" storage_class)
+    if [ -z "${_group}" ] || [ -z "${_gpus}" ]; then
+        echo "❌ No GPU node could be chosen (see free-gpus above)."
+        exit 4
+    fi
+    local _launcher
+    _launcher=$(python3 -c "
+import sys, yaml
+print((yaml.safe_load(open(sys.argv[1])) or {}).get('launcher') or 'accelerate')
+" "${CONFIG_FILE}" 2>/dev/null || echo accelerate)
+    local _env_json="${TRAIN_ENVIRONMENT:-}" _hp_json="${TRAIN_HYPERPARAMS:-}"
+    [ -n "${_env_json}" ] || _env_json='{}'
+    [ -n "${_hp_json}" ] || _hp_json='{}'
+    local _manifest
+    _manifest="$(mktemp "${TMPDIR:-/tmp}/mlcc-hp-train.XXXXXX")"
+    _hp_py hp_job.py render-train --project "${PROJECT_NAME}" --job "${JOB_NAME}" --namespace "${_ns}" \
+        --image "${TRAIN_IMAGE}" --group "${_group}" --gpus "${_gpus}" --technique "${TECHNIQUE:-custom}" \
+        --plugin-dir "${SCRIPT_DIR}/training/${TECHNIQUE:-custom}" --dataset "${TRAIN_DATASET:-}" \
+        --artifacts-bucket "${ARTIFACTS_S3_BUCKET}" --region "${AWS_REGION:-}" \
+        --max-runtime "${TRAIN_MAX_RUNTIME:-86400}" --model-uri "${STAGED_MODEL_PATH:-}" \
+        --hf-model-id "${MODEL_NAME:-}" --scratch "${_scratch:-fsx}" --storage-class "${_sc}" \
+        --scratch-size "${ARG_SCRATCH_SIZE}" --env-json "${_env_json}" --hparams-json "${_hp_json}" \
+        --launcher "${_launcher}" --out "${_manifest}" >/dev/null || {
+        local _rrc=$?
+        rm -f "${_manifest}"
+        exit "${_rrc}"
+    }
+    echo ""
+    echo "📋 HyperPodPyTorchJob: ${_ns}/${JOB_NAME}"
+    echo "   Group:     ${_group} (${_gpus} GPU, single node, no EFA)"
+    echo "   Image:     ${TRAIN_IMAGE}"
+    echo "   Scratch:   ${_scratch:-fsx}${_sc:+ (StorageClass ${_sc})}"
+    echo "   Output:    s3://${ARTIFACTS_S3_BUCKET}/${PROJECT_NAME}/train/${JOB_NAME}/"
+    if [ "${ARG_DRY_RUN}" = true ]; then
+        echo ""
+        echo "🔍 Dry run — HyperPodPyTorchJob manifest (nothing applied):"
+        echo ""
+        cat "${_manifest}"
+        echo ""
+        rm -f "${_manifest}"
+        exit 0
+    fi
+    echo ""
+    echo "🚀 Submitting to HyperPod EKS (${HP_CLUSTER_NAME})..."
+    if ! _hp_py hp_job.py submit --manifest "${_manifest}" --namespace "${_ns}" >/dev/null; then
+        rm -f "${_manifest}"
+        echo "❌ kubectl apply failed (see above)"
+        exit 1
+    fi
+    rm -f "${_manifest}"
+    _update_config_var "TRAIN_JOB_NAME" "${JOB_NAME}"
+    _update_config_var "TRAIN_BACKEND" "hp-eks"
+    _update_config_var "TRAIN_HP_NAMESPACE" "${_ns}"
+    TRAIN_HP_NAMESPACE="${_ns}"
+    echo "   ✅ Job submitted: ${JOB_NAME}"
+    echo ""
+}
+
+# _hp_poll_job — watch until terminal; the watcher deletes the HPPJ on ANY
+# terminal state (GPUs released). Success hands the S3 prefix to the shared
+# completion (promotion + TRAIN_* writes).
+_hp_poll_job() {
+    local _job="${JOB_NAME:-${TRAIN_JOB_NAME:-}}" _out _rc=0
+    echo "⏳ Watching HyperPodPyTorchJob: $(_hp_namespace)/${_job}"
+    echo "   (Ctrl+C detaches — the job keeps running; ./do/train --status re-attaches and cleans up)"
+    echo ""
+    _out=$(_hp_watch watch "${_job}") || _rc=$?
+    _hp_after_watch "${_rc}" "${_out}" "${_job}"
+}
+
+# _hp_after_watch <rc> <json> <job> — terminal handling shared by watch and --status.
+_hp_after_watch() {
+    local _rc="$1" _out="$2" _job="$3" _state _prefix
+    _state=$(_hp_json_field "${_out}" state)
+    case "${_state}" in
+        Succeeded)
+            _prefix=$(_hp_json_field "${_out}" artifact_prefix)
+            echo "✅ Training job completed: ${_job}"
+            JOB_NAME="${_job}"
+            _handle_completion "${_prefix}"
+            return 0
+            ;;
+        Running|Pending)
+            echo "   🔄 ${_state}: $(_hp_json_field "${_out}" reason)"
+            return 0
+            ;;
+        *)
+            echo ""
+            echo "❌ Training job failed: ${_job}"
+            echo "   Reason: $(_hp_json_field "${_out}" reason)"
+            local _pre
+            _pre=$(_hp_json_field "${_out}" precondition)
+            [ -n "${_pre}" ] && echo "   ${_pre}"
+            echo "   Durable log: $(_hp_json_field "${_out}" logs_uri)"
+            echo "   To retry: ./do/train --backend hp-eks --force"
+            exit 2
+            ;;
+    esac
+}
 
 # ── _handle_completion() ──────────────────────────────────────────────────────
 # Store output paths, write TRAIN_* lifecycle vars, and invoke feedback loop.
 # Extracts model artifacts path, detects output type, and prints next steps.
 _handle_completion() {
     local job_name="${JOB_NAME:-$TRAIN_JOB_NAME}"
+    # Wave 11 (R5.3): the hp-eks watcher already knows the S3 output prefix it
+    # uploaded (s3://<artifacts>/<project>/train/<job>/output), so it passes it in
+    # and the SAME promotion + TRAIN_* config writes below run unchanged.
+    local output_path="${1:-}"
+    local describe_output=""
 
-    # Get the full DescribeTrainingJob response
-    local describe_output
-    local describe_exit_code
-    describe_output=$(aws sagemaker describe-training-job \
-        --training-job-name "${job_name}" 2>&1) || describe_exit_code=$?
-    describe_exit_code=${describe_exit_code:-0}
+    if [ -z "${output_path}" ]; then
+        # Get the full DescribeTrainingJob response
+        local describe_exit_code
+        describe_output=$(aws sagemaker describe-training-job \
+            --training-job-name "${job_name}" 2>&1) || describe_exit_code=$?
+        describe_exit_code=${describe_exit_code:-0}
 
-    if [ ${describe_exit_code} -ne 0 ]; then
-        echo "⚠️  Failed to describe completed job: ${job_name}"
-        echo "   ${describe_output}"
-        return 1
-    fi
+        if [ ${describe_exit_code} -ne 0 ]; then
+            echo "⚠  Failed to describe completed job: ${job_name}"
+            echo "   ${describe_output}"
+            return 1
+        fi
 
-    # Extract ModelArtifacts.S3ModelArtifacts from the response
-    local output_path
-    output_path=$(echo "${describe_output}" | python3 -c "
+        # Extract ModelArtifacts.S3ModelArtifacts from the response
+        output_path=$(echo "${describe_output}" | python3 -c "
 import sys, json
 resp = json.load(sys.stdin)
 artifacts = resp.get('ModelArtifacts', {})
 print(artifacts.get('S3ModelArtifacts', ''))
 " 2>/dev/null)
+    fi
 
     if [ -z "${output_path}" ]; then
-        echo "⚠️  No model artifacts found in job response."
+        echo "⚠  No model artifacts found in job response."
         echo "   The job may not have produced output artifacts."
         return 1
     fi
@@ -1282,17 +1592,35 @@ print(artifacts.get('S3ModelArtifacts', ''))
     _update_config_var "TRAIN_OUTPUT_PATH_LATEST" "${output_path}"
     _update_config_var "TRAIN_JOB_NAME" "${job_name}"
 
-    # Write technique-specific adapter path
-    local technique_upper
-    technique_upper=$(echo "${TECHNIQUE:-custom}" | tr '[:lower:]' '[:upper:]')
-    _update_config_var "TRAIN_ADAPTER_PATH_${technique_upper}" "${output_path}"
-    _update_config_var "TRAIN_TECHNIQUE" "${TECHNIQUE:-custom}"
-
     # Detect output type: check for adapter_config.json in output path
     local output_type="full-model"
     if aws s3 ls "${output_path}/adapter_config.json" &>/dev/null; then
         output_type="adapter"
     fi
+
+    # Write technique-specific paths
+    # Key form shared with the --from-train reader (_additive_upper, script-contract.sh).
+    local technique_upper technique_lc
+    technique_upper=$(_additive_upper "${TECHNIQUE:-custom}")
+    technique_lc=$(echo "${TECHNIQUE:-custom}" | tr '[:upper:]' '[:lower:]' | sed 's/_/-/g')
+
+    # Promotion (bucket consolidation R3.3): publish the servable output to its
+    # canonical prefix in the core bucket (adapter → <base prefix>/.mlcc-adapters/
+    # <project>/trained-<technique>/, full model → models/mlcc-<project>/
+    # trained-<technique>/; do/lib/s3-layout.sh). The raw output stays in the
+    # artifacts bucket and in TRAIN_OUTPUT_PATH_<T> / TRAIN_OUTPUT_PATH_LATEST.
+    local _promo_type="model"
+    [ "${output_type}" = "adapter" ] && _promo_type="adapter"
+    _s3_layout_promote "${output_path}" "${_promo_type}" "trained-${technique_lc}" "${technique_lc}" \
+        "${job_name}" "${MODEL_NAME:-}" "do/train"
+    _update_config_var "TRAIN_OUTPUT_PATH_${technique_upper}" "${output_path}"
+    if [ "${output_type}" = "adapter" ]; then
+        _update_config_var "TRAIN_ADAPTER_PATH_${technique_upper}" "${PROMOTED_URI:-${output_path}}"
+    else
+        _update_config_var "TRAIN_ADAPTER_PATH_${technique_upper}" "${output_path}"
+        [ -n "${PROMOTED_URI}" ] && _update_config_var "TRAIN_MODEL_PATH_${technique_upper}" "${PROMOTED_URI}"
+    fi
+    _update_config_var "TRAIN_TECHNIQUE" "${TECHNIQUE:-custom}"
 
     # Source feedback.sh and call print_completion_feedback
     source "${SCRIPT_DIR}/lib/feedback.sh"
@@ -1316,7 +1644,7 @@ print(artifacts.get('S3ModelArtifacts', ''))
     fi
 
     # If spot training was enabled, display cost savings
-    if [ "${TRAIN_ENABLE_SPOT:-false}" = "true" ]; then
+    if [ "${TRAIN_ENABLE_SPOT:-false}" = "true" ] && [ -n "${describe_output}" ]; then
         local billable_seconds training_seconds savings_pct
         billable_seconds=$(echo "${describe_output}" | python3 -c "
 import sys, json
@@ -1371,6 +1699,36 @@ if [ "${ARG_HELP}" = true ]; then
     _show_help
 fi
 
+# Wave 11 (R1.2): resolve the compute backend from the target descriptor. --status /
+# --stop follow the backend that recorded the tracked job; a new submit defaults to
+# compute_backends[0] (smtj everywhere, OQ-11.5).
+if [ "${ARG_STATUS}" = true ] || [ "${ARG_STOP}" = true ]; then
+    _resolve_backend "${TRAIN_BACKEND:-}"
+else
+    _resolve_backend
+fi
+
+if [ "${ARG_STOP}" = true ]; then
+    if [ -z "${TRAIN_JOB_NAME:-}" ]; then
+        echo "No training job tracked."
+        exit 0
+    fi
+    if [ "${TRAIN_BACKEND_RESOLVED}" = "hp-eks" ]; then
+        echo "Deleting HyperPodPyTorchJob $(_hp_namespace)/${TRAIN_JOB_NAME} (releases its GPUs)..."
+        _hp_py hp_job.py stop --job "${TRAIN_JOB_NAME}" --namespace "$(_hp_namespace)" >/dev/null
+        exit $?
+    fi
+    echo "Stopping SageMaker training job ${TRAIN_JOB_NAME}..."
+    aws sagemaker stop-training-job --training-job-name "${TRAIN_JOB_NAME}" --region "${AWS_REGION}"
+    exit $?
+fi
+
+# --advanced only widens the interactive knob prompts (do/train is non-interactive
+# unless -i/--interactive is given).
+if [ "${ARG_ADVANCED}" = true ] && [ "${ARG_INTERACTIVE}" != true ]; then
+    echo "ℹ️  --advanced only affects interactive knob prompts (-i/--interactive); ignoring it."
+fi
+
 # Handle --list-datasets
 if [ "${ARG_LIST_DATASETS}" = true ]; then
     source "${SCRIPT_DIR}/config"
@@ -1387,6 +1745,23 @@ if [ "${ARG_STATUS}" = true ]; then
 
     echo "📊 Training Job Status"
     echo "   Job: ${TRAIN_JOB_NAME}"
+    if [ "${TRAIN_BACKEND_RESOLVED}" = "hp-eks" ]; then
+        # One classify + act pass: a finished job is deleted here (GPUs released)
+        # and a success not yet recorded runs the same completion as the watcher.
+        echo "   Backend: hp-eks ($(_hp_namespace))"
+        _ST_RC=0
+        _ST_OUT=$(_hp_watch status "${TRAIN_JOB_NAME}") || _ST_RC=$?
+        if [ "$(_hp_json_field "${_ST_OUT}" state)" = "Succeeded" ]; then
+            _ST_PREFIX=$(_hp_json_field "${_ST_OUT}" artifact_prefix)
+            if [ "${TRAIN_OUTPUT_PATH_LATEST:-}" = "${_ST_PREFIX}" ]; then
+                echo "   Completed; output recorded: ${_ST_PREFIX}"
+                exit 0
+            fi
+            TECHNIQUE="${TRAIN_TECHNIQUE:-custom}"
+        fi
+        _hp_after_watch "${_ST_RC}" "${_ST_OUT}" "${TRAIN_JOB_NAME}"
+        exit 0
+    fi
 
     # Query status via SDK v3 helper
     STATUS_RESULT=$(python3 "${SCRIPT_DIR}/.train_helper.py" status \
@@ -1470,6 +1845,23 @@ writeFileSync('${_RESULT_FILE}', JSON.stringify(result));
     # Check if user wants to run now
     RUN_NOW=$(echo "${INTERACTIVE_RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('run_now', False))" 2>/dev/null) || RUN_NOW="False"
 
+    # BL154: the technique just chosen in the Node step drives the knob prompts.
+    _CHOSEN_TECHNIQUE=$(echo "${INTERACTIVE_RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('technique', '') or '')" 2>/dev/null) || _CHOSEN_TECHNIQUE=""
+    if [ -n "${_CHOSEN_TECHNIQUE}" ]; then
+        ARG_TECHNIQUE="${_CHOSEN_TECHNIQUE}"
+    fi
+
+    # Python knob step (shared config-builder core): prompts the technique's manifest
+    # knobs (primary; + advanced with --advanced) and writes the answers into
+    # config.yaml's hyperparameters block. Runs whether or not the job runs now, so the
+    # answers are captured either way. Descriptor-less techniques: no prompts here (the
+    # Node step already asked their prompts.json questions).
+    _parse_config
+    _resolve_technique
+    _load_technique_defaults
+    _resolve_hyperparameters
+    _INTERACTIVE_HP_JSON="${TRAIN_HYPERPARAMS}"
+
     if [ "${RUN_NOW}" != "True" ]; then
         echo "   Run ./do/train to submit the configured job."
         exit 0
@@ -1497,9 +1889,15 @@ _resolve_technique
 # Persist technique to do/config
 _update_config_var "TRAIN_TECHNIQUE" "${TECHNIQUE}"
 
-# Load technique defaults and merge with config hyperparameters
-_load_technique_defaults
-_merge_hyperparameters
+# Resolve hyperparameters (manifest-aware; see _resolve_hyperparameters). With -i the
+# knob step already ran right after the interactive builder — reuse its result rather
+# than prompting twice.
+if [ "${_HP_RESOLVED}" = true ]; then
+    TRAIN_HYPERPARAMS="${_INTERACTIVE_HP_JSON}"
+else
+    _load_technique_defaults
+    _resolve_hyperparameters
+fi
 
 # Warn about multi-node on non-EFA instances
 if [ "${TRAIN_INSTANCE_COUNT:-1}" -gt 1 ]; then
@@ -1527,6 +1925,10 @@ if [ -n "${RESOLVED_DATASET_S3_URI}" ]; then
 fi
 
 # Handle --resume: resolve checkpoint path from previous job
+if [ "${ARG_RESUME}" = true ] && [ "${TRAIN_BACKEND_RESOLVED}" = "hp-eks" ]; then
+    echo "❌ --resume is SMTJ-only (it resumes from SageMaker job checkpoints); not supported with --backend hp-eks"
+    exit 2
+fi
 if [ "${ARG_RESUME}" = true ]; then
     RESUME_JOB="${ARG_RESUME_JOB:-${TRAIN_JOB_NAME:-}}"
     if [ -z "${RESUME_JOB}" ]; then
@@ -1567,6 +1969,16 @@ fi
 _check_idempotency
 
 # Build and submit the job
+if [ "${TRAIN_BACKEND_RESOLVED}" = "hp-eks" ]; then
+    _hp_submit_job
+    if [ "${ARG_NO_WAIT}" = true ]; then
+        echo "   --no-wait specified. Job submitted, exiting without watching."
+        echo "   Re-run ./do/train --status to check progress (it also releases the GPUs when done)."
+        exit 0
+    fi
+    _hp_poll_job
+    exit 0
+fi
 _build_job_request
 _submit_job
 

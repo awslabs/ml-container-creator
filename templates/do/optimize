@@ -23,9 +23,11 @@ _require_python_env
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/wait.sh"
 
-# CORE_BUCKET (mlcc-core) backs the dataset sidecar registry; resolve it for
-# dataset name/version resolution and listing.
-CORE_BUCKET="${CORE_BUCKET:-${CODEBUILD_SOURCE_S3_BUCKET:-${_PROFILE_codebuildSourceS3Bucket:-}}}"
+# CORE_BUCKET (the core models bucket) backs the dataset sidecar registry; resolve
+# it for dataset name/version resolution and listing. It comes ONLY from the profile
+# key coreS3Bucket (CORE_S3_BUCKET via do/lib/profile.sh) — never the CodeBuild
+# source bucket (bucket consolidation R2.3).
+CORE_BUCKET="${CORE_BUCKET:-${CORE_S3_BUCKET:-}}"
 
 # ── Target guard: AI Recommendations requires a real-time IC endpoint ─────────
 # Note: hyperpod-eks IS supported — CreateAIRecommendationJob uses --model-source
@@ -685,7 +687,10 @@ print(json.dumps({"InputDataConfig": [{"ChannelName": "dataset", "DataSource": {
         exit 1
     fi
     # Step 5: Create the recommendation job
-    S3_OUTPUT="s3://${TUNE_S3_BUCKET:-mlcc-tune-$(aws sts get-caller-identity --query Account --output text 2>/dev/null)-${AWS_REGION}}/${PROJECT_NAME}/optimize/"
+    # Output goes to the profile's artifacts bucket (<project>/optimize/). No
+    # sts-derived fallback name: a missing profile key is a hard error.
+    _require_bucket ARTIFACTS_S3_BUCKET || exit 1
+    S3_OUTPUT="s3://${ARTIFACTS_S3_BUCKET}/${PROJECT_NAME}/optimize/"
 
     RECOMMEND_CMD=(
         aws sagemaker create-ai-recommendation-job

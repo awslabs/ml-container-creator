@@ -1,0 +1,224 @@
+{
+  "technique": "mtrl",
+  "reward_source": "agent_env",
+  "variants": {
+    "lora": {
+      "peft": "lora",
+      "artifact_kind": "lora_adapter",
+      "dataset_contract": {
+        "format": "parquet",
+        "schema": "mtrl-rollout",
+        "prompt_shape": "message-list",
+        "verified": false
+      },
+      "hyperparameters": {
+        "adam_beta1": {
+          "type": "number",
+          "required": true,
+          "default": 0.9,
+          "min": 0,
+          "max": 0.999999
+        },
+        "adam_beta2": {
+          "type": "number",
+          "required": true,
+          "default": 0.95,
+          "min": 0,
+          "max": 0.999999
+        },
+        "adam_eps": {
+          "type": "number",
+          "required": true,
+          "default": 1e-08,
+          "min": 1e-16,
+          "max": 0.01
+        },
+        "adam_weight_decay": {
+          "type": "number",
+          "required": true,
+          "default": 0,
+          "min": 0,
+          "max": 1
+        },
+        "adam_grad_clip_norm": {
+          "type": "number",
+          "required": true,
+          "default": 1,
+          "min": 0,
+          "max": 100
+        },
+        "advantage_method": {
+          "type": "string",
+          "required": true,
+          "default": "group_based",
+          "enum": [
+            "monte_carlo",
+            "group_based",
+            "group_based_per_turn",
+            "rloo",
+            "reinforce_pp",
+            "reinforce_pp_baseline",
+            "opo",
+            "grpo_passk",
+            "gpg"
+          ]
+        },
+        "learning_rate": {
+          "type": "number",
+          "required": true,
+          "default": 4e-05,
+          "min": 0,
+          "max": 0.01
+        },
+        "lora_rank": {
+          "type": "integer",
+          "required": true,
+          "default": 32,
+          "min": 16,
+          "max": 64
+        },
+        "lora_alpha": {
+          "type": "integer",
+          "required": true,
+          "default": 64,
+          "min": 16,
+          "max": 128
+        },
+        "loss_fn": {
+          "type": "string",
+          "required": true,
+          "default": "ppo",
+          "enum": [
+            "importance_sampling",
+            "ppo",
+            "cispo"
+          ]
+        },
+        "rollout_max_concurrency": {
+          "type": "integer",
+          "required": true,
+          "default": 96,
+          "min": 32,
+          "max": 96
+        },
+        "rollout_timeout": {
+          "type": "number",
+          "required": true,
+          "default": 600,
+          "min": 300,
+          "max": 86400
+        },
+        "rollout_max_retries": {
+          "type": "integer",
+          "required": true,
+          "default": 3,
+          "min": 1,
+          "max": 10
+        },
+        "max_epochs": {
+          "type": "integer",
+          "required": true,
+          "default": 1,
+          "min": 1,
+          "max": 30
+        },
+        "sampling_max_tokens": {
+          "type": "integer",
+          "required": true,
+          "default": 4096,
+          "min": 512,
+          "max": 8192
+        },
+        "max_steps": {
+          "type": "integer",
+          "required": true,
+          "default": 100,
+          "min": 1,
+          "max": 1000
+        },
+        "max_steps_off_policy": {
+          "type": "integer",
+          "required": true,
+          "default": 3,
+          "min": 0,
+          "max": 10
+        },
+        "global_batch_size": {
+          "type": "integer",
+          "required": true,
+          "default": 128,
+          "enum": [
+            32,
+            64,
+            128
+          ]
+        },
+        "group_size": {
+          "type": "integer",
+          "required": true,
+          "default": 8,
+          "min": 2,
+          "max": 32
+        },
+        "temperature": {
+          "type": "number",
+          "required": true,
+          "default": 1,
+          "min": 0,
+          "max": 2
+        },
+        "val_every": {
+          "type": "integer",
+          "required": true,
+          "default": 10,
+          "min": 0,
+          "max": 100
+        },
+        "sampling_top_p": {
+          "type": "number",
+          "required": true,
+          "default": 1,
+          "min": 0,
+          "max": 1
+        },
+        "pass_k_values": {
+          "type": "string",
+          "required": true,
+          "default": [
+            1,
+            2,
+            4,
+            8,
+            16,
+            32
+          ]
+        },
+        "success_threshold": {
+          "type": "number",
+          "required": true,
+          "default": 1
+        },
+        "clip_low_threshold": {
+          "type": "number",
+          "required": true,
+          "default": 0.8,
+          "min": 0,
+          "max": 1
+        },
+        "clip_high_threshold": {
+          "type": "number",
+          "required": true,
+          "default": 1.2,
+          "min": 1,
+          "max": 10
+        }
+      },
+      "_synced": {
+        "smtj": {
+          "from": "s3://jumpstart-cache-prod-us-west-2/recipes/mtrl-qwen-3-dot-6-27b-lora_override_params_sm_jobs_v1.0.15.json",
+          "version": "1.0.15"
+        }
+      }
+    }
+  }
+}

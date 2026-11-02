@@ -1,0 +1,65 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Plain EKS model-store PersistentVolumeClaim (BL155).
+#
+# Emitted ONLY when EKS_MODEL_MOUNT is set (s3|ebs|fsx) — the large-model CSI
+# mount path. On the default emptyDir path and the hostPath-NVMe path this
+# template renders to NOTHING (no `kind:`), so the deploy driver's apply loop
+# skips it. The Deployment references this claim as `<project>-model-store`.
+#
+# consume-don't-provision (ADR-012): MLCC emits ONLY this NAMESPACED PVC (its own
+# workload object, like the ServiceAccount). The volume it binds is
+# CLUSTER-PROVIDED and validated by the BL156 contract preflight before apply:
+#   • s3  → a static mountpoint-S3 PersistentVolume (bucket+prefix-specific),
+#           bound by storageClassName (and optionally volumeName); ReadOnlyMany,
+#           read-only streaming, no local download.
+#   • ebs → a dynamically-provisioned EBS volume via its StorageClass; RWO,
+#           download-to-a-bigger-disk.
+#   • fsx → an FSx-for-Lustre volume via its StorageClass.
+# MLCC NEVER emits a PersistentVolume or a StorageClass (that is infrastructure).
+#
+# Placeholders keep the ${VAR} / ${VAR:-default} shape so both envsubst (now) and
+# BL111's node+ejs re-render resolve them identically.
+<%
+   var _mount = (typeof eksModelMount !== 'undefined' && eksModelMount) ? String(eksModelMount) : '';
+   var _sc = (typeof storageClass !== 'undefined' && storageClass) ? String(storageClass) : '';
+   var _pvName = (typeof modelPvName !== 'undefined' && modelPvName) ? String(modelPvName) : '';
+   var _isS3 = _mount === 's3';
+   // S3-CSI static PVs are ReadOnlyMany (shared, read-only stream); EBS/FSx PVCs
+   // are ReadWriteOnce (the pod writes the downloaded weights).
+   var _accessMode = _isS3 ? 'ReadOnlyMany' : 'ReadWriteOnce';
+   // Size: for a download-to-disk EBS/FSx volume, the model-size proxy
+   // (HP_EPHEMERAL_STORAGE / HP_GPU_COUNT*20Gi). For an S3 read-only stream the
+   // request is a formality the static PV satisfies; keep the same proxy.
+   var _gpu = (typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT) ? HP_GPU_COUNT : '1';
+   var _sizeDefault = String(parseInt(_gpu) * 20) + 'Gi';
+-%>
+<% if (_mount) { %>
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: <%= projectName %>-model-store
+  namespace: <%= hyperPodNamespace %>
+  labels:
+    app: <%= projectName %>
+    app.kubernetes.io/managed-by: ml-container-creator
+spec:
+  accessModes:
+    - <%= _accessMode %>
+<% if (_sc) { %>
+  storageClassName: "<%= _sc %>"
+<% } else if (_isS3) { %>
+  # No EKS_STORAGE_CLASS set: bind by an empty storageClassName so the PVC matches
+  # a pre-created static PV (the mountpoint-S3 static-provisioning convention)
+  # rather than triggering dynamic provisioning.
+  storageClassName: ""
+<% } %>
+<% if (_isS3 && _pvName) { %>
+  # Bind the specific cluster-provided static S3-CSI PV by name (EKS_MODEL_PV_NAME).
+  volumeName: "<%= _pvName %>"
+<% } %>
+  resources:
+    requests:
+      storage: "${HP_EPHEMERAL_STORAGE:-<%= _sizeDefault %>}"
+<% } %>

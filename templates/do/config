@@ -45,9 +45,9 @@ export CODEBUILD_COMPUTE_TYPE="<%= codebuildComputeType %>"
 <% if (typeof enableLora !== 'undefined' && enableLora) { %>
 # LoRA adapter serving
 export ENABLE_LORA=true
-<% } else if (framework === 'transformers' || framework === 'diffusors') { %>
-# LoRA adapter serving (uncomment to enable)
-# export ENABLE_LORA=true
+<% } else { %>
+# LoRA adapter serving disabled at generation (--enable-lora false); set true to enable
+export ENABLE_LORA=false
 <% } %>
 
 # Deployment configuration — WHERE the model runs
@@ -120,7 +120,7 @@ export ASYNC_MAX_CONCURRENT_INVOCATIONS="<%= asyncMaxConcurrentInvocations %>"
 <% } else { %>
 # ── Async Inference (configure when using async-inference target) ─────────────
 # ASYNC_S3_OUTPUT_PATH, ASYNC_SNS_SUCCESS_TOPIC, ASYNC_SNS_ERROR_TOPIC — see do/lib/profile.sh
-# ASYNC_MAX_CONCURRENT_INVOCATIONS=""
+# export ASYNC_MAX_CONCURRENT_INVOCATIONS=""
 <% } %>
 
 <% if (typeof hyperPodCluster !== 'undefined' && hyperPodCluster && hyperPodCluster.trim()) { %>
@@ -128,13 +128,13 @@ export ASYNC_MAX_CONCURRENT_INVOCATIONS="<%= asyncMaxConcurrentInvocations %>"
 export HP_CLUSTER_NAME="<%= hyperPodCluster %>"
 export HP_NAMESPACE="<%= typeof hyperPodNamespace !== 'undefined' ? hyperPodNamespace : 'default' %>"
 export HP_REPLICAS="<%= typeof hyperPodReplicas !== 'undefined' ? hyperPodReplicas : '1' %>"
-export HP_GPU_COUNT="<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : (typeof gpuCount !== 'undefined' && gpuCount ? gpuCount : '1') %>"
-export HP_NODE_SELECTOR="<%= typeof HP_NODE_SELECTOR !== 'undefined' && HP_NODE_SELECTOR ? HP_NODE_SELECTOR : '' %>"
-export HP_EFA_ENABLED="<%= typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED ? HP_EFA_ENABLED : 'false' %>"
-export HP_MEM_REQUEST="<%= typeof HP_MEM_REQUEST !== 'undefined' && HP_MEM_REQUEST ? HP_MEM_REQUEST : '' %>"
-export HP_CPU_REQUEST="<%= typeof HP_CPU_REQUEST !== 'undefined' && HP_CPU_REQUEST ? HP_CPU_REQUEST : '' %>"
-<% if (typeof HP_QUEUE !== 'undefined' && HP_QUEUE) { %>
-export HP_QUEUE="<%= HP_QUEUE %>"
+export HP_GPU_COUNT="<%= typeof hpGpuCount !== 'undefined' && hpGpuCount ? hpGpuCount : '1' %>"
+export HP_NODE_SELECTOR="<%= typeof hpNodeSelector !== 'undefined' && hpNodeSelector ? hpNodeSelector : '' %>"
+export HP_EFA_ENABLED="<%= typeof hpEfaEnabled !== 'undefined' && hpEfaEnabled ? hpEfaEnabled : 'false' %>"
+export HP_MEM_REQUEST="<%= typeof hpMemRequest !== 'undefined' && hpMemRequest ? hpMemRequest : '' %>"
+export HP_CPU_REQUEST="<%= typeof hpCpuRequest !== 'undefined' && hpCpuRequest ? hpCpuRequest : '' %>"
+<% if (typeof hpQueue !== 'undefined' && hpQueue) { %>
+export HP_QUEUE="<%= hpQueue %>"
 <% } else { %>
 # export HP_QUEUE=""
 <% } %>
@@ -164,16 +164,26 @@ export HP_SPECULATIVE_DISABLE_BY_BATCH_SIZE="${HP_SPECULATIVE_DISABLE_BY_BATCH_S
 # export HP_BENCHMARK_METRICS_ENABLED=false  # set true to scrape engine /metrics after do/benchmark
 <% } else { %>
 # ── HyperPod EKS (configure when using hyperpod-eks target) ──────────────────
+# (plain eks may run without HP_CLUSTER_NAME; generation-time --hyperpod-* / --hp-*
+# values still land here as the defaults)
 export HP_CLUSTER_NAME="${HP_CLUSTER_NAME:-}"
-export HP_NAMESPACE="${HP_NAMESPACE:-default}"
-export HP_REPLICAS="${HP_REPLICAS:-1}"
-export HP_GPU_COUNT="${HP_GPU_COUNT:-1}"
-export HP_NODE_SELECTOR="${HP_NODE_SELECTOR:-}"
-export HP_EFA_ENABLED="${HP_EFA_ENABLED:-false}"
-export HP_MEM_REQUEST="${HP_MEM_REQUEST:-}"
-export HP_CPU_REQUEST="${HP_CPU_REQUEST:-}"
+export HP_NAMESPACE="${HP_NAMESPACE:-<%= typeof hyperPodNamespace !== 'undefined' && hyperPodNamespace ? hyperPodNamespace : 'default' %>}"
+export HP_REPLICAS="${HP_REPLICAS:-<%= typeof hyperPodReplicas !== 'undefined' && hyperPodReplicas ? hyperPodReplicas : '1' %>}"
+export HP_GPU_COUNT="${HP_GPU_COUNT:-<%= typeof hpGpuCount !== 'undefined' && hpGpuCount ? hpGpuCount : '1' %>}"
+export HP_NODE_SELECTOR="${HP_NODE_SELECTOR:-<%= typeof hpNodeSelector !== 'undefined' && hpNodeSelector ? hpNodeSelector : '' %>}"
+export HP_EFA_ENABLED="${HP_EFA_ENABLED:-<%= typeof hpEfaEnabled !== 'undefined' && hpEfaEnabled ? hpEfaEnabled : 'false' %>}"
+export HP_MEM_REQUEST="${HP_MEM_REQUEST:-<%= typeof hpMemRequest !== 'undefined' && hpMemRequest ? hpMemRequest : '' %>}"
+export HP_CPU_REQUEST="${HP_CPU_REQUEST:-<%= typeof hpCpuRequest !== 'undefined' && hpCpuRequest ? hpCpuRequest : '' %>}"
+<% if (typeof hpQueue !== 'undefined' && hpQueue) { %>
+export HP_QUEUE="${HP_QUEUE:-<%= hpQueue %>}"
+<% } else { %>
 # HP_QUEUE=""
+<% } %>
+<% if (typeof fsxVolumeHandle !== 'undefined' && fsxVolumeHandle) { %>
+export FSX_VOLUME_HANDLE="${FSX_VOLUME_HANDLE:-<%= fsxVolumeHandle %>}"
+<% } else { %>
 # FSX_VOLUME_HANDLE=""
+<% } %>
 # LoRA hot-loading via vLLM REST API (requires --enable-lora in the InferenceEndpointConfig worker.args)
 <% if (framework === 'transformers' && ['vllm','sglang','djl'].includes(modelServer)) { %>
 # LoRA is enabled by default for vLLM targets so adapters work out of the box.
@@ -290,6 +300,8 @@ export IC_MODEL_WEIGHT="<%= icModelWeight %>"
 <% Object.entries(modelEnvVars).forEach(([key, value]) => { %>
 export <%= key %>=${<%= key %>:-<%= value %>}
 <% }); %>
+# --model-env keys (KEY=do/config var) read back by do/export
+export MLCC_MODEL_ENV_KEYS="<%= Object.keys(modelEnvVars).map((k) => k + '=' + k).join(' ') %>"
 <% } %>
 
 <% if (typeof serverEnvVars !== 'undefined' && serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
@@ -297,6 +309,10 @@ export <%= key %>=${<%= key %>:-<%= value %>}
 <% Object.entries(serverEnvVars).forEach(([key, value]) => { %>
 export <%= key %>=${<%= key %>:-<%= value %>}
 <% }); %>
+<% if (typeof serverEnvKeyMap !== 'undefined' && serverEnvKeyMap && Object.keys(serverEnvKeyMap).length > 0) { %>
+# --server-env keys (KEY=engine-prefixed do/config var) read back by do/export
+export MLCC_SERVER_ENV_KEYS="<%= Object.entries(serverEnvKeyMap).map(([k, v]) => k + '=' + v).join(' ') %>"
+<% } %>
 <% } %>
 
 <% if (typeof icEnvVars !== 'undefined' && icEnvVars && Object.keys(icEnvVars).length > 0) { %>
@@ -308,6 +324,8 @@ export <%= key %>=${<%= key %>:-<%= value %>}
 <% Object.entries(icEnvVars).forEach(([key, value]) => { %>
 export IC_ENV_<%= key %>=${IC_ENV_<%= key %>:-<%= value %>}
 <% }); %>
+# --ic-env keys (KEY=do/config var) read back by do/export
+export MLCC_IC_ENV_KEYS="<%= Object.keys(icEnvVars).map((k) => k + '=IC_ENV_' + k).join(' ') %>"
 <% if ((modelServer === 'vllm' || modelServer === 'sglang') && !icEnvVars['VLLM_MAX_MODEL_LEN'] && !icEnvVars['SGLANG_MAX_MODEL_LEN']) { %>
 export IC_ENV_VLLM_MAX_MODEL_LEN=${IC_ENV_VLLM_MAX_MODEL_LEN:-<%= (typeof sizerMaxModelLen !== 'undefined' && sizerMaxModelLen) ? sizerMaxModelLen : 4096 %>}
 <% } %>
@@ -345,7 +363,8 @@ export NGC_API_KEY="<%= ngcApiKey %>"
 <% if (deploymentTarget !== 'batch-transform') { %>
 # Managed Model Customization (do/tune)
 # ── Profile-resolved values (from ~/.ml-container-creator/config.json) ────
-# TUNE_S3_BUCKET — see do/lib/profile.sh
+# ARTIFACTS_S3_BUCKET (tune output) — from the profile key artifactsS3Bucket via
+# do/lib/profile.sh (an exported TUNE_S3_BUCKET is honored as an override alias)
 export TUNE_SUPPORTED=<%= (typeof tuneSupported !== 'undefined' && tuneSupported) ? 'true' : 'false' %>
 <% if (typeof tuneSupported !== 'undefined' && tuneSupported) { %>
 <% if (typeof tuneModelId !== 'undefined' && tuneModelId) { %>
@@ -360,7 +379,11 @@ export TUNE_MODEL_ID="<%= tuneModelId %>"
 # export TUNE_MODEL_ID=""
 <% } %>
 <% } %>
-# MLflow App ARN for experiment tracking (set by bootstrap, or override manually)
+# MLflow App ARN for experiment tracking.
+# The active value is resolved automatically from your bootstrap profile's
+# `mlflowAppArn` by do/lib/profile.sh (which exports MLFLOW_APP_ARN) — the same
+# profile ref the register/list/resolve flows use. Uncomment to override it
+# manually for this project only; leave commented to use the profile value.
 # export MLFLOW_APP_ARN=""
 <% } %>
 <% } %>

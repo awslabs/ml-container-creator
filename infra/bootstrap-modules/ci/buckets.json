@@ -1,0 +1,14 @@
+{
+  "$comment": "Single declared source for the S3 buckets the ci stack owns (ADR-008 derive-dont-hardcode, bucket consolidation R1.2). ci/stack.ts, module-runner.cjs (adopt flags + implicit import) and every derived consumer read this file. Placeholders: {account} {region} {profile}. test/unit/no-literal-bucket-names.test.js allows each name ONLY here.",
+  "stack": "ci",
+  "buckets": {
+    "SourceBucketResource": {
+      "name": "mlcc-codebuild-source-{account}-{region}",
+      "adoptContext": "adoptExistingBuckets",
+      "output": "SourceBucket",
+      "profileKey": "codebuildSourceS3Bucket",
+      "envVar": "CODEBUILD_SOURCE_S3_BUCKET",
+      "purpose": "do/submit project source archives (<project>/...zip) for CodeBuild"
+    }
+  }
+}

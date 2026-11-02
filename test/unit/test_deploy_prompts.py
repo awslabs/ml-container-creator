@@ -53,6 +53,20 @@ def _force_tty(monkeypatch):
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_mcp_config(monkeypatch):
+    """Keep MCP discovery hermetic. mcp_client._load_mcp_config() walks up to the
+    gitignored config/mcp.json, .kiro/settings/mcp.json and ~/.kiro/settings/mcp.json,
+    so on a developer machine these tests spawned the REAL instance-sizer. Since
+    BL241 the helper uses that live answer, so "MCP unavailable" tests got a real
+    recommendation (and failed) locally while passing in CI. Tests that want MCP
+    inject MCP_MOCK_RESPONSES, which is checked before the config file.
+    """
+    import mcp_client
+    monkeypatch.delenv("MCP_CONFIG", raising=False)
+    monkeypatch.setattr(mcp_client, "_load_mcp_config", lambda: None)
+
+
 # ---------------------------------------------------------------------------
 # Config parsing tests
 # ---------------------------------------------------------------------------
@@ -390,8 +404,9 @@ class TestGetInstanceRecommendation:
         """When MCP is available and returns a result, use MCP result."""
         mock_responses = {
             "instance-sizer/recommend": {
-                "instance_type": "ml.g5.2xlarge",
-                "gpu_count": 1,
+                "values": {"instanceType": "ml.g5.2xlarge"},
+                "choices": {"instanceType": ["ml.g5.2xlarge"]},
+                "metadata": {"recommendations": [{"instanceType": "ml.g5.2xlarge", "gpuCount": 1}]},
             }
         }
         monkeypatch.setenv("MCP_MOCK_RESPONSES", json.dumps(mock_responses))
@@ -402,6 +417,47 @@ class TestGetInstanceRecommendation:
         # No warning should be printed to stderr when MCP works
         captured = capsys.readouterr()
         assert _MCP_FALLBACK_WARNING not in captured.err
+
+    def test_sizing_unavailable_surfaces_message_and_asks(self, monkeypatch, capsys) -> None:
+        """BL237/BL241: the sizer says it cannot size the model → its message is
+        shown, no recommendation is returned (caller asks for --instance-type),
+        and the built-in heuristic is NOT substituted."""
+        msg = 'Cannot size "org/x": pass --instance-type <ml.instance> explicitly'
+        mock_responses = {
+            "instance-sizer/recommend": {
+                "values": {"instanceType": None},
+                "choices": {"instanceType": ["ml.g5.xlarge"]},
+                "metadata": {"sizingUnavailable": True, "error": msg},
+            }
+        }
+        monkeypatch.setenv("MCP_MOCK_RESPONSES", json.dumps(mock_responses))
+        heuristic_calls = []
+        monkeypatch.setattr(
+            "deploy_prompts.instance_sizer.recommend_for_model",
+            lambda *a, **k: heuristic_calls.append(a) or "ml.g6.xlarge",
+        )
+
+        result = get_instance_recommendation("org/x", "float16")
+
+        assert result is None
+        assert heuristic_calls == []
+        captured = capsys.readouterr()
+        assert msg in captured.err
+        assert "--instance-type" in captured.err
+        assert captured.out == ""
+
+    def test_forwards_engine_to_sizer(self, monkeypatch) -> None:
+        """BL240: the serving engine reaches the sizer as context.backend."""
+        seen = {}
+
+        def fake(client, model, precision, project_dir=None, engine=None):
+            seen.update(engine=engine)
+            return {"instance_type": "ml.g5.xlarge"}
+
+        monkeypatch.setenv("MCP_MOCK_RESPONSES", json.dumps({}))
+        monkeypatch.setattr("deploy_prompts.mcp_recommend_instance", fake)
+        assert get_instance_recommendation("m", "float16", engine="vllm") == "ml.g5.xlarge"
+        assert seen["engine"] == "vllm"
 
     def test_falls_back_to_heuristic_when_mcp_unavailable(self, monkeypatch, capsys) -> None:
         """When MCP is unavailable (no socket, no config), use built-in heuristic."""
@@ -581,8 +637,9 @@ class TestPromptInstanceType:
         """When MCP returns a recommendation, it is used as the prompt default."""
         mock_responses = {
             "instance-sizer/recommend": {
-                "instance_type": "ml.g5.2xlarge",
-                "gpu_count": 1,
+                "values": {"instanceType": "ml.g5.2xlarge"},
+                "choices": {"instanceType": ["ml.g5.2xlarge"]},
+                "metadata": {"recommendations": [{"instanceType": "ml.g5.2xlarge", "gpuCount": 1}]},
             }
         }
         monkeypatch.setenv("MCP_MOCK_RESPONSES", json.dumps(mock_responses))
@@ -664,8 +721,9 @@ class TestPromptInstanceType:
         """Falls back to HF_MODEL_ID when MODEL_NAME is not set."""
         mock_responses = {
             "instance-sizer/recommend": {
-                "instance_type": "ml.g6e.xlarge",
-                "gpu_count": 1,
+                "values": {"instanceType": "ml.g6e.xlarge"},
+                "choices": {"instanceType": ["ml.g6e.xlarge"]},
+                "metadata": {"recommendations": [{"instanceType": "ml.g6e.xlarge", "gpuCount": 1}]},
             }
         }
         monkeypatch.setenv("MCP_MOCK_RESPONSES", json.dumps(mock_responses))
@@ -729,8 +787,9 @@ class TestPromptForMissingWithInstanceType:
         """When config_vars is provided, INSTANCE_TYPE uses MCP-aware prompt."""
         mock_responses = {
             "instance-sizer/recommend": {
-                "instance_type": "ml.g5.xlarge",
-                "gpu_count": 1,
+                "values": {"instanceType": "ml.g5.xlarge"},
+                "choices": {"instanceType": ["ml.g5.xlarge"]},
+                "metadata": {"recommendations": [{"instanceType": "ml.g5.xlarge", "gpuCount": 1}]},
             }
         }
         monkeypatch.setenv("MCP_MOCK_RESPONSES", json.dumps(mock_responses))
@@ -1024,8 +1083,9 @@ class TestPromptInstanceTypes:
         """MCP recommendation is pre-added as first entry."""
         mock_responses = {
             "instance-sizer/recommend": {
-                "instance_type": "ml.g5.xlarge",
-                "gpu_count": 1,
+                "values": {"instanceType": "ml.g5.xlarge"},
+                "choices": {"instanceType": ["ml.g5.xlarge"]},
+                "metadata": {"recommendations": [{"instanceType": "ml.g5.xlarge", "gpuCount": 1}]},
             }
         }
         monkeypatch.setenv("MCP_MOCK_RESPONSES", json.dumps(mock_responses))
@@ -2513,8 +2573,9 @@ class TestPromptForMissingWithAsyncFlow:
         """INSTANCE_TYPE routes to MCP-aware prompt for async-inference target."""
         mock_responses = {
             "instance-sizer/recommend": {
-                "instance_type": "ml.g5.xlarge",
-                "gpu_count": 1,
+                "values": {"instanceType": "ml.g5.xlarge"},
+                "choices": {"instanceType": ["ml.g5.xlarge"]},
+                "metadata": {"recommendations": [{"instanceType": "ml.g5.xlarge", "gpuCount": 1}]},
             }
         }
         monkeypatch.setenv("MCP_MOCK_RESPONSES", json.dumps(mock_responses))
@@ -2929,8 +2990,9 @@ class TestPromptForMissingWithBatchFlow:
         """Full batch-transform flow: instance type from MCP, all vars prompted."""
         mock_responses = {
             "instance-sizer/recommend": {
-                "instance_type": "ml.m5.xlarge",
-                "gpu_count": 0,
+                "values": {"instanceType": "ml.m5.xlarge"},
+                "choices": {"instanceType": ["ml.m5.xlarge"]},
+                "metadata": {"recommendations": [{"instanceType": "ml.m5.xlarge", "gpuCount": 0}]},
             }
         }
         monkeypatch.setenv("MCP_MOCK_RESPONSES", json.dumps(mock_responses))

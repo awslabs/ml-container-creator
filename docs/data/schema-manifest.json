@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-10-13T14:09:32.091Z",
+  "generatedAt": "2026-11-02T18:39:48.576Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
-  "version": "1.9.1",
+  "version": "2.0.0",
   "schemaVersion": "2.0.0",
   "widgetSections": {
     "model-server": [
@@ -140,7 +140,9 @@
           "deploymentTargets": [
             "managed-inference",
             "async-inference",
-            "batch-transform"
+            "batch-transform",
+            "hyperpod-eks",
+            "eks"
           ],
           "architectures": [
             "*"
@@ -248,9 +250,9 @@
         "type": "integer",
         "description": "Maximum concurrent LoRA adapters in GPU memory",
         "inputType": "number",
-        "placeholder": "30",
+        "placeholder": "4",
         "datalist": null,
-        "default": 30,
+        "default": 4,
         "validation": {
           "min": 1,
           "max": 256
@@ -275,12 +277,21 @@
         "type": "integer",
         "description": "Maximum LoRA rank",
         "inputType": "number",
-        "placeholder": "64",
+        "placeholder": "16",
         "datalist": null,
-        "default": 64,
+        "default": 16,
         "validation": {
-          "min": 8,
-          "max": 512
+          "enum": [
+            1,
+            8,
+            16,
+            32,
+            64,
+            128,
+            256,
+            320,
+            512
+          ]
         },
         "group": "lora",
         "appliesTo": {

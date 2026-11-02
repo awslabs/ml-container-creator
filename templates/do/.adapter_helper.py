@@ -38,6 +38,7 @@ def main():
     stage_parser.add_argument("--region", default=None, help="AWS region (default: from environment)")
     stage_parser.add_argument("--container-image", default=None, help="Override container image URI")
     stage_parser.add_argument("--no-wait", action="store_true", default=False, help="Return immediately after submitting")
+    stage_parser.add_argument("--output-s3-uri", default=None, help="Canonical adapter prefix (s3_layout.py adapter-uri)")
 
     # ── status ────────────────────────────────────────────────────────────
     status_parser = subparsers.add_parser("status", help="Check Processing Job status")

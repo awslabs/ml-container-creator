@@ -270,8 +270,8 @@ These variables are available in all templates via the `templateVars` context:
 
 | Variable | Type | Description |
 |---|---|---|
-| `maxLoras` | number | Maximum concurrent LoRA adapters (default: 30) |
-| `maxLoraRank` | number | Maximum LoRA rank (default: 64) |
+| `maxLoras` | number | Maximum concurrent LoRA adapters (default: the serve engine manifest's `lora_max.default`, 4 for vLLM) |
+| `maxLoraRank` | number | Maximum LoRA rank (default: the serve engine manifest's `lora_max_rank.default`, 16 for vLLM) |
 
 ### Environment Variables
 

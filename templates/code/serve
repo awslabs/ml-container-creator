@@ -116,7 +116,11 @@ download_model_from_s3() {
         fi
         rm -f /tmp/model_archive.tar.gz
     elif [[ "$s3_uri" == */ ]] || ! aws s3 ls "$s3_uri" 2>/dev/null | grep -q "^[0-9]"; then
-        if ! aws s3 sync --no-progress --only-show-errors "$s3_uri" "$dest_path"; then
+        # Bucket consolidation R3.5: a staged base prefix also holds every project's
+        # canonical LoRA adapters under .mlcc-adapters/ — never download them into
+        # a realtime container (adapters load as their own inference components).
+        # The glob must equal s3_layout.SERVE_SYNC_EXCLUDE (conformance test).
+        if ! aws s3 sync --no-progress --only-show-errors --exclude ".mlcc-adapters/*" "$s3_uri" "$dest_path"; then
             echo "Error: Failed to sync from ${s3_uri}" >&2
             return 1
         fi

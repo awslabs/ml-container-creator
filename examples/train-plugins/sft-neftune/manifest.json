@@ -1,0 +1,126 @@
+{
+  "$schema": "../manifest.schema.json",
+  "schema_version": 1,
+  "technique": "sft-neftune",
+  "display_name": "SFT with NEFTune (sample plugin)",
+  "description": "Sample do/train technique: LoRA supervised fine-tuning with NEFTune embedding noise and a selectable LR scheduler.",
+  "hyperparameters": {
+    "learning_rate": {
+      "type": "number",
+      "required": false,
+      "min": 0,
+      "tier": "primary",
+      "display_name": "Learning rate",
+      "description": "optimizer learning rate"
+    },
+    "epochs": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "primary",
+      "display_name": "Epochs",
+      "description": "number of passes over the dataset"
+    },
+    "batch_size": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "primary",
+      "display_name": "Batch size",
+      "description": "per-device batch size"
+    },
+    "lora_r": {
+      "type": "integer",
+      "required": false,
+      "enum": [8, 16, 32, 64, 128],
+      "tier": "primary",
+      "display_name": "LoRA rank (r)",
+      "description": "LoRA adapter rank; the serving engine's max_lora_rank must be at least this"
+    },
+    "neftune_noise_alpha": {
+      "type": "number",
+      "required": false,
+      "min": 0,
+      "tier": "primary",
+      "display_name": "NEFTune noise alpha",
+      "description": "embedding noise scale during training; 0 turns NEFTune off",
+      "hint": "5 is a common starting point"
+    },
+    "dataset_text_field": {
+      "type": "string",
+      "required": false,
+      "tier": "primary",
+      "display_name": "Text column",
+      "description": "dataset column holding the training text"
+    },
+    "max_seq_length": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "primary",
+      "display_name": "Max sequence length",
+      "description": "longest sequence, in tokens, used for training"
+    },
+    "lr_scheduler_type": {
+      "type": "string",
+      "required": false,
+      "enum": ["linear", "cosine", "constant", "constant_with_warmup"],
+      "tier": "advanced",
+      "display_name": "LR scheduler",
+      "description": "learning-rate schedule"
+    },
+    "warmup_ratio": {
+      "type": "number",
+      "required": false,
+      "min": 0,
+      "max": 1,
+      "tier": "advanced",
+      "display_name": "Warmup ratio",
+      "description": "fraction of training steps used for LR warmup"
+    },
+    "lora_alpha": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "advanced",
+      "display_name": "LoRA alpha",
+      "description": "LoRA scaling factor"
+    },
+    "lora_dropout": {
+      "type": "number",
+      "required": false,
+      "min": 0,
+      "max": 1,
+      "tier": "advanced",
+      "display_name": "LoRA dropout"
+    },
+    "gradient_accumulation_steps": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "advanced",
+      "display_name": "Gradient accumulation steps"
+    },
+    "packing": {
+      "type": "boolean",
+      "required": false,
+      "tier": "advanced",
+      "display_name": "Packing",
+      "description": "pack several short examples into one sequence"
+    },
+    "seed": {
+      "type": "integer",
+      "required": false,
+      "min": 0,
+      "tier": "tertiary",
+      "display_name": "Random seed"
+    },
+    "model_id": {
+      "type": "string",
+      "required": false,
+      "tier": "tertiary",
+      "display_name": "Base model id",
+      "description": "HuggingFace id of the base model; normally injected by do/train"
+    }
+  }
+}

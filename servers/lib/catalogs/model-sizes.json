@@ -321,7 +321,7 @@
     "openai/gpt-oss-20b*": {
       "parameterCount": 20000000000,
       "defaultDtype": "bfloat16",
-      "architecture": "GPT2LMHeadModel",
+      "architecture": "GptOssForCausalLM",
       "maxPositionEmbeddings": 8192,
       "recommendedQuantizations": [
         "awq",
@@ -337,7 +337,7 @@
     "openai/gpt-oss-120b*": {
       "parameterCount": 120000000000,
       "defaultDtype": "bfloat16",
-      "architecture": "GPT2LMHeadModel",
+      "architecture": "GptOssForCausalLM",
       "maxPositionEmbeddings": 8192,
       "recommendedQuantizations": [
         "awq",

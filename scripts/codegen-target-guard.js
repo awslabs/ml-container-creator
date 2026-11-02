@@ -33,6 +33,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const SCRIPT_CONTRACT = path.join(ROOT, 'templates', 'do', 'lib', 'script-contract.sh');
 const DEPLOY = path.join(ROOT, 'templates', 'do', 'deploy');
+// BL159: the other do/ scripts carrying hand-maintained target enumerations.
+const CLEAN = path.join(ROOT, 'templates', 'do', 'clean');
+const LOGS = path.join(ROOT, 'templates', 'do', 'logs');
+const EXPORT = path.join(ROOT, 'templates', 'do', 'export');
+const TEST = path.join(ROOT, 'templates', 'do', 'test');
 
 // Canonical emit order — deterministic regardless of directory read order.
 const ORDER = ['realtime-inference', 'async-inference', 'batch-transform', 'hyperpod-eks', 'eks'];
@@ -94,15 +99,102 @@ export const REGIONS = [
         begin: '    # >>> GENERATED: switch-or-deploy target->status_var (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT',
         end: '    # <<< END GENERATED switch-or-deploy',
         opts: { indent: '    ', caseVar: 'FLAG_TARGET', assignVar: '_STATUS_VAR', fallback: true }
+    },
+    // ── BL159: target enumeration strings, DERIVED from the descriptors ───────
+    // Each wraps a whole literal line (error string / usage / header comment) in
+    // which `{{list}}` is the canonical comma-joined target list. Canonical names
+    // only (aliases stay hand-authored — OQ-1). All five enumeration scripts list
+    // all targets (OQ-2 default (i): no per-script verb filtering).
+    {
+        name: 'deploy --target error',
+        file: DEPLOY,
+        kind: 'targetList',
+        begin: '            # >>> GENERATED: target-list (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT',
+        end: '            # <<< END GENERATED target-list',
+        opts: { template: '                echo "❌ --target requires a value ({{list}})"' }
+    },
+    {
+        name: 'clean --target error',
+        file: CLEAN,
+        kind: 'targetList',
+        begin: '            # >>> GENERATED: target-list (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT',
+        end: '            # <<< END GENERATED target-list',
+        opts: { template: '                echo "❌ --target requires a value ({{list}})"' }
+    },
+    {
+        name: 'clean usage Targets header',
+        file: CLEAN,
+        kind: 'targetList',
+        begin: '            # >>> GENERATED: target-list-usage (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT',
+        end: '            # <<< END GENERATED target-list-usage',
+        opts: { template: '            echo "Targets: {{list}}"' }
+    },
+    {
+        name: 'logs --target error',
+        file: LOGS,
+        kind: 'targetList',
+        begin: '            # >>> GENERATED: target-list (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT',
+        end: '            # <<< END GENERATED target-list',
+        opts: { template: '                echo "❌ --target requires a value ({{list}})"' }
+    },
+    {
+        name: 'export --target error',
+        file: EXPORT,
+        kind: 'targetList',
+        begin: '            # >>> GENERATED: target-list (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT',
+        end: '            # <<< END GENERATED target-list',
+        opts: { template: '                echo "Error: --target requires a value ({{list}})" >&2' }
+    },
+    {
+        name: 'test --target error',
+        file: TEST,
+        kind: 'targetList',
+        begin: '            # >>> GENERATED: target-list (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT',
+        end: '            # <<< END GENERATED target-list',
+        opts: { template: '                echo "❌ --target requires a value ({{list}})"' }
     }
 ];
 
 /**
- * Render the full text (BEGIN … case … END inclusive) for one region.
+ * Render a comma-joined canonical target list, in canonical ORDER.
+ * e.g. "realtime-inference, async-inference, batch-transform, hyperpod-eks, eks".
+ * Canonical names only (aliases are a separate, hand-authored concern — BL159 OQ-1).
+ *
+ * @param {object[]} descriptors  the target descriptors
+ * @returns {string}
+ */
+function renderTargetList(descriptors) {
+    return sortedDescriptors(descriptors).map((d) => d.target).join(', ');
+}
+
+/**
+ * Core renderer for a "target-list" region (BL159): one or more lines of literal
+ * shell/comment text in which the canonical target list is substituted for the
+ * `{{list}}` placeholder. Used for the hand-maintained `--target requires a value
+ * (…)` error strings and the `<target> is one of:` usage/header lines, so they
+ * derive from the descriptors and cannot drift.
+ *
+ * @param {object[]} descriptors
+ * @param {object} opts
+ * @param {string}  opts.template  the literal line(s), with `{{list}}` where the
+ *   comma-joined canonical target list belongs. May contain `\n` for multi-line.
+ * @returns {string}
+ */
+function renderTargetListLines(descriptors, { template }) {
+    return template.split('{{list}}').join(renderTargetList(descriptors));
+}
+
+/**
+ * Render the full text (BEGIN … body … END inclusive) for one region. Dispatches
+ * on `region.kind`: 'statusVarCase' (default, the target→status_var case blocks)
+ * or 'targetList' (BL159, a templated target-enumeration line).
  * @returns {string}
  */
 export function renderRegion(region, descriptors) {
-    return [region.begin, renderStatusVarCase(descriptors, region.opts), region.end].join('\n');
+    const body = region.kind === 'targetList'
+        ? renderTargetListLines(descriptors, region.opts)
+        : renderStatusVarCase(descriptors, region.opts);
+    return [region.begin, body, region.end].join('\n');
 }
 
 /**

@@ -20,12 +20,16 @@ From `package.json` scripts (the source of truth for what actually runs):
 |---|---|---|
 | `test` | `test/**/*.test.js` minus `test/property/**` | parallel; the "full non-property" suite. **Also picks up `test/input-parsing-and-generation/**` and `test/servers/**`** because the glob is unqualified. |
 | `test:property` | `test/property/**/*.test.js` | 8 GB heap, `--parallel --jobs 4` |
-| `test:all` | `test` + `test:property` | what `test:ci` runs after lint |
+| `test:all` | `test` + `test:node` + `test:property` | what `test:ci` runs after lint |
+| `test:node` | every `test/**/*.test.js` that imports `node:test` (discovered by `scripts/run-node-tests.js`) | runs under `node --test` (8 GB heap, `test/setup-env.js` preloaded); added by BL194 because mocha reported 0 tests for these files and ignored their failures. `test:node:network` also runs `NETWORK_DEPENDENT` suites (none today). |
 | `test:unit` | `test/unit/**/*.test.js` | not parallel; 15 s timeout |
 | `test:integration` | `test/integration/**/*.test.js` | 30 s timeout |
 | `test:servers` | 5 explicit `servers/*/test.js` runners | region, instance-sizer, workload, reasoning, draft-model-picker only — **7 of the 12 standalone server runners are not in this script** |
 
-`.mocharc.json` only sets `require: ["test/setup-env.js"]`. Python tests
+`.mocharc.cjs` sets `require: ["test/setup-env.js"]` and derives `ignore` from
+`scripts/run-node-tests.js`, so mocha never loads node:test files (they run under
+`test:node`). `test/unit/node-tests-wired.test.js` fails if a node:test file is
+not discovered or not excluded from mocha. Python tests
 (`pytest`) live in two roots and are run separately (CI runs
 `pytest test/unit/`).
 

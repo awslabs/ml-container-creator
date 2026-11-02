@@ -25,6 +25,10 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ora from 'ora';
 import { flagToVars } from './deploy-answers-reader.js';
+import { getDescriptor } from './target-manifest-reader.js';
+import RegistryLoader from './registry-loader.js';
+import DeploymentConfigResolver from './deployment-config-resolver.js';
+import { resolveInferenceAmi } from '../../servers/lib/image-filter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -153,14 +157,50 @@ async function callMcpTool(serverName, toolName, toolArgs, opts = {}) {
 
 // ── Instance sizing ──────────────────────────────────────────────────────────
 
-async function getInstanceRecommendations(modelName, _region, deploymentTarget) {
+/**
+ * Query the instance-sizer for VRAM-sized recommendations.
+ *
+ * `projectDir` is forwarded as context.projectDir so the sizer consults the
+ * project's .mlcc/model-sizes.json (written by do/stage). Without it the
+ * sizer falls back to its own cwd — the generator root, not the project.
+ *
+ * When the sizer cannot determine the model's size it returns
+ * `metadata.sizingUnavailable` with an explicit `metadata.error`; that is
+ * surfaced as `sizingMessage` (and no unsized list is offered as
+ * "recommendations"). A sized-but-nothing-fits result surfaces its
+ * `metadata.error` the same way.
+ *
+ * @returns {Promise<{single: object[], multi: object[], estimatedVram?: number, sizingMessage?: string}>}
+ */
+async function getInstanceRecommendations(modelName, _region, deploymentTarget, projectDir, servingEngine) {
     if (!modelName) return { single: [], multi: [] };
 
     const result = await callMcpTool('instance-sizer', 'get_instance_recommendation', {
         modelName,
         limit: 40,
-        context: { deploymentTarget: deploymentTarget || 'realtime-inference' }
+        context: {
+            deploymentTarget: deploymentTarget || 'realtime-inference',
+            ...(projectDir ? { projectDir } : {}),
+            // BL240: the serving engine selects the default served context
+            // (max_model_len) the sizer budgets KV cache for.
+            ...(servingEngine ? { backend: servingEngine } : {})
+        }
     }, { timeout: 60000 });
+
+    return summarizeSizerResult(result);
+}
+
+/**
+ * Turn a parsed instance-sizer response into the single/multi-GPU choice
+ * groups shown by promptInstanceType (pure; exported for unit tests).
+ *
+ * @param {object|null} result - Parsed get_instance_recommendation payload
+ * @returns {{single: object[], multi: object[], estimatedVram?: number, sizingMessage?: string}}
+ */
+function summarizeSizerResult(result) {
+    if (result?.metadata?.sizingUnavailable) {
+        return { single: [], multi: [], sizingMessage: result.metadata.error || result.metadata.warning };
+    }
 
     if (result?.choices?.instanceType?.length > 0) {
         const recs = result.metadata?.recommendations || [];
@@ -225,6 +265,9 @@ async function getInstanceRecommendations(modelName, _region, deploymentTarget) 
         }
 
         return { single, multi, estimatedVram };
+    }
+    if (result?.metadata?.error) {
+        return { single: [], multi: [], sizingMessage: result.metadata.error };
     }
     return { single: [], multi: [] };
 }
@@ -371,40 +414,63 @@ function resolveHpGpuCount({ selectedInstanceType, configInstanceType, existingG
 // templates/do/deploy.d/hyperpod-eks (_hp_detect_gpu_count) must stay in sync
 // with GPU_MAP.
 export { detectGpuCount, GPU_MAP, resolveHpGpuCount };
+// Exported for unit testing (instance-sizer realtime path).
+export { summarizeSizerResult };
+// Exported for unit testing (BL209).
+export { resolveImageDefaultAmi, resolveDeployInferenceAmi };
 
 // ── AMI version resolution ────────────────────────────────────────────────────
 
-function resolveInferenceAmiVersion(deploymentConfig) {
-    // Map deployment configs to model-server catalog keys
-    const configToServer = {
-        'transformers-vllm': 'vllm',
-        'transformers-sglang': 'sglang',
-        'transformers-trtllm': 'tensorrt-llm',
-        'transformers-lmi': 'lmi',
-        'transformers-djl': 'djl',
-        'diffusors-vllm': 'vllm-omni'
-    };
-
-    const serverKey = configToServer[deploymentConfig];
-    if (!serverKey) return null;
-
+/**
+ * The project image's default InferenceAmiVersion, read through the registry
+ * loader (model-servers.json defaults.inferenceAmiVersion). The model-server
+ * key is derived, not mapped by hand: Triton entries are keyed by the full
+ * deployment config (triton-fil), every other engine by its backend
+ * (DeploymentConfigResolver). The entry whose image is the project's
+ * BASE_IMAGE wins; otherwise the catalog's first (newest) entry.
+ */
+async function resolveImageDefaultAmi(config) {
+    const deploymentConfig = config.DEPLOYMENT_CONFIG || '';
+    if (!deploymentConfig) return null;
     try {
-        const catalogPath = join(GENERATOR_ROOT, 'servers', 'lib', 'catalogs', 'model-servers.json');
-        if (!existsSync(catalogPath)) return null;
-        const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
-        const entries = catalog[serverKey];
-        if (!Array.isArray(entries) || entries.length === 0) return null;
-        return entries[0].defaults?.inferenceAmiVersion || null;
+        const registry = await new RegistryLoader().loadFrameworkRegistry();
+        const resolver = new DeploymentConfigResolver();
+        const backend = resolver.isValid(deploymentConfig)
+            ? resolver.decompose(deploymentConfig).backend
+            : (config.MODEL_SERVER || '');
+        const versions = registry[deploymentConfig] || registry[backend] || registry[config.MODEL_SERVER || ''];
+        const entries = versions ? Object.values(versions) : [];
+        if (entries.length === 0) return null;
+        const match = entries.find(e => config.BASE_IMAGE && e.baseImage === config.BASE_IMAGE);
+        return (match || entries[0]).inferenceAmiVersion || null;
     } catch {
         return null;
     }
 }
 
+/**
+ * BL209: resolve InferenceAmiVersion for the chosen instance type(s) from the
+ * AWS AMI <-> instance-family table (fleet-drivers.json, via image-filter's
+ * resolveInferenceAmi). Returns the resolver result; `ami` null means omit the
+ * field (SageMaker applies the family default).
+ *
+ * @param {object} config - parsed do/config
+ * @param {string[]} instanceTypes - the single type, or every pool type
+ * @param {string|null} imageAmi - the image default (resolveImageDefaultAmi)
+ */
+function resolveDeployInferenceAmi(config, instanceTypes, imageAmi) {
+    return resolveInferenceAmi({
+        instanceTypes,
+        userAmi: config.INFERENCE_AMI_VERSION || '',
+        imageAmi: imageAmi || ''
+    });
+}
+
 // ── Instance type prompt with split display ──────────────────────────────────
 
-async function promptInstanceType(modelName, region, strategy, deploymentTarget) {
+async function promptInstanceType(modelName, region, strategy, deploymentTarget, projectDir, servingEngine) {
     const spinner = ora('Querying instance-sizer...').start();
-    const { single, multi, estimatedVram } = await getInstanceRecommendations(modelName, region, deploymentTarget);
+    const { single, multi, estimatedVram, sizingMessage } = await getInstanceRecommendations(modelName, region, deploymentTarget, projectDir, servingEngine);
     const totalRecs = single.length + multi.length;
     if (totalRecs > 0) {
         spinner.succeed(`${totalRecs} recommendation(s)`);
@@ -472,7 +538,12 @@ async function promptInstanceType(modelName, region, strategy, deploymentTarget)
             return selected;
         }
     } else {
-        spinner.warn('No MCP recommendations available');
+        if (sizingMessage) {
+            spinner.warn('No instance recommendation');
+            console.log(`   ⚠️  ${sizingMessage}`);
+        } else {
+            spinner.warn('No MCP recommendations available');
+        }
         return await input({
             message: 'Instance type (e.g. ml.g5.xlarge):',
             default: 'ml.g5.xlarge',
@@ -502,6 +573,10 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType, 
         || (config.MODEL_NAME && !config.MODEL_NAME.startsWith('s3://') ? config.MODEL_NAME : '')
         || '';
     const projectName = config.PROJECT_NAME || 'project';
+    // The builder runs with cwd = generator root (for ESM resolution), so the
+    // project dir is derived from the config path (<project>/do/config) and
+    // passed to the instance-sizer explicitly (.mlcc/model-sizes.json lookup).
+    const projectDir = process.env.MLCC_PROJECT_DIR || dirname(dirname(configPath));
 
     console.log('');
     console.log('🚀  Deployment Configuration');
@@ -587,7 +662,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType, 
                 if (selected === '__custom__') {
                     answers.smai_endpoint_name = await input({ message: 'Endpoint name:' });
                     // Custom endpoint — need instance type
-                    answers.instance_type = await promptInstanceType(modelName, region, 'new', target);
+                    answers.instance_type = await promptInstanceType(modelName, region, 'new', target, projectDir, config.MODEL_SERVER);
                 } else {
                     answers.smai_endpoint_name = selected;
                     // Instance type comes from the endpoint — no sizer needed
@@ -603,23 +678,13 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType, 
                     default: `${projectName}-ep`
                 });
                 // No endpoint found — need instance type
-                answers.instance_type = await promptInstanceType(modelName, region, 'new', target);
+                answers.instance_type = await promptInstanceType(modelName, region, 'new', target, projectDir, config.MODEL_SERVER);
             }
         } else {
-            answers.instance_type = await promptInstanceType(modelName, region, answers.endpoint_strategy, target);
+            answers.instance_type = await promptInstanceType(modelName, region, answers.endpoint_strategy, target, projectDir, config.MODEL_SERVER);
         }
     } else {
         answers.instance_type = config.INSTANCE_TYPE;
-    }
-
-    // ── Resolve inference AMI version from model-server catalog ───────────────
-    const deploymentConfig = config.DEPLOYMENT_CONFIG || '';
-    if (!config.INFERENCE_AMI_VERSION && deploymentConfig) {
-        const amiVersion = resolveInferenceAmiVersion(deploymentConfig);
-        if (amiVersion) {
-            answers.inference_ami_version = amiVersion;
-            console.log(`   AMI version: ${amiVersion} (from ${deploymentConfig} catalog)`);
-        }
     }
 
     // ── Target-specific prompts ──────────────────────────────────────────────
@@ -734,7 +799,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType, 
                 }
             } else {
                 // No cluster info available — fall back to sizer
-                answers.instance_type = await promptInstanceType(modelName, region, null, target);
+                answers.instance_type = await promptInstanceType(modelName, region, null, target, projectDir, config.MODEL_SERVER);
             }
         }
 
@@ -796,7 +861,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType, 
                 name: `${c.name} (${c.gpuTotal} GPUs, ${c.instanceTypes.join(', ')})`,
                 value: c.name
             }));
-            choices.push({ name: '(use current kubectl context — no cluster)', value: '' });
+            choices.push({ name: 'use current kubectl context', value: '' });
             answers.cluster_name = await select({
                 message: 'Target cluster (optional):',
                 choices,
@@ -854,7 +919,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType, 
                 }
             } else {
                 // No cluster selected (ambient kubectl) or no groups — generic sizer.
-                answers.instance_type = await promptInstanceType(modelName, region, null, target);
+                answers.instance_type = await promptInstanceType(modelName, region, null, target, projectDir, config.MODEL_SERVER);
             }
         } else if (preInstanceType) {
             answers.instance_type = preInstanceType;
@@ -962,6 +1027,37 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType, 
                 choices: ['MultiRecord', 'SingleRecord'].map(v => ({ name: v, value: v })),
                 default: 'MultiRecord'
             });
+        }
+    }
+
+    // ── Resolve InferenceAmiVersion for the chosen instance type(s) (BL209) ──
+    // Only SageMaker endpoint targets send InferenceAmiVersion (descriptor
+    // family, not a hardcoded target list). Runs after the target prompts so
+    // heterogeneous pools are already split into answers.instance_types.
+    if (answers.instance_type && getDescriptor(target)?.family === 'sagemaker-endpoint') {
+        const poolTypes = (answers.instance_types || '').split(',').map(t => t.trim()).filter(Boolean);
+        const instanceTypes = poolTypes.length > 1 ? poolTypes : [answers.instance_type];
+        const imageAmi = await resolveImageDefaultAmi(config);
+        const amiResult = resolveDeployInferenceAmi(config, instanceTypes, imageAmi);
+        if (amiResult.error) {
+            console.log(`   ❌ ${amiResult.error}`);
+            const result = { error: `${amiResult.error}. See https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html` };
+            writeFileSync(outputFile, JSON.stringify(result));
+            return result;
+        }
+        for (const warning of amiResult.warnings) {
+            console.log(`   ⚠️  WARNING: ${warning}`);
+        }
+        if (amiResult.source === 'user') {
+            console.log(`   AMI version: ${amiResult.ami} (from do/config)`);
+        } else if (amiResult.ami) {
+            answers.inference_ami_version = amiResult.ami;
+            const why = amiResult.source === 'image'
+                ? 'image default, AWS-listed for this instance family'
+                : 'AWS default for this instance family';
+            console.log(`   AMI version: ${amiResult.ami} (${why})`);
+        } else if (amiResult.families.some(f => f.kind === 'gpu')) {
+            console.log('   AMI version: (omitted — SageMaker applies the instance family default)');
         }
     }
 

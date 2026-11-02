@@ -322,7 +322,34 @@ class TestBenchmarkWriterUnchanged:
     # to allow a hyphen in the family segment so Blackwell Ultra instance types
     # (ml.p6-b300.48xlarge) validate. That is a deliberate, reviewed writer change
     # unrelated to BL108, so the pin is updated to the reviewed state.
-    _EXPECTED_SHA256 = "06ffb4a09ed079e29a85e6202bdb6b51960db413104378302c2ad1bd7fb2ed01"
+    #
+    # Re-pinned (plain-EKS benchmark parity): added a plain-`eks` branch to the
+    # _collect_gpu_signals metrics_source provenance derivation so an eks run with
+    # engine signals is labeled 'engine_metrics_only' (like hyperpod-eks) instead of
+    # falling through to 'none'. Deliberate, spec-mandated writer change; pin updated.
+    #
+    # Re-pinned (bucket consolidation R2.4, owner-approved): the --dry-run preview
+    # placeholder no longer spells a convention-built bucket name
+    # (mlcc-benchmark-results-<accountId>-<region>); it now labels the profile key
+    # benchmarkS3Bucket. Display-only; real writes always pass --bucket.
+    #
+    # Re-pinned (Wave 9 half 9B, R7-R11, spec v2-w9-01): PARQUET_COLUMNS single
+    # column list, Pricing-API cost + instance_count + Bedrock columns, BL128
+    # AIPerf aggregates, Glue partition reconcile; INSTANCE_PRICING_USD_PER_HOUR
+    # deleted. Deliberate, spec-mandated writer change; pin updated.
+    #
+    # Re-pinned (Wave 9 half 9A, owner-approved spec v2-w9-01 R1/R3-R6): the writer
+    # now fills existing columns with real values — per-level run window + store
+    # signals (CloudWatch PromQL / HyperPod AMP) with provenance keyed by the
+    # descriptor store, real error_rate, the .mlcc/instances.json catalog path,
+    # benchmark_job_name on the write path, and per-job/per-level scrape sidecars
+    # (--gpu-metrics-dir). Re-pinned again after merging 9B into 9A (both halves applied).
+    #
+    # Re-pinned (BL213, v2.0 bug fix): rows are labelled with the target actually
+    # benchmarked — new --deployment-target arg + resolve_benchmarked_target()
+    # (alias resolution via targets.d; an IC run is labelled with the descriptor's
+    # IC-hosting target). Deliberate writer change; pin updated.
+    _EXPECTED_SHA256 = "21a90789e7a138bdd6b3f21786be9898a8f59eda1d6fc807e5da0776bc4d5a01"
 
     def test_writer_hash_unchanged(self):
         with open(_WRITER_PATH, "rb") as f:
@@ -330,3 +357,64 @@ class TestBenchmarkWriterUnchanged:
         assert digest == self._EXPECTED_SHA256, (
             ".benchmark_writer.py changed — BL082/BL108 Req 6 forbids modifying it."
         )
+
+
+# ── Wave 9 R2.4 / R6.2: window ratios + multi-pod scrape wiring ───────────────
+
+
+class TestWindowRatios:
+    """Counter-pair ratios are computed over the RUN WINDOW from the first and
+    last sample's raw counters — never as a mean of lifetime ratios."""
+
+    def _s(self, hits, queries, lifetime_ratio):
+        return {'kv_cache_util_avg': 0.1, 'prefix_cache_hit_rate': lifetime_ratio,
+                '_counters': {'prefix_cache_hit_rate': [hits, queries]}}
+
+    def test_ratio_is_the_window_delta(self):
+        # Lifetime ratios are ~0 (11031 queries before the run, 0 hits), but the
+        # run itself hit 60 of 100 queries.
+        out = phase2_poller.aggregate([self._s(0, 11031, 0.0), self._s(30, 11081, 0.0027),
+                                       self._s(60, 11131, 0.0054)], min_samples=1)
+        assert out['prefix_cache_hit_rate'] == pytest.approx(0.6)
+
+    def test_single_counter_sample_is_unknown_not_lifetime(self):
+        out = phase2_poller.aggregate([self._s(250, 1000, 0.25)], min_samples=1)
+        assert 'prefix_cache_hit_rate' not in out
+
+    def test_no_denominator_growth_is_unknown(self):
+        out = phase2_poller.aggregate([self._s(5, 100, 0.05), self._s(5, 100, 0.05)], min_samples=1)
+        assert 'prefix_cache_hit_rate' not in out
+
+    def test_gauge_ratio_without_counters_is_still_the_mean(self):
+        out = phase2_poller.aggregate([{'prefix_cache_hit_rate': 0.2}, {'prefix_cache_hit_rate': 0.4}],
+                                      min_samples=1)
+        assert out['prefix_cache_hit_rate'] == pytest.approx(0.3)
+
+    def test_counters_never_leak_into_the_sidecar(self):
+        out = phase2_poller.aggregate([self._s(0, 10, 0.0), self._s(5, 20, 0.25)], min_samples=1)
+        assert '_counters' not in out
+
+
+class TestMultiPodScrapeWiring:
+    """do/benchmark scrapes EVERY Running pod (cap) into per-job, per-level
+    sidecars; nothing in the start path writes the fixed display file."""
+
+    _BENCH = os.path.join(_REPO_ROOT, "templates", "do", "benchmark")
+
+    def _start_fn(self):
+        text = open(self._BENCH, encoding='utf-8').read()
+        start = text.index('_phase2_start_poller() {')
+        return text[start:text.index('\n}\n', start)]
+
+    def test_all_running_pods_not_items0(self):
+        fn = self._start_fn()
+        assert "{.items[*].metadata.name}" in fn
+        assert "{.items[0].metadata.name}" not in fn
+        assert '_PHASE2_MAX_PODS' in fn
+
+    def test_sidecar_is_per_job_level_and_pod(self):
+        fn = self._start_fn()
+        assert 'benchmarks/${BENCHMARK_JOB_NAME' in fn
+        assert 'gpu_metrics-c${_PHASE2_LEVEL}-${_i}.json' in fn
+        code = [line for line in fn.splitlines() if not line.strip().startswith('#')]
+        assert not any('.last_gpu_metrics' in line for line in code)

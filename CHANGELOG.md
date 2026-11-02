@@ -2,6 +2,149 @@
 
 All notable changes to ml-container-creator are documented here.
 
+## [2.0.0] — 2026-11-02
+
+### 🚀 v2.0 — deploy-time targets, bring-your-own clusters, one contract for live model additions
+
+Deployment targets are chosen and managed at deploy time, MLCC consumes clusters you
+already run instead of provisioning them, and one contract governs how adapters and
+fine-tuned models join a live deployment. Fine-tuning gains a capability-aware model
+picker, per-technique hyperparameters, user-authored `do/train` techniques and a
+HyperPod EKS compute backend. Deploys are checked for GPU memory fit before anything is
+created, benchmarks carry real engine and GPU metrics with Price List API cost, and
+real-time endpoints can opt in to scale-to-zero. Upgrading from 1.x: see
+`docs/upgrading-to-v2.md` and **Breaking** below.
+
+### Added
+
+- **Plain EKS (bring your own cluster)** — `./do/deploy --target eks` validates the
+  cluster contract (pod identity, CSI driver, model-mount volume) before applying, with
+  a PVC / S3-CSI path and ephemeral-storage check for large models. `./do/benchmark` on
+  `eks` uses the same workload profiles and Athena rows as the SageMaker targets.
+- **`do/add-pod`** and the three-way additive-deploy split — `./do/adapter` (LoRA),
+  `./do/add-ic` (full model, `realtime-inference`) and `./do/add-pod` (full model,
+  `hyperpod-eks`) share `--from-tune`, `--from-train`, `--from-weights` and
+  `--from-registry`. A verb used on the wrong target exits 3 and names the right one
+  (ADR-013).
+- **Kubernetes LoRA delivery** — `./do/adapter` on `hyperpod-eks` / `eks` hot-loads
+  from a path vLLM can read, derives `max_lora_rank` from your adapters, and supports
+  `--from-tune` / `--from-registry`.
+- **Versioned adapter prefixes** — each adapter version lives under
+  `<adapter-home>/v<hash12>/`; identical content is a no-op, and `./do/adapter update`
+  points the IC (or every pod) at the new version.
+- **Scale-to-zero (real-time, opt-in)** — `./do/deploy --scale-to-zero on --scale-max
+  <n>`, `--reconfigure` on a live endpoint, a `--dry-run` plan, ordered teardown in
+  `./do/clean`, and a cold-start warning (measured mean 11.9 min). Other targets refuse
+  the flag with the reason (ADR-014).
+- **HyperPod EKS compute backend** — `./do/train --backend hp-eks` and `./do/tune
+  --backend hp-eks` run a single-node HyperPodPyTorchJob after a read-only cluster
+  contract (exit 4 with the fix). SageMaker training jobs (`smtj`) stay the default.
+  `do/tune` on hp-eks supports SFT and DPO, with `--adapt-shape` (experimental) and
+  `--render-only`.
+- **HyperPod training identity** — the `training` module creates
+  `mlcc-hp-train-role-<region>` for EKS Pod Identity (`MLCC_HP_TRAIN_ROLE_ARN`).
+- **Capability-aware model picker** — managed-capable models are listed with technique
+  badges (SFT, DPO, RLAIF, RLVR, MTRL); `npm run sync:models` refreshes both catalogs.
+- **Per-technique tune descriptors** — `templates/code/tune.d/<technique>/manifest.json`
+  synced from SageMaker recipe parameters; `./do/tune` prompts the real knobs,
+  validates `--set`, and `--advanced` adds the advanced tier.
+- **`do/train` technique plugins** — a `do/training/<technique>/manifest.json`
+  (Train_Descriptor) drives `./do/train -i`; sample in `examples/train-plugins/sft-neftune`.
+- **MLflow per-project experiments** — `do/tune` and `do/train` log to the project's
+  experiment; models and adapters register through the MLflow to SageMaker Model
+  Registry bridge.
+- **Real engine and GPU metrics** — benchmark rows carry GPU utilization, KV cache,
+  queue depth, prefix-cache hit rate and `error_rate` from CloudWatch PromQL
+  (`realtime-inference`) or Amazon Managed Service for Prometheus (`hyperpod-eks`).
+  Missing signals are NULL, never 0.
+- **`do/metrics`** — `./do/metrics [--window <min>] [--target <t>] [--json]`, a live
+  readout of TTFT and latency percentiles, queue, KV cache and GPU utilization.
+- **Price List API cost** — cost per 1M tokens from a 24 h cache, the AWS Price List
+  API, then a dated snapshot; a Bedrock on-demand comparison for live-verified
+  equivalents.
+- **Right-sizing preflight** — `./do/deploy`, `--dry-run` and `./do/validate` check
+  weights + KV cache + LoRA buffer + draft model against GPU memory, context, TP,
+  dtype, IC packing, disk and quotas, and stop a deploy that cannot fit
+  (`--ignore-sizing` overrides).
+- **`do/validate` for every target**, and a **`do/export`** round trip (`--json` loads
+  back with `--config`, plus `--notebook` and `--target`).
+- **HyperPod pod-slot capacity check** — `hyperpod-eks` deploys, `do/add-pod` and the
+  training contract count free pod slots, including the Mountpoint-S3 pod; `do/status`
+  and `do/logs` surface a stuck Mountpoint pod's scheduling error.
+- **Standalone `eks` bootstrap module**, automatic `UPDATE_ROLLBACK_FAILED` recovery,
+  and **CloudFormation-owned buckets** imported through a verified change set
+  (`--dry-run` shows owned / import / create per bucket).
+- **Operator IAM policy** published at `docs/MLCC_OPERATOR_POLICY_STATEMENT.json`.
+- **Upgrade guide** `docs/upgrading-to-v2.md`.
+- **Claude Code project files** — `CLAUDE.md`, `.claude/settings.json` (tool
+  permissions) with a hook that blocks edits to generated code, and a root `.mcp.json`
+  for working on the repo.
+
+### Changed
+
+- **Benchmark Glue schema** — AIPerf aggregates, `aiperf_version`, speculative-decoding
+  acceptance and cost inputs; 93 data columns plus `model` / `instance` / `target`
+  partition keys. Run `ml-container-creator bootstrap update --module benchmark`.
+- **Instance-sizer** sizes uncatalogued and multimodal Hugging Face models from the HF
+  Hub safetensors total and `text_config`, budgets KV cache for the context the engine
+  will serve, and returns an explicit error when a size cannot be found. `do/deploy`'s
+  instance recommendation now uses the sizer's response.
+- **Inference AMI** is resolved at deploy time per instance family (the generation-time
+  CUDA prompt is gone; an explicit `INFERENCE_AMI_VERSION` still wins).
+- `do/register` and `do/benchmark` surface helper failures that were swallowed; `do/`
+  scripts name the bootstrap module that provides a missing bucket; `mcc regenerate`
+  preserves `eks`, scale-to-zero and training variables; the npm package ships the
+  bootstrap CDK app.
+- **CI** runs the full pytest suite (Python 3.14 venv), the `infra/ci-harness` and
+  `infra/bootstrap-modules` CDK tests, and the MCP server unit tests; docs drift tests
+  keep target, server and script lists in sync with the code.
+- **Docs** refreshed for v2 across the site and in the README, `do/README.md` and
+  `IAM_PERMISSIONS.md` that every generated project ships.
+
+### Fixed
+
+- Real-time and async deploys on `ml.g7*`, `ml.g7e*` and `ml.p6-b*` used an inference
+  AMI AWS does not list for those families; they now get
+  `al2023-ami-sagemaker-inference-gpu-4-1`.
+- Inference-component real-time deploys failed on an invalid
+  `--container-metrics-config` flag (1.7.0 to 1.9.x).
+- Real-time, async and batch deploys wrote a resolved `HF_TOKEN` / NGC key in plaintext
+  into the container environment; secrets are now passed by ARN.
+- `hyperpod-eks` deploys onto a node with free GPUs but no free pod slots hung in
+  `ContainerCreating`.
+- LoRA hot-load from `s3://` on Kubernetes returned "No adapter found", and the serving
+  default `max_lora_rank` (16) was below managed-tune adapter ranks (32/64).
+- `do/train` on `hyperpod-eks` submitted a Kubernetes Job that never ran.
+- `do/tune` shipped empty hyperparameter descriptors, lacked a `questionary`
+  dependency, offered knobs the managed trainer rejects, and failed with "bad
+  substitution" on macOS bash 3.2.
+- `do/register dataset` could not read a single JSON-array file and hid AI Registry name
+  errors, `--delete` never soft-deleted MLflow runs, and bridge-registered adapters were
+  not linked to their base model.
+- GPU and engine Athena columns were never populated, `error_rate` was always 0, cost
+  used a stale region-blind price table, and real-time benchmark rows could carry
+  another target's label.
+- The instance-sizer returned no recommendation, without a warning, for multimodal
+  models such as `Qwen/Qwen3.5-4B`.
+- The adapter sidecar confines adapter paths and proxies only an allow-list of routes.
+
+### Removed / deprecated
+
+- `bootstrap add-module hyperpod` (cluster provisioning) is deprecated; provision with
+  the SageMaker console Quick Install or the AWS CloudFormation templates.
+- Removed: `do/train`'s Kubernetes `batch/v1` Job path (use `--backend hp-eks`), the
+  generation-time CUDA prompt, the hardcoded price table, and `mlcc-training-role`.
+
+### ⚠️ Breaking
+
+- `./do/deploy` refuses a plaintext `HF_TOKEN` / `NGC_API_KEY` without a matching
+  `*_ARN` (exit 3); `--allow-plaintext-secret` is the explicit opt-out.
+- The right-sizing preflight stops deploys that clearly cannot fit GPU memory.
+- `--deployment-target` at generation is deprecated; choose the target with
+  `./do/deploy --target <t>`. `jumpstart://` model names are refused.
+- Existing installs should run `ml-container-creator bootstrap update` (plus
+  `--module benchmark`) and `mcc regenerate` in each project.
+
 ## [1.9.1] — 2026-10-11
 
 ### 🩹 Managed-RL patch — reward-function sample + reward-Lambda IAM

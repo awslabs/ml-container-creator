@@ -12,7 +12,9 @@
  *  - The registry CDK stack no longer provisions a branded AI Registry Hub
  *    (no createHub / AiRegistryHub custom resource), but keeps the Model
  *    Package Group (Req 9.1).
- *  - The training CDK role carries the MlccLaunchGate launch-gate statement
+ *  - The core execution role (the role ai_registry creates run as — profile
+ *    roleArn) carries every launch-gate action. The former training role and its
+ *    MlccLaunchGate statement were deleted (bucket consolidation D4: never assumed).
  *    with the 11 required actions (Req 8 / BL123 sole-writer).
  */
 
@@ -98,8 +100,10 @@ describe('BL123 native AI Registry — bootstrap wiring', () => {
         });
     });
 
-    describe('training CDK stack (source)', () => {
+    describe('core CDK stack (source) — launch gate on the execution role', () => {
         const stackSrc = readFileSync(
+            resolve(PROJECT_ROOT, 'infra/bootstrap-modules/core/stack.ts'), 'utf8');
+        const trainingSrc = readFileSync(
             resolve(PROJECT_ROOT, 'infra/bootstrap-modules/training/stack.ts'), 'utf8');
 
         const LAUNCH_GATE_ACTIONS = [
@@ -116,14 +120,15 @@ describe('BL123 native AI Registry — bootstrap wiring', () => {
             'ec2:DescribeVpcs'
         ];
 
-        it('declares the MlccLaunchGate statement', () => {
-            assert.match(stackSrc, /sid:\s*'MlccLaunchGate'/);
+        it('the unused training role (and its launch-gate copy) is gone (D4)', () => {
+            assert.doesNotMatch(trainingSrc, /new iam\.Role\(this, 'TrainingRole'/);
+            assert.doesNotMatch(trainingSrc, /sid:\s*'MlccLaunchGate'/);
         });
 
-        it('includes all 11 launch-gate actions', () => {
+        it('the core execution role grants all 11 launch-gate actions', () => {
             for (const action of LAUNCH_GATE_ACTIONS) {
                 assert.ok(stackSrc.includes(`'${action}'`),
-                    `MlccLaunchGate must include ${action}`);
+                    `core execution role must include ${action}`);
             }
         });
     });

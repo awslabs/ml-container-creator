@@ -5,23 +5,29 @@
 
 Upgrades the BL086 point-in-time engine ``/metrics`` scrape into a background
 poller that samples engine metrics every 5 seconds for the whole benchmark run,
-aggregates peak/avg, and writes ``benchmarks/.last_gpu_metrics.json`` at the
-end. Spawned by ``do/benchmark`` only when the active engine's manifest declares
-a ``metrics_endpoint`` (BL105); silently skipped otherwise.
+aggregates peak/avg, and writes its output file at the end. Spawned by
+``do/benchmark`` only when the active engine's manifest declares a
+``metrics_endpoint`` (BL105); silently skipped otherwise. Wave 9 (R6.2/R6.3):
+do/benchmark runs one poller per Running pod (cap 8), each writing a per-job,
+per-level sidecar ``benchmarks/<job>/gpu_metrics-c<level>-<pod>.json``; the
+writer merges them per level (gpu_metrics.merge_sidecars). The fixed
+``benchmarks/.last_gpu_metrics.json`` is only a display copy for
+``do/benchmark --gpu-metrics`` and is never a write input.
 
 Responsibility split (design.md § "Where the poller lives"):
   * ``do/benchmark`` bash owns the opt-in gate, kubeconfig/ARN/pod discovery, the
     ``kubectl port-forward`` and its PID lifecycle, and the spawn decision.
   * This module owns the 5s sample loop, per-sample scrape (delegated to
     ``gpu_metrics.collect_engine_metrics``), buffering, peak/avg aggregation, the
-    minimum-sample reporting rule, and writing ``.last_gpu_metrics.json``.
+    minimum-sample reporting rule, and writing the per-pod sidecar file.
 
 Non-fatal contract (inherited from gpu_metrics / BL086): metrics collection
 NEVER fails the benchmark. Any scrape error yields an empty sample that is
 skipped; an empty buffer writes no file. The poller exits 0 in all cases.
 
-For vLLM the poller collects (via METRIC_REGISTRY): kv_cache_util, queue_depth
-(running/waiting), prefix_cache_hit_rate, and spec_decode (acceptance rate).
+For vLLM the poller collects (signal names from serve.d/<engine>/manifest.json
+metric_signals): kv_cache_util, queue_depth (running/waiting), and the window
+ratios prefix_cache_hit_rate and spec_decode_acceptance_rate.
 
 CLI (invoked by do/benchmark as a background process):
 
@@ -152,6 +158,25 @@ def aggregate(samples: list[dict], min_samples: int = DEFAULT_MIN_SAMPLES) -> di
         if peak_vals:
             out[max_key] = max(peak_vals)
 
+    # Counter-pair ratios over the RUN WINDOW (Wave 9 R2.4): when samples carry
+    # raw counters (``_counters`` {signal: [num, den]} from collect_engine_metrics),
+    # the ratio is (num_last - num_first) / (den_last - den_first) — never the
+    # mean of per-sample LIFETIME ratios. Fewer than 2 counter samples, or no
+    # denominator growth, means the window ratio is unknown → key omitted (NULL).
+    counter_series: dict = {}
+    for sample in non_empty:
+        for signal, pair in (sample.get('_counters') or {}).items():
+            if isinstance(pair, (list, tuple)) and len(pair) == 2:
+                counter_series.setdefault(signal, []).append(pair)
+    for signal, pairs in counter_series.items():
+        out.pop(signal, None)
+        if len(pairs) < 2:
+            continue
+        d_num = float(pairs[-1][0]) - float(pairs[0][0])
+        d_den = float(pairs[-1][1]) - float(pairs[0][1])
+        if d_den > 0 and d_num >= 0:
+            out[signal] = d_num / d_den
+
     out['sample_count'] = count
     out['partial'] = count < min_samples
     # Classify the file so benchmark_gpu_metrics._metrics_source() treats it as
@@ -180,7 +205,7 @@ def run_poller(
       * ``max_samples`` non-empty samples have been collected (bounds test runs).
 
     On stop, the buffer is aggregated (Req 3, Req 5) and, when non-empty, written
-    to ``output_file`` as ``.last_gpu_metrics.json`` (Req 3.1). An empty buffer
+    to ``output_file`` (the per-pod sidecar, Req 3.1). An empty buffer
     writes no file. Returns the aggregate dict (``{}`` when nothing was written).
     """
     buffer: list[dict] = []
@@ -282,7 +307,7 @@ def _main(argv: list[str]) -> int:
     )
     parser.add_argument('base_url', help='Engine base URL, e.g. http://localhost:18080')
     parser.add_argument('engine', help='Engine key (e.g. vllm, sglang)')
-    parser.add_argument('output_file', help='Path to write .last_gpu_metrics.json')
+    parser.add_argument('output_file', help="Path to write the per-pod sidecar (benchmarks/<job>/gpu_metrics-c<level>-<pod>.json)")
     parser.add_argument('--interval', type=int, default=DEFAULT_INTERVAL,
                         help='Seconds between samples (default 5).')
     parser.add_argument('--min-samples', type=int, default=DEFAULT_MIN_SAMPLES,

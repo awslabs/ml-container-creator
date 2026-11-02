@@ -35,6 +35,7 @@ import ejs from 'ejs';
 import { fileURLToPath } from 'url';
 import {
     capabilityMap,
+    capabilityDefaults,
     resolveCapabilityVars,
     serveEngineRuntimeVarsUnion,
     minVersion
@@ -393,9 +394,12 @@ describe('ADR-010 SGLang pure-dynamic LoRA (findings: .kiro/sglang-lora-dynamic-
 // that OOM large models; each engine's manifest translates the capability to its
 // own env suffix.
 describe('ADR-010 deploy-driver companion defaults', () => {
-    const MLCC_LORA_DEFAULTS = { lora_max: '4', lora_max_rank: '16', lora_target_modules: 'all' };
-
+    // Wave 6.1 (BL188): the defaults are each capability's manifest `default`
+    // (the drivers read them via serve_manifest.py capability_defaults), not a
+    // literal table here or in the drivers.
     function buildTier1Values(engine, { loraOn, userRank = '', userMax = '', userModules = '', serveDir } = {}) {
+        const MLCC_LORA_DEFAULTS = Object.fromEntries(
+            Object.entries(capabilityDefaults(engine, serveDir)).map(([k, v]) => [k, String(v)]));
         const v = { model: 'm', tensor_parallel_degree: '4' };
         if (loraOn) {
             v.lora_enable = 'true';

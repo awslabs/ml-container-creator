@@ -20,7 +20,8 @@ import {
     answerKey,
     verbs,
     statusVarToAnswerKey,
-    runtimeOwnedVarsUnion
+    runtimeOwnedVarsUnion,
+    scaleToZero
 } from '../../src/lib/target-manifest-reader.js';
 
 const TARGETS = ['async-inference', 'batch-transform', 'eks', 'hyperpod-eks', 'realtime-inference'];
@@ -97,5 +98,28 @@ describe('target-manifest-reader (ADR-008)', () => {
             assert.ok((d.runtime_owned_vars || []).includes(d.status_var),
                 `${d.target} runtime_owned_vars must include its status_var`);
         }
+    });
+
+    it('scaleToZero reads the Wave 10 capability block (ADR-014)', () => {
+        const rt = scaleToZero('realtime');
+        assert.strictEqual(rt.enabled, true, 'realtime-inference is enabled via its alias too');
+        assert.strictEqual(rt.support, 'native');
+        assert.ok(rt.mechanism && rt.wake_signal, 'an enabled target names its mechanism and wake signal');
+        for (const t of TARGETS) {
+            const s2z = scaleToZero(t);
+            assert.strictEqual(typeof s2z.enabled, 'boolean', t);
+            if (!s2z.enabled) assert.ok(s2z.reason, `${t} explains why it is refused`);
+        }
+    });
+
+    it('scaleToZero of an unknown target is disabled with a reason (refuse, do not crash)', () => {
+        const s2z = scaleToZero('nope');
+        assert.strictEqual(s2z.enabled, false);
+        assert.strictEqual(s2z.support, 'not-applicable');
+        assert.ok(s2z.reason);
+    });
+
+    it('SCALE_TO_ZERO_STATUS is preserved by regenerate (derived runtime-owned var)', () => {
+        assert.ok(runtimeOwnedVarsUnion().includes('SCALE_TO_ZERO_STATUS'));
     });
 });

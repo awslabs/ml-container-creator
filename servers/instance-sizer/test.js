@@ -10,6 +10,22 @@
 
 import assert from 'node:assert';
 import { handleGetInstanceRecommendation, INSTANCE_CATALOG, SERVER_CONFIG, server } from './index.js';
+import { BYTES_PER_PARAM, OVERHEAD_FACTOR, BYTES_IN_GB } from './lib/vram-estimator.js';
+
+/**
+ * BL240: the estimate is weights + overhead + KV cache for the SERVED context
+ * (not the model's native maximum), so it sits just above the weights.
+ * Asserts that shape instead of a frozen GB range.
+ */
+function assertServedContextEstimate(md) {
+    const weightsWithOverhead = md.parameterCount * (BYTES_PER_PARAM[md.dtype] ?? 2) * (1 + OVERHEAD_FACTOR) / BYTES_IN_GB;
+    assert.ok(md.estimatedVramGb > weightsWithOverhead,
+        `estimate ${md.estimatedVramGb} should exceed weights+overhead ${weightsWithOverhead}`);
+    assert.ok(md.servedContextLength > 0 && md.servedContextLength <= md.maxPositionEmbeddings,
+        `served context ${md.servedContextLength} should be within the native ${md.maxPositionEmbeddings}`);
+    assert.ok(md.vramBreakdown.kvCacheGb < md.vramBreakdown.weightsGb * 0.25,
+        `KV budget ${md.vramBreakdown.kvCacheGb}GB at the served context should be a small share of weights`);
+}
 
 let passed = 0;
 let failed = 0;
@@ -71,16 +87,12 @@ await test('Llama-3.1-8B metadata has required fields', async () => {
     assert.strictEqual(data.metadata.source, 'catalog', 'metadata.source should be catalog');
 });
 
-await test('Llama-3.1-8B VRAM estimate is between 26 and 32 GB', async () => {
+await test('Llama-3.1-8B VRAM estimate is weights + overhead + served-context KV', async () => {
     const result = await handleGetInstanceRecommendation({
         modelName: 'meta-llama/Llama-3.1-8B-Instruct'
     });
     const data = parseResponse(result);
-
-    assert.ok(data.metadata.estimatedVramGb >= 26,
-        `estimatedVramGb should be >= 26, got: ${data.metadata.estimatedVramGb}`);
-    assert.ok(data.metadata.estimatedVramGb <= 32,
-        `estimatedVramGb should be <= 32, got: ${data.metadata.estimatedVramGb}`);
+    assertServedContextEstimate(data.metadata);
 });
 
 await test('Llama-3.1-8B recommendations are non-empty with required fields', async () => {
@@ -106,16 +118,12 @@ await test('Llama-3.1-8B recommendations are non-empty with required fields', as
 
 console.log('\ninstance-sizer: known model (Llama-3.3-70B)\n');
 
-await test('Llama-3.3-70B VRAM estimate is between 240 and 260 GB', async () => {
+await test('Llama-3.3-70B VRAM estimate is weights + overhead + served-context KV', async () => {
     const result = await handleGetInstanceRecommendation({
         modelName: 'meta-llama/Llama-3.3-70B-Instruct'
     });
     const data = parseResponse(result);
-
-    assert.ok(data.metadata.estimatedVramGb >= 240,
-        `estimatedVramGb should be >= 240, got: ${data.metadata.estimatedVramGb}`);
-    assert.ok(data.metadata.estimatedVramGb <= 260,
-        `estimatedVramGb should be <= 260, got: ${data.metadata.estimatedVramGb}`);
+    assertServedContextEstimate(data.metadata);
 });
 
 await test('Llama-3.3-70B includes multi-GPU instances (TP > 1)', async () => {

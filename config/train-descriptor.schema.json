@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mlcc/train-descriptor",
+  "$comment": "SOURCE of truth (repo-only). scripts/codegen-train-schema.js inlines the external $ref below into the self-contained templates/do/training/manifest.schema.json that ships into generated projects. Edit THIS file, then run npm run codegen.",
+  "title": "MLCC Train Technique Manifest",
+  "description": "Schema for an optional do/training/<technique>/manifest.json (BL154). Describes a do/train technique's hyperparameter knobs as METADATA (type, bounds, enum, tier, control, help text); per-knob VALUES stay in the technique's defaults.yaml. The knob entry contract is the tune descriptor's $defs/hyperparameter (one knob contract shared with do/tune). No _synced layer, reward_source, or dataset_contract (post-v2).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "technique", "hyperparameters"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional editor hint (e.g. \"../manifest.schema.json\"). Ignored by do/train."
+    },
+    "schema_version": {
+      "const": 1,
+      "description": "Manifest format version. Only 1 is defined."
+    },
+    "technique": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$",
+      "description": "Technique id. Must equal the do/training/<technique>/ directory name."
+    },
+    "display_name": {
+      "type": "string",
+      "description": "Human-readable technique label."
+    },
+    "description": {
+      "type": "string",
+      "description": "One-line technique description."
+    },
+    "hyperparameters": {
+      "type": "object",
+      "description": "Knob name -> knob entry. Knob names are the keys train.py reads from its hyperparameters.",
+      "additionalProperties": {
+        "$ref": "../templates/code/tune.d/manifest.schema.json#/$defs/hyperparameter"
+      }
+    }
+  }
+}

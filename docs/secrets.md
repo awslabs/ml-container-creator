@@ -93,7 +93,7 @@ Available ARN flags:
 
 | Flag | Secret Type | Used At |
 |------|-------------|---------|
-| `--hf-token-arn` | HuggingFace Token | Build-time and runtime |
+| `--hf-token-arn` | HuggingFace Token | Runtime (container start, `do/run`) |
 | `--ngc-token-arn` | NVIDIA NGC Token | Build-time only |
 
 ### Interactive Prompt Flow
@@ -125,7 +125,7 @@ if [ -n "${HF_TOKEN_ARN:-}" ]; then
 fi
 ```
 
-The resolved value is passed to Docker as a build argument and is not persisted in the image layers.
+`do/build` does not pass the resolved value into `docker build`; it is used only in the build shell (for example the NGC `docker login nvcr.io` on TensorRT-LLM). A plaintext `--hf-token` given at generation time is different: it is baked into the Dockerfile as `ENV HF_TOKEN`.
 
 ### Runtime (`do/run`)
 

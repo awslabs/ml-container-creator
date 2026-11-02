@@ -33,6 +33,17 @@ jobs:
       - name: Security audit
         run: npm audit --audit-level=critical || echo "⚠️  Non-critical vulnerabilities found"
 
+      # infra/bootstrap-modules CDK app (BL238). Must run BEFORE `Tests`: its `npm ci`
+      # provides the ts-node + aws-cdk-lib that the root-mocha wrappers
+      # (test/unit/bootstrap-*-cdk.test.js) need to run test/*.assertions.ts. Under
+      # CI=true those wrappers FAIL instead of skipping if this install is missing.
+      # Its own `npm test` runs only test/core-stack.test.ts (node:test), so the
+      # *.assertions.ts files are not double-run here. tsc type-checks the stacks.
+      - name: Bootstrap modules CDK tests
+        if: matrix.node-version == '24.x'
+        working-directory: infra/bootstrap-modules
+        run: npm ci && npm test && npx tsc --noEmit
+
       - name: Tests
         run: npm run test:ci
         env:
@@ -60,13 +71,33 @@ jobs:
         if: matrix.node-version == '24.x'
         run: npm run test:servers:unit
 
+      # infra/ci-harness CDK app: own package.json + local .mocharc.cjs (synth
+      # assertions, Path Prover ASL, Glue schema == writer). Never ran in CI before BL219.
+      - name: CI harness CDK tests
+        if: matrix.node-version == '24.x'
+        working-directory: infra/ci-harness
+        run: npm ci && npm test
+
       - name: Python tests
         if: matrix.node-version == '24.x'
         run: |
           # aiohttp: exercises the adapter sidecar's HTTP handlers (test_adapter_sidecar_security.py)
           # botocore: bundled SageMaker service model for test_aws_cli_flags.py (bump to adopt newer APIs)
-          python3 -m pip install -q pytest questionary aiohttp==3.14.5 botocore==1.43.118
-          python3 -m pytest test/unit/ -q --tb=short
+          # pyarrow: pinned to the repo .venv version so the Parquet round-trip and
+          # schema tests (test_benchmark_writer_parquet.py, test_benchmark_schema_drift.py) run in CI instead of skipping
+          # boto3 / requests / PyYAML: imported at collection time (test_ic_update.py, test_lora_vllm.py,
+          # test_train_config_builder.py). Pinned so the step does not depend on what the runner image
+          # preinstalls; boto3 tracks the pinned botocore (the image's boto3 1.40.x conflicts with it).
+          # hypothesis: the Python property suites (test/property/, tests/test_property_*.py); pinned
+          # to the repo .venv version.
+          # venv: do/ scripts refuse to run outside a virtual environment (_require_python_env),
+          # and tests/test_dry_run_cp4.py drives do/deploy.
+          # Full configured run (pyproject [tool.pytest.ini_options]): test/unit, test/property,
+          # test/integration and tests/ (BL234; previously only test/unit ran here).
+          python3 -m venv "$RUNNER_TEMP/pyvenv"
+          . "$RUNNER_TEMP/pyvenv/bin/activate"
+          python3 -m pip install -q pytest questionary aiohttp==3.14.5 botocore==1.43.118 boto3==1.43.118 requests==2.34.2 PyYAML==6.0.3 pyarrow==24.0.0 hypothesis==6.157.2
+          python3 -m pytest -q --tb=short
 
       - name: Validate namespaces
         if: matrix.node-version == '24.x'
@@ -87,6 +118,10 @@ jobs:
       - name: Validate serve-engine manifests
         if: matrix.node-version == '24.x'
         run: node scripts/validate-serve-manifests.js
+
+      - name: Validate tune descriptors
+        if: matrix.node-version == '24.x'
+        run: node scripts/validate-tune-manifests.js
 
   integration:
     name: Integration

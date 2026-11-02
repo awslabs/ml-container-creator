@@ -26,7 +26,15 @@ CLI (one-shot, for bash callers):
     clean_script      — prints clean.d/<target>
     serving_config_source — prints kubernetes|sagemaker-ic
     aliases | required_vars | runtime_owned_vars — prints a JSON array
+    compute_backends  — prints the JSON array of training backends (first = default;
+                        ["smtj"] when the descriptor predates the field)
     optional_vars | verbs — prints a JSON object
+    adapter_delivery  — prints the JSON object (or {} when the target declares none)
+    cluster_contract  — prints the JSON object (or {} when the target declares none)
+    pricing           — prints the JSON pricing object (Wave 9 price resolver)
+    observability     — prints the JSON object (Wave 9: store, selector, dashboard ...)
+    service_quota_usage — prints the Service Quotas usage suffix (or "")
+    scale_to_zero     — prints the JSON object (Wave 10: support, mechanism, enabled ...)
     resolve           — resolves an alias to its canonical target name
 
   <target> accepts a canonical name OR an alias (resolved via `aliases`).
@@ -190,10 +198,69 @@ def runtime_owned_vars(target: str, targets_dir: str | None = None) -> list[str]
     return list(read_manifest(target, targets_dir).get("runtime_owned_vars", []))
 
 
+def adapter_delivery(target: str, targets_dir: str | None = None) -> dict:
+    """Return the target's adapter_delivery declaration (Wave 6.1 R1.1), or {}
+    when the target loads adapters another way (e.g. SMAI adapter ICs)."""
+    return dict(read_manifest(target, targets_dir).get("adapter_delivery") or {})
+
+
+def cluster_contract(target: str, targets_dir: str | None = None) -> dict:
+    """Return the target's read-only cluster-contract preflight declaration
+    (Wave 8 R5.3: {script, entry}), or {} when the target has none."""
+    return dict(read_manifest(target, targets_dir).get("cluster_contract") or {})
+def compute_backends(target: str, targets_dir: str | None = None) -> list[str]:
+    """Return the target's training compute backends (Wave 11 R1.1), in
+    preference order; the first entry is the default. A descriptor that predates
+    the field reads as ["smtj"] (every target can submit an SMTJ)."""
+    backends = read_manifest(target, targets_dir).get("compute_backends") or ["smtj"]
+    return [str(b) for b in backends]
+def pricing(target: str, targets_dir: str | None = None) -> dict:
+    """Return the target's pricing declaration (Wave 9 R7.1/R8.2:
+    {service, component?, instance_count: {basis, ...}}), or {} when absent.
+    The price resolver (pricing.py) derives the Price List service/component
+    and the billed instance count from this block instead of a target branch."""
+    return dict(read_manifest(target, targets_dir).get("pricing") or {})
+
+
+def observability(target: str, targets_dir: str | None = None) -> dict:
+    """Return the target's observability declaration (Wave 9 R1/R6/R12):
+    {store, histogram_form, selector, gpu_selector, fallback, dashboard,
+    amp_discovery, copy_concurrency}. A target without the block reads as
+    {"store": "none"} so callers degrade to "no store" instead of erroring."""
+    obs = dict(read_manifest(target, targets_dir).get("observability") or {})
+    obs.setdefault("store", "none")
+    return obs
+
+
+def scale_to_zero(target: str, targets_dir: str | None = None) -> dict:
+    """Return the target's scale_to_zero declaration (Wave 10, ADR-014 R1):
+    {support, mechanism, wake_signal, requests_at_zero, idle_billing, enabled,
+    reason}. A target without the block reads as not-applicable and disabled,
+    so callers refuse instead of erroring (the schema requires the block)."""
+    block = dict(read_manifest(target, targets_dir).get("scale_to_zero") or {})
+    if not block:
+        block = {
+            "support": "not-applicable",
+            "mechanism": None,
+            "wake_signal": None,
+            "requests_at_zero": "n/a",
+            "idle_billing": "n/a",
+            "enabled": False,
+            "reason": "this target declares no scale_to_zero capability",
+        }
+    return block
+
+
+def service_quota_usage(target: str, targets_dir: str | None = None) -> str:
+    """Return the SageMaker Service Quotas usage suffix for the target's
+    instances (e.g. 'endpoint usage'), or '' when capacity is cluster-provided."""
+    return str(read_manifest(target, targets_dir).get("service_quota_usage") or "")
 # ── CLI one-shot for bash callers ──────────────────────────────────────────────
 
 _ARRAY_FIELDS = {"aliases", "required_vars", "runtime_owned_vars"}
-_OBJECT_FIELDS = {"optional_vars", "verbs"}
+_OBJECT_FIELDS = {"optional_vars", "verbs", "adapter_delivery", "cluster_contract", "pricing", "observability"}
+# Fields whose accessor applies a default, so the CLI prints the accessor value.
+_ACCESSOR_FIELDS = {"scale_to_zero": scale_to_zero}
 _STRING_FIELDS = {
     "target",
     "status_var",
@@ -203,6 +270,7 @@ _STRING_FIELDS = {
     "deploy_script",
     "clean_script",
     "serving_config_source",
+    "service_quota_usage",
 }
 
 
@@ -232,8 +300,14 @@ def _cli(argv: list[str]) -> int:
     if field in _ARRAY_FIELDS:
         print(json.dumps(manifest.get(field, [])))
         return 0
+    if field == "compute_backends":
+        print(json.dumps(manifest.get(field) or ["smtj"]))
+        return 0
     if field in _OBJECT_FIELDS:
         print(json.dumps(manifest.get(field, {})))
+        return 0
+    if field in _ACCESSOR_FIELDS:
+        print(json.dumps(_ACCESSOR_FIELDS[field](target)))
         return 0
 
     print(f"Error: unknown field '{field}'", file=sys.stderr)

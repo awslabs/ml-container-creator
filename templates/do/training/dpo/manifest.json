@@ -1,0 +1,133 @@
+{
+  "$schema": "../manifest.schema.json",
+  "schema_version": 1,
+  "technique": "dpo",
+  "display_name": "Direct Preference Optimization (DPO)",
+  "description": "DPO-specific settings: TRL DPOTrainer + PEFT LoRA on a prompt/chosen/rejected preference dataset.",
+  "hyperparameters": {
+    "beta": {
+      "type": "number",
+      "required": false,
+      "min": 0,
+      "tier": "primary",
+      "display_name": "Beta (KL penalty coefficient)",
+      "description": "strength of the KL penalty against the reference model"
+    },
+    "learning_rate": {
+      "type": "number",
+      "required": false,
+      "tier": "primary",
+      "display_name": "Learning rate",
+      "description": "optimizer learning rate"
+    },
+    "epochs": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "primary",
+      "display_name": "Epochs",
+      "description": "number of passes over the dataset"
+    },
+    "batch_size": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "primary",
+      "display_name": "Batch size",
+      "description": "per-device batch size"
+    },
+    "lora_r": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "primary",
+      "display_name": "LoRA rank (r)",
+      "description": "LoRA adapter rank"
+    },
+    "chosen_field": {
+      "type": "string",
+      "required": false,
+      "tier": "primary",
+      "display_name": "Chosen response column name",
+      "description": "dataset column holding the preferred response"
+    },
+    "rejected_field": {
+      "type": "string",
+      "required": false,
+      "tier": "primary",
+      "display_name": "Rejected response column name",
+      "description": "dataset column holding the rejected response"
+    },
+    "prompt_field": {
+      "type": "string",
+      "required": false,
+      "tier": "advanced",
+      "display_name": "Prompt column name",
+      "description": "dataset column holding the prompt"
+    },
+    "max_length": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "advanced",
+      "display_name": "Max sequence length",
+      "description": "prompt + response token limit"
+    },
+    "max_prompt_length": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "advanced",
+      "display_name": "Max prompt length",
+      "description": "prompt token limit"
+    },
+    "lora_alpha": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "advanced",
+      "display_name": "LoRA alpha",
+      "description": "LoRA scaling factor"
+    },
+    "lora_dropout": {
+      "type": "number",
+      "required": false,
+      "min": 0,
+      "max": 1,
+      "tier": "advanced",
+      "display_name": "LoRA dropout",
+      "description": "dropout on the LoRA layers, 0-1"
+    },
+    "gradient_accumulation_steps": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "advanced",
+      "display_name": "Gradient accumulation steps",
+      "description": "steps to accumulate before an optimizer update"
+    },
+    "warmup_ratio": {
+      "type": "number",
+      "required": false,
+      "min": 0,
+      "max": 1,
+      "tier": "advanced",
+      "display_name": "Warmup ratio",
+      "description": "fraction of training steps used for LR warmup, 0-1"
+    },
+    "reference_free": {
+      "type": "boolean",
+      "required": false,
+      "tier": "advanced",
+      "display_name": "Reference-free",
+      "description": "skip the frozen reference model (halves memory)"
+    },
+    "model_id": {
+      "type": "string",
+      "required": false,
+      "tier": "tertiary",
+      "display_name": "Base model ID",
+      "description": "HuggingFace model ID; normally taken from HF_MODEL_ID"
+    }
+  }
+}

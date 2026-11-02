@@ -238,7 +238,9 @@
                 "eks:ListAccessEntries",
                 "eks:ListClusters",
                 "eks:ListNodegroups",
-                "eks:ListAssociatedAccessPolicies"
+                "eks:ListAssociatedAccessPolicies",
+                "eks:ListPodIdentityAssociations",
+                "eks:DescribePodIdentityAssociation"
             ],
             "Resource": "*"
         },
@@ -251,6 +253,15 @@
             "Resource": [
                 "arn:aws:bedrock:*:*:inference-profile/global.anthropic.claude-sonnet-4-5-20250929-v1:0",
                 "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0"
+            ]
+        },
+        {
+            "Sid": "IAMSimulateTrainingRoles",
+            "Effect": "Allow",
+            "Action": "iam:SimulatePrincipalPolicy",
+            "Resource": [
+                "arn:aws:iam::*:role/mlcc-*",
+                "arn:aws:iam::*:role/*-s3csi-*"
             ]
         }
     ]

@@ -204,3 +204,59 @@ class TestTakeAndEmpty:
                                                ["prompt", "completion"]) == ["prompt"]
         assert dataset_qol._check_empty_fields({"prompt": "p", "completion": "c"},
                                                ["prompt", "completion"]) == []
+
+
+import json as _json  # noqa: E402
+import tempfile  # noqa: E402
+
+
+class TestNormalizeJsonArrayToJsonl:
+    """BL179: a HF `.json` that is a single JSON array (or wrapper) must be
+    normalized to JSONL before the line-by-line staging reader runs — otherwise
+    json.loads('[') dies with 'Expecting value: line 1 column 2 (char 1)'. A real
+    JSONL file (and any .jsonl/.ndjson by name) must be left untouched."""
+
+    def _write(self, text, name="d.json"):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, name)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(text)
+        return p
+
+    def test_single_json_array_is_rewritten_to_jsonl(self):
+        p = self._write(_json.dumps([{"x": 1}, {"x": 2}, {"x": 3}]))
+        lp, df = tune_stage_hf._normalize_json_array_to_jsonl(p, "d.json", _json)
+        assert lp.endswith(".from_array.jsonl")
+        assert df.endswith(".from_array.jsonl")
+        lines = [l for l in open(lp, encoding="utf-8").read().splitlines() if l.strip()]
+        assert len(lines) == 3
+        assert _json.loads(lines[0]) == {"x": 1}  # one object per line
+
+    def test_data_wrapper_object_is_unwrapped(self):
+        p = self._write(_json.dumps({"data": [{"a": 1}, {"a": 2}]}))
+        lp, _ = tune_stage_hf._normalize_json_array_to_jsonl(p, "d.json", _json)
+        assert lp.endswith(".from_array.jsonl")
+        assert len([l for l in open(lp).read().splitlines() if l.strip()]) == 2
+
+    def test_single_object_becomes_one_row(self):
+        p = self._write(_json.dumps({"instruction": "x", "output": "y"}))
+        lp, _ = tune_stage_hf._normalize_json_array_to_jsonl(p, "d.json", _json)
+        assert lp.endswith(".from_array.jsonl")
+        assert len([l for l in open(lp).read().splitlines() if l.strip()]) == 1
+
+    def test_real_jsonl_dot_json_is_left_untouched(self):
+        # Two objects on separate lines in a .json file → NOT a single JSON doc →
+        # json.load fails → returned unchanged for the existing per-line path.
+        p = self._write('{"x":1}\n{"x":2}\n')
+        lp, df = tune_stage_hf._normalize_json_array_to_jsonl(p, "d.json", _json)
+        assert lp == p and df == "d.json"
+
+    def test_jsonl_extension_is_left_untouched_by_name(self):
+        p = self._write('{"x":1}\n', name="d.jsonl")
+        lp, _ = tune_stage_hf._normalize_json_array_to_jsonl(p, "d.jsonl", _json)
+        assert lp == p
+
+    def test_ndjson_extension_is_left_untouched_by_name(self):
+        p = self._write('{"x":1}\n', name="d.ndjson")
+        lp, _ = tune_stage_hf._normalize_json_array_to_jsonl(p, "d.ndjson", _json)
+        assert lp == p

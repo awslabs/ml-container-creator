@@ -636,7 +636,7 @@
             "openai",
             "conversational"
         ],
-        "architecture": "GPT2LMHeadModel",
+        "architecture": "GptOssForCausalLM",
         "notes": "GPT-OSS 20B. Open-source 20B parameter model from OpenAI",
         "chatTemplate": "",
         "frameworkCompatibility": {
@@ -667,7 +667,7 @@
             "openai",
             "conversational"
         ],
-        "architecture": "GPT2LMHeadModel",
+        "architecture": "GptOssForCausalLM",
         "notes": "GPT-OSS 120B. Large open-source model from OpenAI. Requires multi-GPU tensor parallelism",
         "chatTemplate": "",
         "frameworkCompatibility": {

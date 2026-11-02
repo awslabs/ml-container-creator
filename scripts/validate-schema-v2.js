@@ -31,8 +31,11 @@ const REQUIRED_FIELDS = ['type', 'description', 'cliFlag', 'configKey', 'phase',
 const VALID_TYPES = ['string', 'integer', 'number', 'boolean', 'enum'];
 const VALID_PHASES = ['project', 'model', 'infrastructure', 'features', 'build', 'auth'];
 
+const VALID_DO_CONFIG_SHAPES = ['env-map'];
+const SHELL_VAR = /^[A-Z_][A-Z0-9_]*$/;
 const errors = [];
 const params = schema.parameters;
+const doConfigOwners = new Map();
 
 // Validate each parameter
 for (const [key, param] of Object.entries(params)) {
@@ -58,6 +61,55 @@ for (const [key, param] of Object.entries(params)) {
         if (param.validation && param.validation.min !== undefined && param.validation.max !== undefined) {
             if (param.validation.min > param.validation.max) {
                 errors.push(`${prefix}: validation.min (${param.validation.min}) > validation.max (${param.validation.max})`);
+            }
+        }
+    }
+    // Wave 8 (OQ-8.6): the do/config var <-> parameter mapping lives here.
+    if ('doConfigVar' in param) {
+        if (typeof param.doConfigVar !== 'string' || !SHELL_VAR.test(param.doConfigVar)) {
+            errors.push(`${prefix}: doConfigVar must be a shell variable name (got ${JSON.stringify(param.doConfigVar)})`);
+        } else if (doConfigOwners.has(param.doConfigVar)) {
+            errors.push(`${prefix}: doConfigVar ${param.doConfigVar} is already claimed by ${doConfigOwners.get(param.doConfigVar)}`);
+        } else {
+            doConfigOwners.set(param.doConfigVar, key);
+        }
+        if (!param.templateVar) errors.push(`${prefix}: doConfigVar requires a templateVar (the answer key the template reads)`);
+    }
+    if ('doConfigShape' in param) {
+        if (!VALID_DO_CONFIG_SHAPES.includes(param.doConfigShape)) {
+            errors.push(`${prefix}: invalid doConfigShape '${param.doConfigShape}' (valid: ${VALID_DO_CONFIG_SHAPES.join(', ')})`);
+        }
+        if (!param.doConfigVar) errors.push(`${prefix}: doConfigShape requires doConfigVar`);
+        if (param.doConfigShape === 'env-map' && param.repeatable !== true) {
+            errors.push(`${prefix}: doConfigShape 'env-map' is only valid on a repeatable KEY=VALUE parameter`);
+        }
+    }
+    if ('doConfigUnsetValue' in param) {
+        if (typeof param.doConfigUnsetValue !== 'string' || !param.doConfigVar) {
+            errors.push(`${prefix}: doConfigUnsetValue must be a string on a parameter with doConfigVar`);
+        }
+    }
+    if ('doConfigVarPrefix' in param) {
+        if (param.doConfigShape !== 'env-map' || typeof param.doConfigVarPrefix !== 'string' || !SHELL_VAR.test(param.doConfigVarPrefix)) {
+            errors.push(`${prefix}: doConfigVarPrefix must be a shell-name prefix on an env-map parameter`);
+        }
+    }
+}
+// Top-level do/config section: the derived (excluded) exports, each with a reason.
+if (schema.doConfig !== undefined) {
+    const dc = schema.doConfig;
+    for (const section of ['derived', 'derivedDynamic']) {
+        const entries = dc[section];
+        if (entries === undefined) continue;
+        if (entries === null || typeof entries !== 'object' || Array.isArray(entries)) {
+            errors.push(`doConfig.${section}: must be an object of name -> reason`);
+            continue;
+        }
+        for (const [name, reason] of Object.entries(entries)) {
+            if (section === 'derived' && !SHELL_VAR.test(name)) errors.push(`doConfig.derived: '${name}' is not a shell variable name`);
+            if (typeof reason !== 'string' || !reason.trim()) errors.push(`doConfig.${section}.${name}: a non-empty reason is required`);
+            if (section === 'derived' && doConfigOwners.has(name)) {
+                errors.push(`doConfig.derived.${name}: also the doConfigVar of ${doConfigOwners.get(name)}`);
             }
         }
     }

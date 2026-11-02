@@ -10,6 +10,9 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
+source "${SCRIPT_DIR}/lib/scale-to-zero.sh"
+# Wave 10 (ADR-014 R4.2): this target's own name, for the scale_to_zero descriptor.
+_STZ_CLEAN_TARGET="$(basename "${BASH_SOURCE[0]}")"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
 ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
@@ -46,7 +49,8 @@ show_usage() {
     echo "  ic <name> - Delete a single inference component (does not touch the endpoint)"
 <% if (typeof enableLora !== 'undefined' && enableLora) { %>
     echo "  adapter <name> - Delete a single LoRA adapter (synonym for do/adapter remove)"
-    echo "  adapters       - Remove ALL LoRA adapters (keeps base IC and endpoint running)"
+    echo "  adapters       - Delete this project's canonical adapters/fine-tunes from the core bucket"
+    echo "                   (handled by do/clean on every target; add --force to skip the prompt)"
 <% } %>
     echo "  codebuild - Delete CodeBuild project, IAM role, and S3 source artifacts"
     echo "  all       - Perform all cleanup operations"
@@ -389,6 +393,24 @@ clean_endpoint() {
         return 1
     fi
 
+    # Wave 10 (ADR-014 R4.2): scale-to-zero resources (alarm, policies, then the
+    # scalable target) go first, before the ICs and the endpoint. "Not found"
+    # counts as removed; no AWS call when scale-to-zero was never enabled.
+    local _stz_ics=""
+    if [ ${#IC_NAMES_TO_DELETE[@]} -gt 0 ]; then
+        _stz_ics="${IC_NAMES_TO_DELETE[*]}"
+    elif [ "${IC_EXISTS}" = true ]; then
+        _stz_ics="${IC_NAME}"
+    fi
+    if [ -n "${_stz_ics}" ]; then
+        # ${_stz_ics}: space-separated IC names, unquoted on purpose.
+        stz_teardown_if_owned "${_STZ_CLEAN_TARGET}" ${_stz_ics} \
+            || echo "⚠️  Some scale-to-zero resources could not be removed (see above); continuing."
+        if [ -n "${SCALE_TO_ZERO_STATUS:-}" ]; then
+            _stz_set_status ""
+        fi
+    fi
+
 <% if (typeof enableLora !== 'undefined' && enableLora) { %>
     # Delete adapter ICs first (adapters depend on base ICs)
     if [ -d "${SCRIPT_DIR}/adapters" ]; then
@@ -571,6 +593,10 @@ clean_ic() {
     if ! confirm_action "This will delete inference component '${ic_deployed_name}'"; then
         return 1
     fi
+
+    # Wave 10 (ADR-014 R4.2): its scale-to-zero resources first (if any).
+    stz_teardown_if_owned "${_STZ_CLEAN_TARGET}" "${ic_deployed_name}" \
+        || echo "⚠️  Some scale-to-zero resources could not be removed (see above); continuing."
 
     # Delete the inference component
     echo "🗑️  Deleting inference component: ${ic_deployed_name}"
@@ -799,10 +825,13 @@ clean_codebuild() {
     fi
 
     # Check for S3 source bucket
-    S3_BUCKET="codebuild-source-${AWS_ACCOUNT_ID}-${AWS_REGION}"
+    # CodeBuild source bucket from the profile key codebuildSourceS3Bucket
+    # (CODEBUILD_SOURCE_S3_BUCKET via do/lib/profile.sh) — never a convention-built
+    # name. Empty when the ci module is not provisioned: nothing to clean there.
+    S3_BUCKET="${CODEBUILD_SOURCE_S3_BUCKET:-}"
     S3_PREFIX="${PROJECT_NAME}/"
     S3_EXISTS=false
-    if aws s3api head-bucket --bucket "$S3_BUCKET" --region "${AWS_REGION}" &> /dev/null; then
+    if [ -n "$S3_BUCKET" ] && aws s3api head-bucket --bucket "$S3_BUCKET" --region "${AWS_REGION}" &> /dev/null; then
         S3_COUNT=$(aws s3 ls "s3://$S3_BUCKET/$S3_PREFIX" --region "${AWS_REGION}" 2>/dev/null | wc -l | tr -d ' ')
         if [ "$S3_COUNT" -gt 0 ]; then
             S3_EXISTS=true

@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.4",
+  "aiperf_version": "0.13.0",
+  "start_time": "2026-10-23T19:25:13.469096",
+  "end_time": "2026-10-23T19:26:01.908679",
+  "request_error_rate": {
+    "unit": "%",
+    "avg": 0.0
+  },
+  "error_summary": [],
+  "request_count": {
+    "unit": "requests",
+    "avg": 100.0
+  },
+  "completed_request_count": {
+    "unit": "requests",
+    "avg": 100.0
+  },
+  "was_cancelled": false,
+  "_provenance": "Subset of the live AIPerf 0.13.0 profile_export_aiperf.json of managed benchmark job fresh-ai-ml-benchmark-20261023-152219 (2026-10-23, HyperPod fresh-ai-ml, concurrency 2). Values copied verbatim."
+}

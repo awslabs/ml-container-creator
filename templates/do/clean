@@ -27,7 +27,9 @@ while [ $# -gt 0 ]; do
         --target)
             shift
             if [ $# -eq 0 ]; then
-                echo "❌ --target requires a value"
+            # >>> GENERATED: target-list (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT
+                echo "❌ --target requires a value (realtime-inference, async-inference, batch-transform, hyperpod-eks, eks)"
+            # <<< END GENERATED target-list
                 exit 1
             fi
             DEPLOYMENT_TARGET="$1"
@@ -36,7 +38,13 @@ while [ $# -gt 0 ]; do
         --help|-h)
             echo "Usage: ./do/clean [--target <mode>] [clean-script-flags...]"
             echo ""
-            echo "Targets: managed-inference, async-inference, batch-transform, hyperpod-eks, eks"
+            # >>> GENERATED: target-list-usage (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT
+            echo "Targets: realtime-inference, async-inference, batch-transform, hyperpod-eks, eks"
+            # <<< END GENERATED target-list-usage
+            echo ""
+            echo "  ./do/clean adapters [--force]   Delete this project's canonical LoRA adapters and"
+            echo "                                  fine-tunes from the core bucket (never base models"
+            echo "                                  or other projects' adapters)"
             exit 0
             ;;
         *)
@@ -45,6 +53,20 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+# ── ./do/clean adapters [--force] — target-independent (Wave 6.1 R1.7) ───────
+# Canonical adapters / fine-tunes live in the core bucket regardless of the
+# deployment target, so this scope is handled here, not in clean.d/<target>.
+if [ "${CLEAN_ARGS[0]:-}" = "adapters" ]; then
+    source "${SCRIPT_DIR}/lib/profile.sh"
+    source "${SCRIPT_DIR}/lib/s3-layout.sh"
+    _clean_force=false
+    for _a in "${CLEAN_ARGS[@]}"; do
+        [ "${_a}" = "--force" ] && _clean_force=true
+    done
+    _s3_layout_clean_project "${_clean_force}"
+    exit $?
+fi
 
 # Normalize alias
 if [ "${DEPLOYMENT_TARGET:-}" = "realtime-inference" ]; then
@@ -59,7 +81,7 @@ import { select } from '@inquirer/prompts';
 const target = await select({
     message: 'Which deployment to clean up?',
     choices: [
-        { name: 'Managed Inference', value: 'managed-inference' },
+        { name: 'Realtime Inference', value: 'realtime-inference' },
         { name: 'Async Inference', value: 'async-inference' },
         { name: 'Batch Transform', value: 'batch-transform' },
         { name: 'HyperPod EKS', value: 'hyperpod-eks' },

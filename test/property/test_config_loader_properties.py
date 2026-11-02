@@ -7,7 +7,6 @@ The implementation under test lives in src/agent/config_loader.py.
 
 import json
 import os
-import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -16,10 +15,15 @@ import hypothesis.strategies as st
 from hypothesis import given, settings, HealthCheck
 
 # ── Import the module under test ──────────────────────────────────────────────
-sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "..", "..", "src", "agent")
-)
-from config_loader import load_agent_config, _DEFAULTS, AgentConfig  # noqa: E402
+# Import through the package (repo root is on pythonpath via pyproject), the
+# same way test/unit/agent/* do. Do NOT put src/agent itself on sys.path: the
+# agent modules use `try: from execution_config import ... except ImportError:
+# from src.agent.execution_config import ...`, so with src/agent on sys.path a
+# later-imported chain_runner / agent binds a SECOND copy of tools.execute_script
+# and goal_planner. That split module identity (separate _execution_log list,
+# distinct PlanStep class) broke test_chain_runner / test_from_plan whenever
+# this file ran first in the full suite (BL234).
+from src.agent.config_loader import load_agent_config, _DEFAULTS, AgentConfig  # noqa: E402
 
 
 # ── Strategies ────────────────────────────────────────────────────────────────

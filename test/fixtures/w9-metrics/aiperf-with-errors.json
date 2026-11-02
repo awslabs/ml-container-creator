@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.4",
+  "aiperf_version": "0.12.0",
+  "start_time": "2026-09-29T19:12:04.099752",
+  "end_time": "2026-09-29T19:12:05.830359",
+  "request_error_rate": {
+    "unit": "%",
+    "avg": 1.0
+  },
+  "error_summary": [
+    {
+      "error_details": {
+        "type": "InvalidInferenceResultError",
+        "message": "InvalidInferenceResultError('Invalid inference result: No responses with actual content were received from the server (only usage/metadata, null/empty data, or [DONE] markers)')",
+        "cause_chain": [
+          "InvalidInferenceResultError"
+        ]
+      },
+      "count": 1
+    }
+  ],
+  "request_count": {
+    "unit": "requests",
+    "avg": 99.0
+  },
+  "completed_request_count": {
+    "unit": "requests",
+    "avg": 100.0
+  },
+  "was_cancelled": false,
+  "_provenance": "Subset of a live AIPerf profile_export_aiperf.json (bold-llm-engine-benchmark-20260929-150842): 1 errored of 100 requests, reported as request_error_rate {\"unit\": \"%\", \"avg\": 1.0}. Values copied verbatim."
+}

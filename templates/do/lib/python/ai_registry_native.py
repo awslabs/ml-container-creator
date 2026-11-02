@@ -83,6 +83,63 @@ def native_member_for(technique):
     return _TECHNIQUE_TO_MEMBER[key], True
 
 
+# Data-file extensions the native registry can download + validate as a single
+# object, in preference order (parquet first for managed-RL verl channels).
+_NATIVE_SOURCE_EXTS = (".parquet", ".jsonl", ".ndjson", ".json")
+
+
+def _is_prefix_uri(s3_uri):
+    """True when the S3 URI names a prefix (trailing '/') rather than an object."""
+    return isinstance(s3_uri, str) and s3_uri.startswith("s3://") and s3_uri.endswith("/")
+
+
+def _resolve_prefix_to_object(s3_uri, region):
+    """Resolve an s3:// PREFIX to a single representative data object URI.
+
+    Lists the prefix and returns the s3:// URI of one data file, preferring
+    parquet, then jsonl/ndjson/json. Ignores the `_dataset.json` sidecar and any
+    hidden/zero-byte keys. Returns None if the prefix holds no registrable data
+    object (caller then skips native registration with a clear reason). Best-effort:
+    any listing error returns None rather than raising (native path is non-fatal).
+    """
+    try:
+        import boto3
+        from urllib.parse import urlparse
+
+        parsed = urlparse(s3_uri)
+        bucket = parsed.netloc
+        prefix = parsed.path.lstrip("/")
+        s3 = boto3.client("s3", region_name=region)
+        candidates = []
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                base = key.rsplit("/", 1)[-1]
+                if not base or base.startswith(".") or base == "_dataset.json":
+                    continue
+                if obj.get("Size", 0) <= 0:
+                    continue
+                if base.lower().endswith(_NATIVE_SOURCE_EXTS):
+                    candidates.append(key)
+        if not candidates:
+            return None
+
+        def _rank(key):
+            low = key.lower()
+            for i, ext in enumerate(_NATIVE_SOURCE_EXTS):
+                if low.endswith(ext):
+                    return i
+            return len(_NATIVE_SOURCE_EXTS)
+
+        candidates.sort(key=lambda k: (_rank(k), k))
+        return f"s3://{bucket}/{candidates[0]}"
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
+    except Exception:  # noqa: BLE001 — prefix resolution is best-effort (non-fatal)
+        return None
+
+
 def check_ai_registry_available():
     """True when the installed sagemaker SDK exposes sagemaker.ai_registry.
 
@@ -166,6 +223,39 @@ class NativeRegistrySkipped(Exception):
     """Raised to signal a non-fatal skip with a user-facing reason."""
 
 
+# SageMaker hub-content name constraint (ImportHubContent): the name must match
+# ``[a-zA-Z0-9](-*[a-zA-Z0-9]){0,62}`` — ONLY alphanumerics and hyphens, must start
+# with an alphanumeric, max 63 chars. This is STRICTER than MLflow's name rules
+# (mlcc_mlflow.sanitize_name keeps underscores, which are valid for MLflow), so the
+# native path needs its OWN sanitizer — otherwise a perfectly valid MLflow/dataset
+# name like ``Intel_orca_dpo`` is accepted by MLflow but REJECTED by the AI Registry
+# with a ValidationException, and (because native registration is non-fatal) the
+# failure is swallowed and the dataset silently never appears in Studio Assets
+# (BL171). Do NOT "fix" this by changing sanitize_name — underscores must stay legal
+# for MLflow; the hub-content regex is a native-only constraint.
+def sanitize_hub_content_name(name):
+    """Coerce an arbitrary dataset name into a SageMaker hub-content name.
+
+    Maps any character outside ``[A-Za-z0-9]`` to ``-``, collapses runs of ``-``,
+    trims leading/trailing ``-``, and truncates to 63 chars (re-trimming a trailing
+    ``-`` left by truncation). Guarantees a leading alphanumeric by prefixing ``d-``
+    when the result would otherwise start non-alphanumeric or be empty. Idempotent
+    on an already-valid name. Returns a string matching
+    ``[a-zA-Z0-9](-*[a-zA-Z0-9]){0,62}``.
+    """
+    import re
+    if not isinstance(name, str):
+        name = str(name)
+    # Replace every illegal char with a hyphen, then collapse/trim hyphen runs.
+    safe = re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-")
+    # Must start with an alphanumeric (the regex's first char class).
+    if not safe or not safe[0].isalnum():
+        safe = "d-" + safe.lstrip("-")
+    # Max 63 chars; truncation may leave a trailing hyphen, so re-trim.
+    safe = safe[:63].rstrip("-")
+    return safe or "dataset"
+
+
 def register_dataset_native(*, name, s3_uri, technique, region,
                             description=None, role=None, domain_id=None):
     """Create (or version++) a native AI Registry DataSet for Studio discoverability.
@@ -212,9 +302,46 @@ def register_dataset_native(*, name, s3_uri, technique, region,
             f"the installed SDK's CustomizationTechnique has no '{member}' member"
         )
 
+    # The AI Registry hub-content name is STRICTER than the dataset/MLflow name
+    # (no underscores, leading alnum, <=63 chars). Sanitize here so a valid MLflow
+    # name is never silently rejected by ImportHubContent (BL171). Note the
+    # remap so the user can find the Studio asset under its sanitized name.
+    hub_name = sanitize_hub_content_name(name)
+    if hub_name != name:
+        print(
+            f"\u2139\ufe0f  AI Registry asset name '{name}' \u2192 '{hub_name}' "
+            "(hub-content names allow only letters, digits, and hyphens).",
+            file=sys.stderr,
+        )
+
+    # The SDK's DataSet.create downloads the source as a SINGLE object
+    # (AIRHub.download_from_s3 → s3.download_file) and validates its format. A
+    # prefix source (e.g. the managed-RL verl training channel 's3://.../data/')
+    # therefore 404s — you cannot HeadObject/GetObject a prefix. The training
+    # channel legitimately IS a prefix (ODP-2), so we keep the sidecar/channel URI
+    # as the prefix but point the STUDIO-DISCOVERABLE native asset at a single
+    # representative data object inside it. This is why RLVR/RLAIF/MTRL datasets
+    # (parquet-dir sources) never appeared in Studio Assets while DPO (single-file
+    # source) did.
+    native_source = s3_uri
+    if _is_prefix_uri(s3_uri):
+        resolved = _resolve_prefix_to_object(s3_uri, region)
+        if resolved is None:
+            raise NativeRegistrySkipped(
+                f"source '{s3_uri}' is a prefix with no single registrable data "
+                "object; the training channel is registered in the S3 sidecar, but "
+                "the native AI Registry needs a single file"
+            )
+        native_source = resolved
+        print(
+            f"\u2139\ufe0f  AI Registry source '{s3_uri}' \u2192 '{native_source}' "
+            "(native registry needs a single file; training channel stays the prefix).",
+            file=sys.stderr,
+        )
+
     create_kwargs = {
-        "name": name,
-        "source": s3_uri,
+        "name": hub_name,
+        "source": native_source,
         "customization_technique": technique_member,
     }
     if role:
@@ -232,5 +359,9 @@ def register_dataset_native(*, name, s3_uri, technique, region,
         "arn": getattr(dataset, "arn", None),
         "version": getattr(dataset, "version", None),
         "member": member,
+        # The hub-content name actually used (sanitized from the caller's name when
+        # it contained hub-illegal chars). Surfaced so the caller can record the
+        # AI-Registry identity alongside the dataset/MLflow name when they differ.
+        "hub_content_name": hub_name,
         "domain_tagged": domain_tagged,
     }

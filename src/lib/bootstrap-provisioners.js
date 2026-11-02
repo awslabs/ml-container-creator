@@ -301,89 +301,11 @@ export default class BootstrapProvisioners {
         return repoName;
     }
 
-    /**
-     * Optionally create S3 buckets for async/batch deployments.
-     * Always creates the benchmark S3 bucket (unconditional).
-     * @returns {Promise<object|null>} Bucket names or null if skipped
-     */
-    async _setupS3Buckets() {
-        // Always create benchmark bucket (unconditional — avoids re-bootstrap when benchmarking is enabled later)
-        const benchmarkBucketName = `ml-container-creator-benchmark-${this.handler._currentRegion}-${this.handler._currentAccountId}`;
-        const tags = this._buildResourceTags();
-        const benchmarkS3Bucket = await this._createS3Bucket(benchmarkBucketName, tags);
-
-        const { useS3 } = await this.handler._promptFn([{
-            type: 'confirm',
-            name: 'useS3',
-            message: 'Will you use async inference or batch transform?',
-            default: false
-        }]);
-
-        if (!useS3) {
-            return { benchmarkS3Bucket };
-        }
-
-        const asyncBucketName = `ml-container-creator-async-${this.handler._currentRegion}-${this.handler._currentAccountId}`;
-        const batchBucketName = `ml-container-creator-batch-${this.handler._currentRegion}-${this.handler._currentAccountId}`;
-
-        const asyncS3Bucket = await this._createS3Bucket(asyncBucketName, tags);
-        const batchS3Bucket = await this._createS3Bucket(batchBucketName, tags);
-
-        return { asyncS3Bucket, batchS3Bucket, benchmarkS3Bucket };
-    }
-
-    /**
-     * Create or reuse a single S3 bucket with versioning, encryption, and tags.
-     * @param {string} bucketName - S3 bucket name
-     * @param {Array<{Key: string, Value: string}>} tags - Resource tags
-     * @returns {Promise<string>} Bucket name
-     */
-    async _createS3Bucket(bucketName, tags) {
-        // Check if bucket already exists
-        const bucketExists = this.handler._resourceExists(
-            `s3api head-bucket --bucket ${bucketName}`,
-            this.handler._currentProfile
-        );
-
-        if (bucketExists) {
-            console.log(`  ✅ S3 bucket "${bucketName}" already exists — reused`);
-            return bucketName;
-        }
-
-        // Build create-bucket command with region-appropriate configuration
-        let createCommand = `s3api create-bucket --bucket ${bucketName} --region ${this.handler._currentRegion}`;
-        if (this.handler._currentRegion !== 'us-east-1') {
-            createCommand += ` --create-bucket-configuration LocationConstraint=${this.handler._currentRegion}`;
-        }
-
-        this.handler._execAws(createCommand, this.handler._currentProfile);
-
-        // Enable versioning
-        this.handler._execAws(
-            `s3api put-bucket-versioning --bucket ${bucketName} --versioning-configuration Status=Enabled`,
-            this.handler._currentProfile
-        );
-
-        // Enable AES256 server-side encryption
-        const encryptionConfig = { Rules: [{ ApplyServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } }] };
-        const encryptionFile = this.handler._writeJsonTempFile(encryptionConfig, 's3-encryption');
-        this.handler._execAws(
-            `s3api put-bucket-encryption --bucket ${bucketName} --server-side-encryption-configuration ${encryptionFile}`,
-            this.handler._currentProfile
-        );
-
-        // Apply resource tags
-        const tagging = { TagSet: tags };
-        const taggingFile = this.handler._writeJsonTempFile(tagging, 's3-tagging');
-        this.handler._execAws(
-            `s3api put-bucket-tagging --bucket ${bucketName} --tagging ${taggingFile}`,
-            this.handler._currentProfile
-        );
-
-        console.log(`  ✅ S3 bucket "${bucketName}" — created`);
-        return bucketName;
-    }
-
+    // _setupS3Buckets() / _createS3Bucket() were REMOVED (bucket consolidation
+    // R1.6). They imperatively created untracked ml-container-creator-{benchmark,
+    // async,batch} buckets that no flow read. Every MLCC bucket is now declared in
+    // its bootstrap stack's buckets.json and owned by CloudFormation; nothing in
+    // the CLI creates buckets imperatively.
     /**
      * Verify AWS CLI v2 is installed. Returns true if v2 is detected, false otherwise.
      * @returns {boolean}

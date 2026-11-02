@@ -316,7 +316,15 @@ def test_unsafe_archive_rejected_and_nothing_written(sidecar, root, tmp_path, sp
 
 def test_unsafe_archive_rejected_by_extract_without_data_filter(sidecar, root, monkeypatch):
     """Member validation does not depend on tarfile.data_filter (Python < 3.12 path)."""
+    # Simulate a pre-3.12 tarfile: no data_filter, and extractall() with no filter
+    # extracts members unfiltered. Deleting data_filter alone is not enough on
+    # Python 3.14+, whose default extraction filter IS data_filter (looked up by
+    # name inside tarfile), so pin the old fully-trusted default explicitly.
+    fully_trusted = getattr(tarfile, 'fully_trusted_filter', None)
     monkeypatch.delattr(tarfile, 'data_filter', raising=False)
+    if fully_trusted is not None:
+        monkeypatch.setattr(tarfile.TarFile, 'extraction_filter',
+                            staticmethod(fully_trusted), raising=False)
     adapter = os.path.join(root, 'old-python')
     os.makedirs(adapter)
     tar_path = os.path.join(adapter, 'adapter.tar.gz')

@@ -160,12 +160,14 @@ def cmd_submit(args):
             exit_code=4,
         )
 
-    s3_uri = f"s3://{args.bucket}/models/{args.model_name}/"
+    import s3_layout  # noqa: PLC0415 — the single layout module (bucket consolidation R3)
+    model_prefix = s3_layout.base_prefix(args.model_name)
+    s3_uri = s3_layout.s3_uri(args.bucket, model_prefix)
 
     if not args.force:
         s3 = boto3.client("s3", region_name=args.region)
         try:
-            s3.head_object(Bucket=args.bucket, Key=f"models/{args.model_name}/config.json")
+            s3.head_object(Bucket=args.bucket, Key=f"{model_prefix}config.json")
             _output({"job_name": "", "status": "AlreadyStaged", "s3_uri": s3_uri})
             return
         except s3.exceptions.ClientError:

@@ -73,7 +73,18 @@ spec:
               cpu: "${HP_CPU_REQUEST:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 4) %>}"
               memory: "${HP_MEM_REQUEST:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 16) %>Gi}"
               nvidia.com/gpu: "${HP_GPU_COUNT:-<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>}"
-<% if (typeof modelHostPath === 'undefined' || !modelHostPath) { %>
+<%
+   // BL155: the model-store volume is ONE of four mutually-exclusive modes, by
+   // precedence: hostPath (HP_MODEL_HOSTPATH) > a CSI mount (EKS_MODEL_MOUNT =
+   // s3|ebs|fsx, backed by a namespaced PVC) > emptyDir (default). The
+   // ephemeral-storage request/limit is emitted ONLY on the emptyDir path — a
+   // hostPath NVMe and a PVC/CSI volume do NOT draw from the node root, so a
+   // large request there would make the pod unschedulable.
+   var _hostPath = (typeof modelHostPath !== 'undefined' && modelHostPath) ? String(modelHostPath) : '';
+   var _mount = (typeof eksModelMount !== 'undefined' && eksModelMount) ? String(eksModelMount) : '';
+   var _isEmptyDir = !_hostPath && !_mount;
+-%>
+<% if (_isEmptyDir) { %>
               # Ephemeral storage for the model that code/serve pulls to
               # /opt/ml/model at startup — SOURCE-AGNOSTIC: an S3 `aws s3 sync` AND
               # a HuggingFace download land there identically. Without a request the
@@ -84,14 +95,15 @@ spec:
               # model ⇒ more GPUs ⇒ more weight bytes); override with
               # HP_EPHEMERAL_STORAGE for models that don't fit the heuristic.
               # NOTE: only emitted on the emptyDir path. When the model lands on a
-              # hostPath NVMe mount (HP_MODEL_HOSTPATH), it does NOT draw from node
-              # ephemeral-storage, so no request is set — requesting hundreds of Gi
-              # against a small root volume would make the pod unschedulable.
+              # hostPath NVMe mount (HP_MODEL_HOSTPATH) or a PVC/CSI mount
+              # (EKS_MODEL_MOUNT), it does NOT draw from node ephemeral-storage, so
+              # no request is set — requesting hundreds of Gi against a small root
+              # volume would make the pod unschedulable.
               ephemeral-storage: "${HP_EPHEMERAL_STORAGE:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 20) %>Gi}"
 <% } %>
             limits:
               nvidia.com/gpu: "${HP_GPU_COUNT:-<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>}"
-<% if (typeof modelHostPath === 'undefined' || !modelHostPath) { %>
+<% if (_isEmptyDir) { %>
               # Limit = request so the pod is Guaranteed for ephemeral-storage and
               # cannot exceed what the scheduler reserved.
               ephemeral-storage: "${HP_EPHEMERAL_STORAGE:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 20) %>Gi}"
@@ -109,11 +121,11 @@ spec:
               mountPath: /dev/shm
       volumes:
         - name: model-store
-<% if (typeof modelHostPath !== 'undefined' && modelHostPath) { %>
-          # Model lands on a pre-mounted node-local NVMe volume (e.g. the SageMaker
-          # DLAMI instance-store at /opt/dlami/nvme), NOT the node's small EBS root.
-          # Set HP_MODEL_HOSTPATH to the NVMe mount base; the deploy driver appends
-          # the project name. This path is for nodes whose large instance-store is
+<% if (_hostPath) { %>
+          # Mode 1 — hostPath NVMe (HP_MODEL_HOSTPATH). Model lands on a pre-mounted
+          # node-local NVMe volume (e.g. the SageMaker DLAMI instance-store at
+          # /opt/dlami/nvme), NOT the node's small EBS root. The deploy driver
+          # appends the project name. For nodes whose large instance-store is
           # mounted but NOT wired into kubelet's ephemeral-storage root — common on
           # HyperPod/DLAMI GPU nodes where the EBS root is ~100 GB but TBs of NVMe
           # sit at /opt/dlami/nvme. Avoids the DiskPressure/eviction the emptyDir
@@ -121,11 +133,22 @@ spec:
           hostPath:
             path: "${HP_MODEL_HOSTPATH}/<%= projectName %>"
             type: DirectoryOrCreate
+<% } else if (_mount) { %>
+          # Mode 2 — CSI mount (EKS_MODEL_MOUNT=<%= _mount %>). A NAMESPACED
+          # PersistentVolumeClaim (ModelPvc.yaml.ejs) backs the model volume:
+          #   • s3  → binds a CLUSTER-PROVIDED static mountpoint-S3 PV, read-only —
+          #           the pod streams weights from S3, no local download.
+          #   • ebs → a dynamically-provisioned EBS volume (download-to-a-bigger-disk).
+          #   • fsx → an FSx-for-Lustre volume.
+          # MLCC emits ONLY this PVC; the PV (s3) / StorageClass (ebs|fsx) are
+          # cluster-provided and validated by the BL156 contract preflight (ADR-012).
+          persistentVolumeClaim:
+            claimName: <%= projectName %>-model-store
 <% } else { %>
-          # Default: a bounded emptyDir. Disk is accounted against the sizeLimit and
-          # the ephemeral-storage reservation above (node root volume). Fine for
-          # models that fit the node's ephemeral-storage; large models need the
-          # hostPath NVMe path (HP_MODEL_HOSTPATH) or a PVC/CSI mount (v1.10).
+          # Mode 3 — default bounded emptyDir on the node root EBS. Disk is accounted
+          # against the sizeLimit and the ephemeral-storage reservation above. Fine
+          # for models that fit the node root; large models need the hostPath NVMe
+          # path (HP_MODEL_HOSTPATH) or a CSI mount (EKS_MODEL_MOUNT=s3|ebs|fsx).
           emptyDir:
             sizeLimit: "${HP_EPHEMERAL_STORAGE:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 20) %>Gi}"
 <% } %>

@@ -11,6 +11,7 @@ import {
     isLlm as tritonIsLlm,
     supportsSampleModel as tritonSupportsSampleModel
 } from '../triton-backend-reader.js';
+import { loraSizingDefaults } from '../serve-manifest-reader.js';
 
 const modulePrompts = [
     {
@@ -118,14 +119,16 @@ const loraPrompts = [
         type: 'number',
         name: 'maxLoras',
         message: 'Maximum concurrent LoRA adapters in GPU memory:',
-        default: 30,
+        // BL188: derived from the engine manifest (capability_map lora_max.default).
+        default: (answers) => loraSizingDefaults(answers.backend || answers.modelServer).maxLoras,
         when: (answers) => answers.enableLora === true
     },
     {
         type: 'number',
         name: 'maxLoraRank',
         message: 'Maximum LoRA rank:',
-        default: 64,
+        // BL188: derived from the engine manifest (capability_map lora_max_rank.default).
+        default: (answers) => loraSizingDefaults(answers.backend || answers.modelServer).maxLoraRank,
         when: (answers) => answers.enableLora === true
     }
 ];

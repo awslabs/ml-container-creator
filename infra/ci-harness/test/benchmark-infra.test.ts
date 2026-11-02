@@ -2,6 +2,7 @@ import { App } from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import assert from 'node:assert/strict';
 import { MlccCiHarnessStack } from '../lib/ci-harness-stack';
+import { writerColumns, writerPartitionKeys } from './writer-schema';
 
 /**
  * CDK snapshot tests for Glue/S3/IAM benchmark infrastructure provisioning.
@@ -21,6 +22,14 @@ describe('Benchmark Infrastructure (Glue/S3/IAM Provisioning)', () => {
         const stack = new MlccCiHarnessStack(app, 'BenchmarkTestStack');
         template = Template.fromStack(stack);
     });
+
+    /** TableInput of the benchmark_results Glue table (there is also mlcc_evaluations). */
+    function benchmarkResultsTableInput(): any {
+        const tables = Object.values(template.findResources('AWS::Glue::Table'))
+            .filter((r: any) => r.Properties.TableInput.Name === 'benchmark_results');
+        assert.equal(tables.length, 1, 'expected exactly one benchmark_results table');
+        return (tables[0] as any).Properties.TableInput;
+    }
 
     describe('Glue Database (Req 3.1)', () => {
         it('creates Glue database named mlcc_ci', () => {
@@ -61,46 +70,27 @@ describe('Benchmark Infrastructure (Glue/S3/IAM Provisioning)', () => {
             });
         });
 
-        it('defines partition keys: region, year, month', () => {
-            template.hasResourceProperties('AWS::Glue::Table', {
-                TableInput: Match.objectLike({
-                    PartitionKeys: [
-                        { Name: 'region', Type: 'string' },
-                        { Name: 'year', Type: 'string' },
-                        { Name: 'month', Type: 'string' },
-                    ],
-                }),
-            });
+        // BL219: expectations derive from the writer (templates/do/.benchmark_writer.py),
+        // the source of truth for the columns it emits and the S3 partition scheme.
+        it('defines partition keys from the writer S3 scheme (model, instance, target)', () => {
+            const keys = benchmarkResultsTableInput().PartitionKeys.map((k: { Name: string }) => k.Name);
+            assert.deepEqual(keys, writerPartitionKeys());
+            for (const k of benchmarkResultsTableInput().PartitionKeys) {
+                assert.equal(k.Type, 'string', k.Name);
+            }
         });
 
-        it('includes core dimension columns (config_id, model_name, model_family, instance_type, instance_family)', () => {
-            template.hasResourceProperties('AWS::Glue::Table', {
-                TableInput: Match.objectLike({
-                    StorageDescriptor: Match.objectLike({
-                        Columns: Match.arrayWith([
-                            Match.objectLike({ Name: 'config_id', Type: 'string' }),
-                            Match.objectLike({ Name: 'model_name', Type: 'string' }),
-                            Match.objectLike({ Name: 'model_family', Type: 'string' }),
-                            Match.objectLike({ Name: 'instance_type', Type: 'string' }),
-                            Match.objectLike({ Name: 'instance_family', Type: 'string' }),
-                        ]),
-                    }),
-                }),
-            });
+        it('columns equal the writer PARQUET_COLUMNS (names + types, order-independent)', () => {
+            const byName = (a: { Name: string }, b: { Name: string }) => a.Name.localeCompare(b.Name);
+            const actual = benchmarkResultsTableInput().StorageDescriptor.Columns
+                .map((col: { Name: string; Type: string }) => ({ Name: col.Name, Type: col.Type }))
+                .sort(byName);
+            assert.deepEqual(actual, writerColumns().sort(byName));
         });
 
-        it('includes result metric columns (ttft_p50_ms, throughput_rps, cost_per_1m_tokens)', () => {
-            template.hasResourceProperties('AWS::Glue::Table', {
-                TableInput: Match.objectLike({
-                    StorageDescriptor: Match.objectLike({
-                        Columns: Match.arrayWith([
-                            Match.objectLike({ Name: 'ttft_p50_ms', Type: 'double' }),
-                            Match.objectLike({ Name: 'throughput_rps', Type: 'double' }),
-                            Match.objectLike({ Name: 'cost_per_1m_tokens', Type: 'double' }),
-                        ]),
-                    }),
-                }),
-            });
+        it('partition keys are not also data columns', () => {
+            const cols = new Set(writerColumns().map((col) => col.Name));
+            for (const k of writerPartitionKeys()) assert.ok(!cols.has(k), k);
         });
 
         it('includes run_type column for provenance discrimination', () => {
@@ -219,6 +209,8 @@ describe('Benchmark Infrastructure (Glue/S3/IAM Provisioning)', () => {
                                 'glue:GetPartitions',
                                 'glue:BatchCreatePartition',
                                 'glue:CreatePartition',
+                                'glue:GetPartition',
+                                'glue:UpdatePartition',
                             ],
                             Resource: [
                                 'arn:aws:glue:*:*:catalog',

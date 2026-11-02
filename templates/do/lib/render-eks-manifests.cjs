@@ -112,6 +112,15 @@ const templateVars = {
     // root — for large models on nodes whose instance-store isn't the kubelet root.
     // The deploy driver sets HP_MODEL_HOSTPATH; the template appends the project.
     modelHostPath: env.HP_MODEL_HOSTPATH || '',
+    // BL155: large-model storage-mode signals. EKS_MODEL_MOUNT (s3|ebs|fsx) opts
+    // the model volume into a namespaced PVC (binding a CLUSTER-PROVIDED PV /
+    // StorageClass — MLCC emits only the PVC, never the PV; ADR-012). storageClass
+    // / modelPvName feed the PVC's storageClassName / volumeName; stagedModelPath
+    // is the S3 prefix an s3-mount streams. Empty → the hostPath/emptyDir path.
+    eksModelMount: env.EKS_MODEL_MOUNT || '',
+    stagedModelPath: env.STAGED_MODEL_PATH || '',
+    storageClass: env.EKS_STORAGE_CLASS || '',
+    modelPvName: env.EKS_MODEL_PV_NAME || '',
     // Manifest-derived Tier-1 env pairs for the active engine (ADR-010). Empty
     // list when the resolver was unavailable → template uses its own fallbacks.
     tier1Env: parseTier1(env.EKS_TIER1_ENV_JSON),

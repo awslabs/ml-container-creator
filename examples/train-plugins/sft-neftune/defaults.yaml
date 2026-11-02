@@ -1,0 +1,24 @@
+# Default hyperparameter VALUES for the sft-neftune sample technique.
+#
+# Values live here; manifest.json only describes the knobs (type, bounds, tier, help).
+# Precedence, lowest to highest:
+#   1. manifest.json `default` (this sample declares none)
+#   2. this file
+#   3. do/training/config.yaml `hyperparameters:`
+#   4. --set KNOB=VALUE / legacy flag, or an answer to a -i prompt
+lora_r: 16
+lora_alpha: 32
+lora_dropout: 0.05
+learning_rate: 2e-4
+epochs: 3
+batch_size: 4
+max_seq_length: 2048
+gradient_accumulation_steps: 4
+warmup_ratio: 0.03
+dataset_text_field: text
+# NEFTune: noise added to embeddings during training. 0 turns it off.
+# 5 is the value the NEFTune paper uses for 7B-class models.
+neftune_noise_alpha: 5
+lr_scheduler_type: cosine
+packing: false
+seed: 42

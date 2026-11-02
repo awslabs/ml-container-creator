@@ -8,10 +8,14 @@
  *
  * For any entry in the Supported_Model_Catalog, it SHALL have:
  * a non-empty jumpStartModelId, a non-empty techniques object where
- * each technique key is one of [sft, dpo, rlaif, rlvr], each technique
+ * each technique key is one of KNOWN_TECHNIQUES (sft, dpo, rlvr, rlaif, mtrl —
+ * derived from src/lib/managed-techniques.js, not hardcoded), each technique
  * has a non-empty trainingTypes array containing only [lora, full-rank],
- * and each technique has a non-empty datasetFormat string with a
- * corresponding datasetSchema.
+ * and a non-empty datasetFormat label. BL129 (ODP-1): the dataset SCHEMA is a
+ * catalog field only for the jsonl techniques (sft/dpo); the managed-RL
+ * techniques (rlvr/rlaif/mtrl) carry their dataset contract in the tune
+ * DESCRIPTOR (templates/code/tune.d/<technique>/manifest.json), asserted in the
+ * dedicated descriptor-contract describe block.
  *
  * Feature: managed-model-customization, Property 5: Catalog schema validity
  * Validates: Requirements 2.2, 2.3, 2.4, 2.5
@@ -24,6 +28,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROPERTY_CONFIG } from '../helpers/property-config.js';
+import { KNOWN_TECHNIQUES } from '../../src/lib/managed-techniques.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -33,7 +38,12 @@ const __dirname = dirname(__filename);
 const catalogPath = resolve(__dirname, '../../config/tune-catalog.json');
 const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
 
-const VALID_TECHNIQUES = ['sft', 'dpo', 'rlaif', 'rlvr'];
+// DERIVE from the single source of truth (managed-techniques.js), not a hardcoded copy —
+// `sync-model-families` retains any recipe whose technique is in KNOWN_TECHNIQUES, so the
+// catalog can legitimately carry ANY of them (incl. `mtrl`, confirmed present on
+// huggingface-vlm-qwen3-6-27b / gemma-4). A frozen literal here drifts the moment the
+// catalog gains a model advertising a new managed technique (derive-dont-hardcode / ADR-008).
+const VALID_TECHNIQUES = [...KNOWN_TECHNIQUES];
 const VALID_TRAINING_TYPES = ['lora', 'full-rank'];
 
 // ── Property tests ───────────────────────────────────────────────────────────
@@ -62,7 +72,7 @@ describe('Feature: managed-model-customization, Property 5: Catalog schema valid
         ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
-    it('every technique key is one of sft|dpo|rlaif|rlvr', function () {
+    it('every technique key is a KNOWN managed technique (sft|dpo|rlvr|rlaif|mtrl)', function () {
         this.timeout(PROPERTY_CONFIG.timeout);
         fc.assert(fc.property(
             fc.constantFrom(...modelKeys),
@@ -99,29 +109,91 @@ describe('Feature: managed-model-customization, Property 5: Catalog schema valid
         ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
-    it('every technique has a non-empty datasetFormat string with a corresponding datasetSchema', function () {
+    // BL129 (ODP-1): the dataset contract for the managed-RL techniques (rlvr/rlaif/
+    // mtrl) is STRUCTURAL and lives in the tune DESCRIPTOR
+    // (templates/code/tune.d/<technique>/manifest.json → dataset_contract), consumed
+    // by the do/tune Gate's field-schema half — NOT a synced catalog guess. Only the
+    // jsonl techniques (sft/dpo) carry a catalog `datasetSchema` (read by do/tune's
+    // jsonl line-check). The old `sync-model-families.getDefaultDatasetSchema()` RL
+    // arm (a verified-WRONG `{prompt: array}`) was removed; a fresh sync writes no
+    // catalog schema for RL. This asserts the BEHAVIOR (where each technique's contract
+    // lives), not the frozen pre-BL129 snapshot. `datasetFormat` stays a harmless label
+    // for every technique.
+    const JSONL_TECHNIQUES = new Set(['sft', 'dpo']);
+
+    it('every technique has a non-empty datasetFormat label', function () {
         this.timeout(PROPERTY_CONFIG.timeout);
         fc.assert(fc.property(
             fc.constantFrom(...modelKeys),
             (modelKey) => {
                 const entry = catalog.models[modelKey];
                 for (const [technique, config] of Object.entries(entry.techniques)) {
-                    // datasetFormat must be a non-empty string
                     assert.strictEqual(typeof config.datasetFormat, 'string',
                         `Model "${modelKey}" technique "${technique}" datasetFormat must be a string`);
                     assert.ok(config.datasetFormat.length > 0,
                         `Model "${modelKey}" technique "${technique}" datasetFormat must not be empty`);
-
-                    // datasetSchema must exist and be an object
-                    assert.ok(config.datasetSchema !== null && config.datasetSchema !== undefined,
-                        `Model "${modelKey}" technique "${technique}" must have a datasetSchema`);
-                    assert.strictEqual(typeof config.datasetSchema, 'object',
-                        `Model "${modelKey}" technique "${technique}" datasetSchema must be an object`);
-                    assert.ok(!Array.isArray(config.datasetSchema),
-                        `Model "${modelKey}" technique "${technique}" datasetSchema must not be an array`);
                 }
             }
         ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+    });
+
+    it('jsonl techniques (sft/dpo) carry a catalog datasetSchema object with required columns', function () {
+        this.timeout(PROPERTY_CONFIG.timeout);
+        fc.assert(fc.property(
+            fc.constantFrom(...modelKeys),
+            (modelKey) => {
+                const entry = catalog.models[modelKey];
+                for (const [technique, config] of Object.entries(entry.techniques)) {
+                    // Only sft/dpo are asserted here — do/tune's jsonl line-check reads
+                    // their catalog datasetSchema. The RL techniques' contract lives in
+                    // the tune descriptor (asserted in the descriptor-contract describe
+                    // block below), NOT the catalog, so they are intentionally skipped
+                    // here — a catalog datasetSchema for them is neither required nor the
+                    // source of truth (BL129 ODP-1).
+                    if (!JSONL_TECHNIQUES.has(technique)) continue;
+                    assert.ok(config.datasetSchema && typeof config.datasetSchema === 'object'
+                        && !Array.isArray(config.datasetSchema),
+                    `Model "${modelKey}" jsonl technique "${technique}" must carry a datasetSchema object`);
+                    assert.ok(Array.isArray(config.datasetSchema.required)
+                        && config.datasetSchema.required.length > 0,
+                    `Model "${modelKey}" jsonl technique "${technique}" datasetSchema must list required columns`);
+                }
+            }
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+    });
+});
+
+// ── BL129 (ODP-1): the RL dataset contract lives in the descriptor, not the catalog ──
+// Validates: Requirement 7.2 — the scoped getDefaultDatasetSchema removal + the
+// descriptor as the single source of truth for the managed-RL dataset contract.
+
+import { readDatasetContract } from '../../src/lib/tune-manifest-reader.js';
+
+describe('Feature: v2-w3-01-bl129, RL dataset contract lives in the tune descriptor', () => {
+
+    it('the RL dataset contract is the real verl-5field, NOT the removed {prompt:array} guess', () => {
+        // BL129 Req 7.2 / ODP-1: the wrong RL arm of sync-model-families
+        // getDefaultDatasetSchema() ({prompt:array}) was removed; a fresh sync writes
+        // contract-absent {} for RL (covered by sync-tune-descriptors.test.js). The
+        // AUTHORITATIVE contract now lives in the descriptor — assert it carries the real
+        // verl-5field parquet / message-list shape, which is what the old catalog guess
+        // got WRONG.
+        for (const technique of ['rlvr', 'rlaif']) {
+            const contract = readDatasetContract(technique, 'lora');
+            assert.ok(contract, `${technique} must have a descriptor dataset_contract`);
+            assert.strictEqual(contract.schema, 'verl-5field',
+                `${technique} dataset contract must be verl-5field (the real contract), not a catalog guess`);
+            assert.strictEqual(contract.format, 'parquet');
+            assert.strictEqual(contract.prompt_shape, 'message-list',
+                `${technique} prompt is a message list, NOT the old {prompt:array}/string guess`);
+        }
+    });
+
+    it('mtrl declares an honest unverified contract in the descriptor', () => {
+        const contract = readDatasetContract('mtrl', 'lora');
+        assert.ok(contract);
+        assert.strictEqual(contract.schema, 'mtrl-rollout');
+        assert.strictEqual(contract.verified, false);
     });
 });
 

@@ -27,6 +27,7 @@ CLI (one-shot, for bash callers):
     algorithm_map          — prints a JSON object
     dimension_map          — prints a JSON object
     metrics_endpoint       — prints a JSON object (or exits non-zero if absent)
+    metric_signals         — prints a JSON object ({} when the engine declares none)
     engine | hot_reload    — prints the raw value
     min_version            — prints the min_version string (or empty)
     version_features       — prints a JSON array
@@ -156,9 +157,46 @@ def dimension_map(engine: str, serve_dir: str | None = None) -> dict[str, str]:
     return dict(read_manifest(engine, serve_dir).get("dimension_map", {}))
 
 
+def sizing_map(engine: str, serve_dir: str | None = None) -> dict[str, dict]:
+    """Return the engine's sizing_map (Wave 8 right-sizing inputs that are not
+    benchmark dimensions): {name: {suffix, default?}}. {} when not declared."""
+    raw = read_manifest(engine, serve_dir).get("sizing_map", {})
+    return {k: dict(v) for k, v in raw.items() if isinstance(v, dict)} if isinstance(raw, dict) else {}
+
+
+def quantization_methods(engine: str, serve_dir: str | None = None) -> list[str] | None:
+    """Return the engine's declared quantization_methods, or None when the
+    manifest does not declare them (the quant-engine check then skips)."""
+    raw = read_manifest(engine, serve_dir).get("quantization_methods")
+    return [str(m) for m in raw] if isinstance(raw, list) else None
+
+
 def metrics_endpoint(engine: str, serve_dir: str | None = None) -> dict | None:
     """Return the engine's metrics_endpoint dict, or None if not declared."""
     return read_manifest(engine, serve_dir).get("metrics_endpoint")
+
+
+def metric_signals(engine: str, serve_dir: str | None = None) -> dict:
+    """Return the engine's `metric_signals` map (Wave 9 R2.1): abstract signal
+    name -> {type, name} or {type: ratio, num, den}. Returns {} when the engine
+    declares none or has no manifest (non-plugin engines), so callers simply get
+    no engine signals instead of an error."""
+    try:
+        return dict(read_manifest(engine, serve_dir).get("metric_signals") or {})
+    except ManifestNotFound:
+        return {}
+
+
+def list_engines(serve_dir: str | None = None) -> list[str]:
+    """Return the engine names that have a manifest in the first serve.d root
+    that exists, sorted (same resolution order as read_manifest)."""
+    for root in _candidate_serve_dirs(serve_dir):
+        if os.path.isdir(root):
+            return sorted(
+                d for d in os.listdir(root)
+                if os.path.isfile(os.path.join(root, d, "manifest.json"))
+            )
+    return []
 
 
 def engine_features(engine: str, serve_dir: str | None = None) -> dict:
@@ -220,6 +258,45 @@ def capability_map(engine: str, serve_dir: str | None = None) -> dict:
             "requiresAnyOf": requires_any_of,
         }
     return out
+
+
+def capability_defaults(engine: str, serve_dir: str | None = None) -> dict:
+    """Return {capability: default} for every capability_map entry that declares
+    a `default` (Wave 6.1, BL188). This is the SINGLE source for MLCC's LoRA
+    sizing defaults (vLLM lora_max=4 / lora_max_rank=16, SGLang
+    lora_target_modules=all); the deploy drivers fill them when LoRA is on and the
+    user set none. Values are returned as strings (the env-var shape). {} when
+    the engine declares none."""
+    caps = read_manifest(engine, serve_dir).get("capability_map", {})
+    if not isinstance(caps, dict):
+        return {}
+    out = {}
+    for name, decl in caps.items():
+        if isinstance(decl, dict) and "default" in decl and decl["default"] is not None:
+            out[name] = str(decl["default"])
+    return out
+
+
+def capability_allowed(engine: str, capability: str, serve_dir: str | None = None) -> list[int]:
+    """Return the sorted discrete values the engine accepts for a capability
+    (e.g. vLLM lora_max_rank), or [] when it accepts any positive integer."""
+    caps = read_manifest(engine, serve_dir).get("capability_map", {})
+    decl = caps.get(capability) if isinstance(caps, dict) else None
+    allowed = decl.get("allowed") if isinstance(decl, dict) else None
+    if not isinstance(allowed, list):
+        return []
+    return sorted(int(a) for a in allowed if isinstance(a, int) and a > 0)
+
+
+def lora_rank_default(engine: str, serve_dir: str | None = None) -> int | None:
+    """The engine's default max LoRA rank (capability lora_max_rank.default)."""
+    val = capability_defaults(engine, serve_dir).get("lora_max_rank")
+    return int(val) if val is not None and str(val).isdigit() else None
+
+
+def lora_rank_allowed(engine: str, serve_dir: str | None = None) -> list[int]:
+    """The engine's allowed max LoRA rank values ([] = any positive integer)."""
+    return capability_allowed(engine, "lora_max_rank", serve_dir)
 
 
 def resolve_capability_vars(engine: str, values: dict, serve_dir: str | None = None) -> dict:
@@ -492,6 +569,7 @@ _FIELD_PRINTERS = {
     "min_version": lambda m: m.get("min_version", ""),
     "version_features": lambda m: json.dumps(m.get("version_features", [])),
     "engine_features": lambda m: json.dumps(m.get("engine_features", {})),
+    "metric_signals": lambda m: json.dumps(m.get("metric_signals", {})),
 }
 
 
@@ -566,6 +644,29 @@ def _cli(argv: list[str]) -> int:
             print(f"Error: {exc}", file=sys.stderr)
             return 4
         print(json.dumps(caps))
+        return 0
+
+    if argv and argv[0] in ("capability_defaults", "lora_rank_default", "lora_rank_allowed"):
+        # capability_defaults <engine> → JSON {cap: default}; lora_rank_default
+        # <engine> → integer or empty; lora_rank_allowed <engine> → JSON array.
+        if len(argv) != 2:
+            print(f"usage: serve_manifest.py {argv[0]} <engine>", file=sys.stderr)
+            return 2
+        _op, _engine = argv
+        try:
+            if _op == "capability_defaults":
+                print(json.dumps(capability_defaults(_engine)))
+            elif _op == "lora_rank_default":
+                _d = lora_rank_default(_engine)
+                print("" if _d is None else _d)
+            else:
+                print(json.dumps(lora_rank_allowed(_engine)))
+        except ManifestNotFound as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 3
+        except ManifestMalformed as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 4
         return 0
 
     if argv and argv[0] == "resolve_capability_vars":

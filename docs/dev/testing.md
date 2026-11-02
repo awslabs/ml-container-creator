@@ -5,7 +5,8 @@
 ```bash
 npm test                    # Unit + integration tests
 npm run test:property       # Property-based tests (fast-check)
-npm run test:all            # All tests without security audit
+npm run test:node           # Suites written with node:test (run via node --test)
+npm run test:all            # test + test:node + test:property (no lint/audit)
 npm run validate            # All tests + ESLint + npm audit
 npm run test:servers        # MCP server standalone tests
 ```
@@ -29,6 +30,8 @@ npx mocha test/unit/config-manager-unit.test.js
 | `test/integration/` | MCP client-server integration |
 | `test/servers/` | MCP server-specific tests |
 | `test/*.test.js` | Top-level integration tests (generator.test.js, template-manager.test.js) |
+
+Most suites use mocha. A `*.test.js` file that imports `node:test` instead is discovered by `scripts/run-node-tests.js` and runs under `npm run test:node` (part of `test:all` / `test:ci`); `.mocharc.cjs` excludes those files from mocha automatically. Name such files `*.test.js` under `test/`, or `test/unit/node-tests-wired.test.js` fails.
 
 ## What to Test When Adding Features
 

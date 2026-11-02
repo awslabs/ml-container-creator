@@ -11,6 +11,7 @@ import path from 'path';
 import BootstrapConfig from './bootstrap-config.js';
 import { parseKeyValue } from './key-value-parser.js';
 import { ConfigurationError } from './config-manager.js';
+import { configKeyAliases } from './generated/parameter-matrix.js';
 
 export default class ConfigLoader {
     constructor(manager) {
@@ -197,7 +198,14 @@ export default class ConfigLoader {
      */
     _applyJsonConfig(config) {
         const filteredConfig = {};
-        Object.entries(config).forEach(([key, value]) => {
+        Object.entries(config).forEach(([rawKey, value]) => {
+            // Schema parameter keys (the canonical do/export --json keys, e.g.
+            // `region`, `hyperpodCluster`, `modelEnv`) resolve to the generator's
+            // answer key via the codegen'd alias map; legacy answer keys
+            // (`awsRegion`, `hyperPodCluster`, `modelEnvVars`) pass through.
+            const key = Object.prototype.hasOwnProperty.call(configKeyAliases, rawKey)
+                ? configKeyAliases[rawKey]
+                : rawKey;
             // Handle nested endpointConfig object
             if (key === 'endpointConfig' && typeof value === 'object' && value !== null) {
                 const endpointMapping = {

@@ -5,43 +5,63 @@
 # Sourced by do/deploy — expects PROJECT_NAME, AWS_REGION to be set by the caller.
 # One of INSTANCE_TYPE or INSTANCE_POOLS must be set (mutually exclusive).
 # Optional: ROLE_ARN, INFERENCE_AMI_VERSION, CAPACITY_RESERVATION_ARN, ASYNC_INFERENCE_CONFIG,
-#           POOL_TIMEOUT (default: 1200), POOL_INSTANCE_COUNT (default: 1), MODEL_NAME_SM.
+#           POOL_TIMEOUT (default: 1200), POOL_INSTANCE_COUNT (default: 1), MODEL_NAME_SM,
+#           STZ_ACTIVE + SCALE_MAX_CAPACITY (scale-to-zero, set by do/lib/scale-to-zero.sh).
+
+# Directory of this file (do/lib in a project, templates/do/lib in the source
+# tree) — locates the python/inference_ami.py helper next to it.
+_ENDPOINT_CONFIG_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# _check_inference_ami <comma-separated instance types> [pool]
+#   Checks INFERENCE_AMI_VERSION against the AWS AMI <-> instance-family table
+#   (BL209). The table is DATA, not code: fleet-drivers.json
+#   ami_versions[*].default_families / override_families (copied from
+#   https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html),
+#   read by do/lib/python/inference_ami.py (.mlcc/fleet-drivers.json in a
+#   generated project).
+#   - INFERENCE_AMI_VERSION set but not AWS-listed for a family: loud warning,
+#     the value is kept (there is no AMI-specific override flag).
+#   - pool: exits 1 when no AMI is AWS-listed for every pool family, or a GPU
+#     family is mixed with a Trainium / Inferentia family. With
+#     INFERENCE_AMI_VERSION empty, sets it (this run only) to the AMI resolved
+#     for the pool; empty means "omit" (SageMaker family default).
+#   - unknown families are skipped; python3 / catalog missing only warns.
+_check_inference_ami() {
+    local types="$1"
+    local mode="${2:-}"
+    local helper="${_ENDPOINT_CONFIG_LIB_DIR}/python/inference_ami.py"
+    if ! command -v python3 >/dev/null 2>&1 || [ ! -f "${helper}" ]; then
+        echo "   ⚠️  InferenceAmiVersion compatibility not checked (python3 or ${helper} not found)"
+        return 0
+    fi
+    local -a args=(resolve --instance-types "${types}" --ami "${INFERENCE_AMI_VERSION:-}")
+    if [ "${mode}" = "pool" ]; then
+        args+=(--pool)
+    fi
+    local out=""
+    local rc=0
+    out=$(python3 "${helper}" "${args[@]}") || rc=$?
+    printf '%s\n' "${out}" | grep -v '^__AMI__=' || true
+    if [ "${rc}" -eq 1 ]; then
+        exit 1
+    fi
+    local resolved=""
+    resolved=$(printf '%s\n' "${out}" | sed -n 's/^__AMI__=//p')
+    if [ "${mode}" = "pool" ] && [ -z "${INFERENCE_AMI_VERSION:-}" ] && [ -n "${resolved}" ]; then
+        INFERENCE_AMI_VERSION="${resolved}"
+        echo "   AMI version resolved for pool: ${resolved} (AWS-listed for every pool family)"
+    fi
+    return 0
+}
 
 # _validate_instance_pools()
-#   Validates that all instance types in INSTANCE_POOLS are compatible:
-#   - All types must share the same accelerator generation (same CUDA/AMI requirements)
-#   - Cannot mix CUDA and Neuron accelerator types
+#   Validates that all instance types in INSTANCE_POOLS can share ONE
+#   InferenceAmiVersion that AWS lists for every pool family (derived from
+#   fleet-drivers.json via _check_inference_ami — no hand-coded generation map).
+#   - Cannot mix NVIDIA GPU and Trainium / Inferentia types
 #   - Unknown instance types produce a warning but do not block deployment
-#
-#   Uses a hardcoded map of instance type prefixes to their generation/AMI compatibility:
-#     cuda-11 (AMI 2-x): g4dn, g5, g5g, p3, p4d, p4de
-#     cuda-12 (AMI 3-x): g6, g6e, p5
-#     cuda-next (AMI 4-x): p6, g7e
-#     neuron: inf1, inf2, trn1
-#
 #   Exits with error if incompatible types are detected.
 _validate_instance_pools() {
-    # Map instance family prefixes to their generation
-    # Format: "family_prefix=generation"
-    local -a GENERATION_MAP=(
-        "ml.g4dn.=cuda-11"
-        "ml.g5.=cuda-11"
-        "ml.g5g.=cuda-11"
-        "ml.p3.=cuda-11"
-        "ml.p4d.=cuda-11"
-        "ml.p4de.=cuda-11"
-        "ml.g6.=cuda-12"
-        "ml.g6e.=cuda-12"
-        "ml.p5.=cuda-12"
-        "ml.p5e.=cuda-12"
-        "ml.p5en.=cuda-12"
-        "ml.p6.=cuda-next"
-        "ml.g7e.=cuda-next"
-        "ml.inf1.=neuron"
-        "ml.inf2.=neuron"
-        "ml.trn1.=neuron"
-    )
-
     # Extract instance types from INSTANCE_POOLS JSON
     # INSTANCE_POOLS format: [{"InstanceType":"ml.g6e.48xlarge","Priority":1},...]
     # Use simple string parsing to extract InstanceType values
@@ -52,45 +72,9 @@ _validate_instance_pools() {
         return 0
     fi
 
-    local first_generation=""
-    local first_type=""
-    local has_unknown=false
-
-    while IFS= read -r instance_type; do
-        [ -z "${instance_type}" ] && continue
-
-        local generation=""
-        for entry in "${GENERATION_MAP[@]}"; do
-            local prefix="${entry%%=*}"
-            local gen="${entry##*=}"
-            if [[ "${instance_type}" == ${prefix}* ]]; then
-                generation="${gen}"
-                break
-            fi
-        done
-
-        if [ -z "${generation}" ]; then
-            echo "   ⚠️  Unknown instance type in pool: ${instance_type} — skipping validation for this type"
-            has_unknown=true
-            continue
-        fi
-
-        if [ -z "${first_generation}" ]; then
-            first_generation="${generation}"
-            first_type="${instance_type}"
-        elif [ "${generation}" != "${first_generation}" ]; then
-            echo "❌ Cannot mix ${first_type} (${first_generation}) and ${instance_type} (${generation}) in same pool — different CUDA/AMI requirements"
-            echo "   All instance types in a pool must share the same InferenceAmiVersion."
-            echo ""
-            echo "   Generation groupings:"
-            echo "     cuda-11 (AMI 2-x): ml.g4dn.*, ml.g5.*, ml.p3.*, ml.p4d.*"
-            echo "     cuda-12 (AMI 3-x): ml.g6.*, ml.g6e.*, ml.p5.*"
-            echo "     neuron:            ml.inf1.*, ml.inf2.*, ml.trn1.*"
-            echo ""
-            echo "   Fix: use instance types from the same generation in your pool."
-            exit 1
-        fi
-    done <<< "${pool_types}"
+    local types_csv=""
+    types_csv=$(printf '%s\n' "${pool_types}" | tr '\n' ',' | sed 's/,*$//')
+    _check_inference_ami "${types_csv}" pool
 }
 
 # create_endpoint_config()
@@ -156,7 +140,10 @@ create_endpoint_config() {
         # cannot place containers and the IC stays in Creating with no logs.
         variant_json="[{\"VariantName\":\"AllTraffic\",\"InstanceType\":\"${INSTANCE_TYPE}\",\"InitialInstanceCount\":1,\"RoutingConfig\":{\"RoutingStrategy\":\"LEAST_OUTSTANDING_REQUESTS\"}"
 
-        # Optional: AMI version
+        # Optional: AMI version (warn when AWS does not list it for the family, BL209)
+        if [ -n "${INFERENCE_AMI_VERSION:-}" ] && [ -n "${INSTANCE_TYPE:-}" ]; then
+            _check_inference_ami "${INSTANCE_TYPE}"
+        fi
         if [ -n "${INFERENCE_AMI_VERSION:-}" ]; then
             variant_json="${variant_json},\"InferenceAmiVersion\":\"${INFERENCE_AMI_VERSION}\""
             echo "   AMI version: ${INFERENCE_AMI_VERSION}"
@@ -166,6 +153,15 @@ create_endpoint_config() {
         if [ -n "${CAPACITY_RESERVATION_ARN:-}" ]; then
             variant_json="${variant_json},\"CapacityReservationConfig\":{\"CapacityReservationPreference\":\"capacity-reservations-only\",\"MlReservationArn\":\"${CAPACITY_RESERVATION_ARN}\"}"
             echo "   ✓ Capacity reservation: ${CAPACITY_RESERVATION_ARN}"
+        fi
+
+        # Wave 10 (ADR-014 R3.1): scale-to-zero needs ManagedInstanceScaling with
+        # MinInstanceCount 0 on the variant. Only when do/lib/scale-to-zero.sh set
+        # STZ_ACTIVE=true (opted in, target enabled); otherwise the variant is
+        # byte-identical to before.
+        if [ "${STZ_ACTIVE:-false}" = "true" ] && type stz_variant_scaling_json >/dev/null 2>&1; then
+            variant_json="${variant_json}$(stz_variant_scaling_json)"
+            echo "   ✓ Scale-to-zero: ManagedInstanceScaling min 0, max ${SCALE_MAX_CAPACITY:-1}"
         fi
 
         variant_json="${variant_json}}]"
@@ -204,8 +200,9 @@ create_endpoint_config() {
     #   or ContainerDefinition for create-model). CreateEndpointConfig has NO
     #   container-metrics option, and MetricsEndpoint has no Port member.
     #
-    # Account-level OTel enrichment (aws cloudwatch start-otel-enrichment) is a
-    # user prerequisite for PromQL queries and is NOT performed here.
+    # Account-level OTel enrichment (aws cloudwatch start-otel-enrichment) is NOT
+    # what gates detailed-observability data (verified Wave 9: vLLM + DCGM series
+    # flow with enrichment Stopped); it only mirrors classic-only metrics to OTel.
 
     # Optional: async inference config
     if [ -n "${ASYNC_INFERENCE_CONFIG:-}" ]; then

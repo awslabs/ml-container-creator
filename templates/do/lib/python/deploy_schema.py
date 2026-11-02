@@ -51,6 +51,12 @@ _FALLBACK_SCHEMAS: dict[str, dict[str, Any]] = {
             "HP_NAMESPACE": "default",
             "HP_REPLICAS": "1",
             "HP_QUEUE": "",
+            # Mirror targets.d/eks/manifest.json optional_status_vars — the IRSA role
+            # the pod assumes for S3 model reads (deploy.d/eks resolves it from
+            # do/config or _PROFILE_eksInferenceRoleArn). The descriptor declares it;
+            # this fallback literal must match (the derive-dont-hardcode drift test
+            # _derived == _FALLBACK asserts this). Pre-existing gap, unrelated to BL129.
+            "EKS_INFERENCE_ROLE_ARN": "",
         },
     },
     "async-inference": {

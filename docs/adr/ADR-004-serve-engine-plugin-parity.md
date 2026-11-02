@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — in progress (Wave 3)
+Accepted — in progress
 
 ## Context
 
@@ -13,7 +13,7 @@ declaring the engine's capabilities as data. The manifest is meant to be the
 single source of truth so `do/draft`, `do/deploy`, `.optimize_engine.py`, and
 `do/benchmark` read engine knowledge from data instead of hardcoded logic.
 
-The Wave 3 Task 1 audit found the abstraction is **real but only half-honored**:
+An audit of the abstraction found it is **real but only half-honored**:
 
 **Deploy-time already reads the manifest.** `templates/do/lib/python/serve_manifest.py`
 is a proper reader exposing `env_var_prefix`, `supported_algorithms`,
@@ -75,7 +75,7 @@ metrics or benchmark dimensions).
   that does not support speculative decoding declares `supported_algorithms: []`
   and `algorithm_map: {}` — explicit "none," not a missing field.
 
-This is the "capability-absent representation" the wave calls for: consumers
+This is the "capability-absent representation" this ADR calls for: consumers
 read `speculative_decoding: false` instead of inferring from a missing manifest.
 
 ### 3. Add manifests for lmi and tensorrt-llm
@@ -119,7 +119,7 @@ manifest or by an explicit documented alias table, not a parallel prefix map.
   parity test.
 - **Cost:** a schema change (new required field) means the two existing manifests
   must add `speculative_decoding: true`; consumers that fell back on manifest
-  absence can be simplified (tracked, not all done in Wave 3).
+  absence can be simplified (tracked, not all done in this change).
 - **Risk:** the `vllm.ejs` change must keep rendered output byte-identical
   (verified by the existing render tests + the sglang-style fallback).
   Removing `ENGINE_PREFIX_MAP` must preserve the `vllm-omni`/`djl` alias

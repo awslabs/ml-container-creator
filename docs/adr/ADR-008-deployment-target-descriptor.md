@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Status
 
-Accepted — implemented (Wave 8). Approved approach: **phased B** — land the
+Accepted — implemented. Approved approach: **phased B** — land the
 descriptors + conformance test first (the C safety net), then convert each
 scattered authority to generation-time derivation one at a time, each proven
 byte-for-byte, keeping the shell hot-path `case` blocks as *generated* static
@@ -60,7 +60,7 @@ lets multiple deployments coexist. That capability is worth keeping.
 
 The problem is that the *contract* for a target is **scattered across at least
 six authorities that must be hand-edited in lockstep**, with no enforcement that
-they agree. The Wave 6 `eks` audit proved the cost: `eks` was writing a status
+they agree. The `do/`-contract `eks` audit (ADR-007) proved the cost: `eks` was writing a status
 var that the guard didn't read, the config template didn't declare, `do-config.js`
 didn't map, and `regenerate` didn't preserve — four of six touchpoints silently
 disagreed for some time.
@@ -201,8 +201,9 @@ first (the C safety net), then convert authorities to generation-time derivation
 one at a time (B), leaving the hot-path runtime `case` blocks as *generated*
 static code rather than live JSON reads (avoiding A's per-call `python3` cost).
 
-Rationale: C is immediately valuable and near-zero-risk (it's the "make the
-convention enforced" move that Waves 6/7 used, and it closes the class of bug that
+Rationale: C is immediately valuable and near-zero-risk (it's the same "make the
+convention enforced" move the do/-contract and agent-consolidation work used, and it
+closes the class of bug that
 started this). B then removes the duplication for real, and doing it *after* C
 means every derivation step is guarded by the conformance test — we can convert
 one authority, run the test, and know the descriptor and the generated artifact
@@ -215,7 +216,7 @@ the reader already exists to support it.
 1. Author the five descriptors to exactly match today's values (the canonical
    tuple is already mapped in `docs/architecture/deployment-target-authoring.md`).
 2. Land the readers + the conformance test (C). Prove all six authorities already
-   agree with the descriptors (they do, post-Wave-6).
+   agree with the descriptors (they do, after the `eks` audit fixes).
 3. Convert authorities to derive from descriptors one at a time (B), each proven
    by re-rendering a project and diffing `do/config`, the dispatcher, and the
    guard against a pre-change baseline — **byte-for-byte identical** for the 5
@@ -239,7 +240,7 @@ the reader already exists to support it.
 - **Risk:** medium-high (deploy/teardown blast radius) — bounded by landing C
   first and proving each B step byte-for-byte.
 
-## Wave 8 task breakdown (as built)
+## Task breakdown (as built)
 
 1. ✅ **T1 — Descriptor schema + the 5 descriptors + JSON schema.**
    `targets.d/<target>/manifest.json` for all five, byte-matching today, plus

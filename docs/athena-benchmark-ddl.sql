@@ -1,5 +1,8 @@
 -- Athena DDL for benchmark_results table
--- Generated from get_parquet_schema() in templates/do/.benchmark_writer.py
+-- Mirrors PARQUET_COLUMNS in templates/do/.benchmark_writer.py (drift-tested).
+-- The deployed table is owned by CloudFormation (BenchmarkResultsTable in
+-- infra/bootstrap-modules/benchmark/stack.ts): roll out column changes with
+-- `ml-container-creator bootstrap update --module benchmark`, never ALTER TABLE.
 -- Partitioned by model/instance/target (Hive-style S3 layout)
 --
 -- S3 Layout: s3://{bucket}/results/model={model}/instance={instance}/target={target}/
@@ -82,12 +85,13 @@ CREATE EXTERNAL TABLE IF NOT EXISTS mlcc_ci.benchmark_results (
 
     -- Rich Metrics: Error Rate and Cost
     error_rate                  DOUBLE,
-    cost_per_1m_tokens          DOUBLE      COMMENT 'Estimated USD cost per 1M output tokens; NULL if instance pricing unknown',
+    cost_per_1m_tokens          DOUBLE      COMMENT 'USD per 1M output tokens = price_usd_per_hour x instance_count x 1e6 / (3600 x output tok/s) at the measured concurrency; NULL if price or throughput unknown',
     benchmark_duration_sec      DOUBLE,
 
     -- Run Metadata
     run_type                    STRING,
     benchmark_job_name          STRING,
+    run_name                    STRING      COMMENT 'Human-readable run identifier: petname_workload_maxconcurrency',
     mcc_version                 STRING,
     run_timestamp               STRING      COMMENT 'ISO 8601 UTC timestamp of the benchmark run',
     region                      STRING,
@@ -111,7 +115,38 @@ CREATE EXTERNAL TABLE IF NOT EXISTS mlcc_ci.benchmark_results (
     queue_depth_waiting_avg     DOUBLE      COMMENT 'Avg requests waiting/queued (QueueDepth)',
     queue_depth_waiting_max     DOUBLE      COMMENT 'Peak requests waiting during run',
     -- Provenance
-    metrics_source              STRING      COMMENT 'Provenance: cloudwatch | engine_metrics | both | none'
+    metrics_source              STRING      COMMENT 'Provenance: cloudwatch | engine_metrics | both | none',
+
+    -- Wave 9 (append-only). Must match PARQUET_COLUMNS in templates/do/.benchmark_writer.py
+    -- and BenchmarkResultsTable in infra/bootstrap-modules/benchmark/stack.ts
+    -- (test/unit/test_benchmark_schema_drift.py). Old Parquet files read NULL.
+    -- BL128 curated AIPerf time-weighted aggregates (profile_export_aiperf.json)
+    effective_concurrency_avg   DOUBLE      COMMENT 'AIPerf effective (time-weighted) concurrency, avg',
+    effective_concurrency_p90   DOUBLE,
+    effective_total_tps_avg     DOUBLE      COMMENT 'AIPerf effective total throughput tokens/s',
+    effective_total_tps_p90     DOUBLE,
+    effective_decode_tps_avg    DOUBLE,
+    effective_decode_tps_p90    DOUBLE,
+    effective_prefill_tps_avg   DOUBLE,
+    effective_prefill_tps_p90   DOUBLE,
+    active_decode_tps_avg       DOUBLE      COMMENT 'AIPerf active (phase in flight) decode throughput tokens/s',
+    active_decode_tps_p90       DOUBLE,
+    active_prefill_tps_avg      DOUBLE,
+    active_prefill_tps_p90      DOUBLE,
+    tokens_in_flight_avg        DOUBLE,
+    tokens_in_flight_p90        DOUBLE,
+    effective_latency_avg_ms    DOUBLE      COMMENT 'AIPerf effective (coordinated-omission-aware) latency ms',
+    effective_latency_p90_ms    DOUBLE,
+    aiperf_version              STRING,
+    spec_decode_acceptance_rate DOUBLE      COMMENT 'Speculative-decoding acceptance 0-1 over the run window',
+    -- Cost inputs (auditable) + Bedrock comparison
+    price_usd_per_hour          DOUBLE      COMMENT 'On-demand USD/hour used for cost_per_1m_tokens',
+    price_source                STRING      COMMENT 'pricing-api | pricing-api-cache | snapshot',
+    price_as_of                 STRING      COMMENT 'ISO 8601 UTC price retrieval time',
+    price_component             STRING      COMMENT 'Hosting | AsyncInf | BatchTransform | Cluster | AmazonEC2',
+    instance_count              INT         COMMENT 'Billed instances for the run',
+    bedrock_model_id            STRING      COMMENT 'Live-verified Bedrock equivalent; NULL when none',
+    bedrock_cost_per_1m_tokens  DOUBLE      COMMENT 'Bedrock USD per 1M output tokens at the measured input:output ratio'
 )
 PARTITIONED BY (
     model   STRING  COMMENT 'Model name with / replaced by _ (e.g., Qwen_Qwen3-4B)',

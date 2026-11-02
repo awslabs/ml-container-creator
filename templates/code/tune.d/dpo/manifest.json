@@ -1,0 +1,239 @@
+{
+  "technique": "dpo",
+  "reward_source": "preset",
+  "variants": {
+    "lora": {
+      "peft": "lora",
+      "artifact_kind": "lora_adapter",
+      "dataset_contract": {
+        "format": "jsonl",
+        "schema": "dpo-preference",
+        "prompt_shape": "message-list",
+        "verified": true
+      },
+      "hyperparameters": {
+        "adam_beta": {
+          "type": "number",
+          "required": true,
+          "default": 0.01,
+          "min": 0.001,
+          "max": 0.1,
+          "tier": "advanced",
+          "display_name": "Beta value",
+          "description": "Controls how strongly the model enforces preference rankings. Higher values make the model more sensitive to preference differences.",
+          "hint": "Must be a value between 0.001 and 0.1"
+        },
+        "dataset_max_len": {
+          "type": "integer",
+          "required": true,
+          "default": 4096,
+          "min": 256,
+          "max": 131072,
+          "tier": "advanced",
+          "display_name": "Max sequence length",
+          "description": "Maximum sequence length in tokens for tokenized training inputs. Sequences longer than this are truncated.",
+          "hint": "Must be a value between 256 and 131072"
+        },
+        "global_batch_size": {
+          "type": "integer",
+          "required": true,
+          "default": 16,
+          "enum": [
+            16,
+            32,
+            64,
+            128,
+            256,
+            512,
+            1024
+          ],
+          "tier": "primary",
+          "display_name": "Batch size",
+          "description": "Total number of training samples processed per optimizer step. Larger values improve training stability but use more memory.",
+          "hint": "Choose from the available batch size options"
+        },
+        "gradient_clipping": {
+          "type": "boolean",
+          "required": true,
+          "default": true,
+          "tier": "tertiary",
+          "description": "Boolean flag to enable gradient norm clipping. When enabled, gradients are scaled down if their norm exceeds the threshold, preventing exploding gradients during training."
+        },
+        "gradient_clipping_threshold": {
+          "type": "number",
+          "required": true,
+          "default": 1,
+          "min": 0,
+          "max": 5,
+          "tier": "tertiary",
+          "description": "Maximum allowed gradient norm. Gradients exceeding this value are proportionally scaled down."
+        },
+        "learning_rate": {
+          "type": "number",
+          "required": true,
+          "default": 0.0001,
+          "min": 5e-7,
+          "max": 0.0001,
+          "tier": "primary",
+          "display_name": "Learning rate",
+          "description": "Step size for weight updates during optimization. Controls how much model weights change per gradient step. Set lower for RL (e.g., 1e-5) to avoid policy collapse; higher for SFT/DPO (e.g., 1e-4).",
+          "hint": "Must be a value between 5e-07 and 0.0001"
+        },
+        "logging_steps": {
+          "type": "integer",
+          "required": true,
+          "default": 1,
+          "min": 1,
+          "max": 100,
+          "tier": "tertiary",
+          "description": "Frequency (in optimizer steps) at which training metrics are logged. A value of 1 logs every step. Higher values reduce logging overhead."
+        },
+        "lora_alpha": {
+          "type": "integer",
+          "required": true,
+          "default": 32,
+          "enum": [
+            16,
+            32,
+            64,
+            128,
+            256
+          ],
+          "tier": "advanced",
+          "display_name": "Alpha value",
+          "description": "LoRA scaling factor. The effective learning rate for LoRA adapters scales as alpha/rank. Typically set to 2x the LoRA rank.",
+          "hint": "Select from available alpha values"
+        },
+        "lora_dropout": {
+          "type": "number",
+          "required": true,
+          "default": 0.05,
+          "min": 0,
+          "max": 1,
+          "tier": "tertiary",
+          "description": "Dropout probability applied to LoRA adapter layers for regularization. Typically set to 0.05 for SFT/DPO, and 0 for Mixture-of-Experts models."
+        },
+        "lora_rank": {
+          "type": "integer",
+          "required": true,
+          "default": 16,
+          "enum": [
+            8,
+            16,
+            32,
+            64,
+            128
+          ],
+          "tier": "advanced",
+          "display_name": "LoRA rank",
+          "description": "Number of trainable dimensions in the LoRA adapter. Higher values increase model capacity but use more memory.",
+          "hint": "Select from available rank values"
+        },
+        "lr_scheduler": {
+          "type": "string",
+          "required": true,
+          "default": "cosine",
+          "enum": [
+            "cosine",
+            "constant"
+          ],
+          "tier": "tertiary",
+          "description": "Learning rate decay schedule over training. Cosine anneals smoothly from peak to near-zero."
+        },
+        "lr_warmup_steps_ratio": {
+          "type": "number",
+          "required": true,
+          "default": 0.1,
+          "min": 0,
+          "max": 1,
+          "tier": "advanced",
+          "display_name": "LR warmup ratio",
+          "description": "Fraction of total training steps spent gradually increasing the learning rate from zero. Helps stabilize early training.",
+          "hint": "Must be a value between 0 and 1"
+        },
+        "max_epochs": {
+          "type": "integer",
+          "required": true,
+          "default": 3,
+          "min": 1,
+          "max": 100,
+          "tier": "primary",
+          "display_name": "Number of epochs",
+          "description": "Number of complete passes through the entire training dataset. More epochs allow the model to learn patterns more thoroughly but increase training time and risk of overfitting.",
+          "hint": "Must be a value between 1 and 100"
+        },
+        "merge_weights": {
+          "type": "boolean",
+          "required": true,
+          "default": true,
+          "tier": "advanced",
+          "display_name": "Merge weights",
+          "description": "When enabled, merges LoRA adapter weights into the base model weights after training, producing a single consolidated model. Disable if you need to keep adapters separate (e.g., for model merging workflows)."
+        },
+        "seed": {
+          "type": "integer",
+          "required": true,
+          "default": 42,
+          "min": 0,
+          "max": 2147483647,
+          "tier": "tertiary",
+          "description": "Random seed for reproducibility. Controls data shuffling order, weight initialization, and other stochastic operations."
+        },
+        "temperature": {
+          "type": "number",
+          "required": true,
+          "default": 0.6,
+          "min": 0,
+          "max": 2,
+          "tier": "advanced",
+          "display_name": "Temperature",
+          "description": "Sampling temperature for evaluation and generation. Higher values increase output randomness/diversity; lower values make outputs more deterministic.",
+          "hint": "Must be a value between 0.0 and 2.0"
+        },
+        "train_val_split_ratio": {
+          "type": "number",
+          "required": false,
+          "default": 0.9,
+          "min": 0,
+          "max": 1,
+          "tier": "primary",
+          "display_name": "Train Val Split Ratio",
+          "description": "Fraction of the dataset allocated to training versus validation. For example, 0.9 means 90% training and 10% validation.",
+          "hint": "Must be a value between 0.0 and 1.0"
+        },
+        "weight_decay": {
+          "type": "number",
+          "required": true,
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "tier": "tertiary",
+          "description": "L2 regularization coefficient applied to model weights during optimization. Helps prevent overfitting by penalizing large weights."
+        }
+      },
+      "_synced": {
+        "smtj": {
+          "from": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_7b_seq4k_gpu_dpo_override_params_sm_jobs_v2.2.4.json",
+          "version": "2.2.4"
+        },
+        "hp-eks": {
+          "from": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_7b_seq4k_gpu_dpo_override_params_k8s_v2.2.4.json",
+          "version": "2.2.4",
+          "workload_kind": "HyperPodPyTorchJob"
+        }
+      }
+    },
+    "full": {
+      "peft": "none",
+      "artifact_kind": "full_model",
+      "dataset_contract": {
+        "format": "jsonl",
+        "schema": "dpo-preference",
+        "prompt_shape": "message-list",
+        "verified": true
+      },
+      "hyperparameters": {},
+      "_synced": {}
+    }
+  }
+}

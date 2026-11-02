@@ -1,0 +1,272 @@
+{
+  "description": "HF model id -> Bedrock model id. Entries are written ONLY by pricing.py verify-bedrock after a live bedrock:ListFoundationModels check; never inferred by name similarity (Wave 9 R9.1).",
+  "models": {
+    "Qwen/Qwen3-32B": {
+      "bedrockModelId": "qwen.qwen3-32b-v1:0",
+      "priceListModel": "Qwen3 32B",
+      "pricedRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "verifiedAt": "2026-10-26T19:43:49Z",
+      "verifiedBy": "pricing.py verify-bedrock (bedrock:ListFoundationModels, ON_DEMAND)",
+      "verifiedRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ]
+    },
+    "google/gemma-3-12b-it": {
+      "bedrockModelId": "google.gemma-3-12b-it",
+      "priceListModel": "Gemma 3 12B",
+      "pricedRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "verifiedAt": "2026-10-26T19:43:47Z",
+      "verifiedBy": "pricing.py verify-bedrock (bedrock:ListFoundationModels, ON_DEMAND)",
+      "verifiedRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ]
+    },
+    "google/gemma-3-4b-it": {
+      "bedrockModelId": "google.gemma-3-4b-it",
+      "priceListModel": "Gemma 3 4B",
+      "pricedRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "verifiedAt": "2026-10-26T19:43:45Z",
+      "verifiedBy": "pricing.py verify-bedrock (bedrock:ListFoundationModels, ON_DEMAND)",
+      "verifiedRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ]
+    },
+    "meta-llama/Llama-3.1-70B-Instruct": {
+      "bedrockModelId": "meta.llama3-1-70b-instruct-v1:0",
+      "priceListModel": "Llama 3.1 70B",
+      "pricedRegions": [
+        "us-west-2"
+      ],
+      "verifiedAt": "2026-10-26T19:43:56Z",
+      "verifiedBy": "pricing.py verify-bedrock (bedrock:ListFoundationModels, ON_DEMAND)",
+      "verifiedRegions": [
+        "us-west-2"
+      ]
+    },
+    "meta-llama/Llama-3.1-8B-Instruct": {
+      "bedrockModelId": "meta.llama3-1-8b-instruct-v1:0",
+      "priceListModel": "Llama 3.1 8B",
+      "pricedRegions": [
+        "us-west-2"
+      ],
+      "verifiedAt": "2026-10-26T19:43:56Z",
+      "verifiedBy": "pricing.py verify-bedrock (bedrock:ListFoundationModels, ON_DEMAND)",
+      "verifiedRegions": [
+        "us-west-2"
+      ]
+    },
+    "meta-llama/Meta-Llama-3-70B-Instruct": {
+      "bedrockModelId": "meta.llama3-70b-instruct-v1:0",
+      "priceListModel": "Llama 3 70B",
+      "pricedRegions": [
+        "ap-south-1",
+        "ca-central-1",
+        "eu-west-2",
+        "us-east-1",
+        "us-west-2"
+      ],
+      "verifiedAt": "2026-10-26T19:43:56Z",
+      "verifiedBy": "pricing.py verify-bedrock (bedrock:ListFoundationModels, ON_DEMAND)",
+      "verifiedRegions": [
+        "ap-south-1",
+        "ca-central-1",
+        "eu-west-2",
+        "us-east-1",
+        "us-west-2"
+      ]
+    },
+    "meta-llama/Meta-Llama-3-8B-Instruct": {
+      "bedrockModelId": "meta.llama3-8b-instruct-v1:0",
+      "priceListModel": "Llama 3 8B",
+      "pricedRegions": [
+        "ap-south-1",
+        "ca-central-1",
+        "eu-west-2",
+        "us-east-1",
+        "us-west-2"
+      ],
+      "verifiedAt": "2026-10-26T19:43:55Z",
+      "verifiedBy": "pricing.py verify-bedrock (bedrock:ListFoundationModels, ON_DEMAND)",
+      "verifiedRegions": [
+        "ap-south-1",
+        "ca-central-1",
+        "eu-west-2",
+        "us-east-1",
+        "us-west-2"
+      ]
+    },
+    "mistralai/Mistral-7B-Instruct-v0.2": {
+      "bedrockModelId": "mistral.mistral-7b-instruct-v0:2",
+      "priceListModel": "Mistral 7B",
+      "pricedRegions": [
+        "ap-south-1",
+        "ap-southeast-2",
+        "ca-central-1",
+        "eu-west-1",
+        "eu-west-2",
+        "eu-west-3",
+        "sa-east-1",
+        "us-east-1",
+        "us-west-2"
+      ],
+      "verifiedAt": "2026-10-26T19:43:58Z",
+      "verifiedBy": "pricing.py verify-bedrock (bedrock:ListFoundationModels, ON_DEMAND)",
+      "verifiedRegions": [
+        "ap-south-1",
+        "ap-southeast-2",
+        "ca-central-1",
+        "eu-west-1",
+        "eu-west-2",
+        "eu-west-3",
+        "sa-east-1",
+        "us-east-1",
+        "us-west-2"
+      ]
+    },
+    "mistralai/Mixtral-8x7B-Instruct-v0.1": {
+      "bedrockModelId": "mistral.mixtral-8x7b-instruct-v0:1",
+      "priceListModel": "Mixtral 8x7B",
+      "pricedRegions": [
+        "ap-south-1",
+        "ap-southeast-2",
+        "ca-central-1",
+        "eu-west-1",
+        "eu-west-2",
+        "eu-west-3",
+        "sa-east-1",
+        "us-east-1",
+        "us-west-2"
+      ],
+      "verifiedAt": "2026-10-26T19:44:00Z",
+      "verifiedBy": "pricing.py verify-bedrock (bedrock:ListFoundationModels, ON_DEMAND)",
+      "verifiedRegions": [
+        "ap-south-1",
+        "ap-southeast-2",
+        "ca-central-1",
+        "eu-west-1",
+        "eu-west-2",
+        "eu-west-3",
+        "sa-east-1",
+        "us-east-1",
+        "us-west-2"
+      ]
+    },
+    "openai/gpt-oss-120b": {
+      "bedrockModelId": "openai.gpt-oss-120b-1:0",
+      "priceListModel": "gpt-oss-120b",
+      "pricedRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "verifiedAt": "2026-10-26T19:43:53Z",
+      "verifiedBy": "pricing.py verify-bedrock (bedrock:ListFoundationModels, ON_DEMAND)",
+      "verifiedRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ]
+    },
+    "openai/gpt-oss-20b": {
+      "bedrockModelId": "openai.gpt-oss-20b-1:0",
+      "priceListModel": "gpt-oss-20b",
+      "pricedRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "verifiedAt": "2026-10-26T19:43:52Z",
+      "verifiedBy": "pricing.py verify-bedrock (bedrock:ListFoundationModels, ON_DEMAND)",
+      "verifiedRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ]
+    }
+  }
+}

@@ -233,6 +233,37 @@ clean_hyperpod() {
         DELETE_FAILED=true
     fi
 
+    # Wave 11 (R7.5): the project's other MLCC-owned cluster objects, found by
+    # label (never by name guess): do/add-pod IECs and the hp-eks training /
+    # tuning HyperPodPyTorchJobs (+ their per-job ConfigMaps). Same confirmation
+    # as above. FSx scratch subpaths cannot be removed from here; they are listed.
+    local _ap_sel="mlcc.aws/project-name=${PROJECT_NAME},mlcc.aws/role=add-pod"
+    local _job_sel="mlcc.aws/project-name=${PROJECT_NAME}"
+    local _ap_names _hppj_names _n
+    _ap_names=$(kubectl get inferenceendpointconfig -n "${HP_NAMESPACE}" -l "${_ap_sel}" \
+        -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+    if [ -n "${_ap_names}" ]; then
+        echo "🗑️  Deleting do/add-pod InferenceEndpointConfigs: ${_ap_names}"
+        if ! kubectl delete inferenceendpointconfig -n "${HP_NAMESPACE}" -l "${_ap_sel}" --ignore-not-found 2>&1; then
+            DELETE_FAILED=true
+        else
+            rm -f "${SCRIPT_DIR}"/pods/*.conf 2>/dev/null || true
+        fi
+    fi
+    _hppj_names=$(kubectl get hyperpodpytorchjob -n "${HP_NAMESPACE}" -l "${_job_sel}" \
+        -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+    if [ -n "${_hppj_names}" ]; then
+        echo "🗑️  Deleting MLCC HyperPodPyTorchJobs (releases their GPUs): ${_hppj_names}"
+        kubectl delete hyperpodpytorchjob -n "${HP_NAMESPACE}" -l "${_job_sel}" --wait=false --ignore-not-found 2>&1 \
+            || DELETE_FAILED=true
+        echo "   ℹ️  Any FSx scratch these jobs kept stays on the fsx-claim volume:"
+        for _n in ${_hppj_names}; do
+            echo "      fsx-claim:/mlcc/${PROJECT_NAME}/${_n}/"
+        done
+        echo "      Remove it from a pod that mounts fsx-claim (MLCC does not delete shared FSx data)."
+    fi
+    kubectl delete configmap -n "${HP_NAMESPACE}" -l "${_job_sel}" --ignore-not-found >/dev/null 2>&1 || true
+
     # Also remove the Hugging Face token secret if we created one.
     kubectl delete secret hf-token-secret -n "${HP_NAMESPACE}" --ignore-not-found 2>/dev/null || true
 
@@ -317,10 +348,13 @@ clean_codebuild() {
         echo "   • IAM service role: ${ROLE_NAME}"
     fi
 
-    S3_BUCKET="codebuild-source-${AWS_ACCOUNT_ID}-${AWS_REGION}"
+    # CodeBuild source bucket from the profile key codebuildSourceS3Bucket
+    # (CODEBUILD_SOURCE_S3_BUCKET via do/lib/profile.sh) — never a convention-built
+    # name. Empty when the ci module is not provisioned: nothing to clean there.
+    S3_BUCKET="${CODEBUILD_SOURCE_S3_BUCKET:-}"
     S3_PREFIX="${PROJECT_NAME}/"
     S3_EXISTS=false
-    if aws s3api head-bucket --bucket "$S3_BUCKET" --region "${AWS_REGION}" &> /dev/null; then
+    if [ -n "$S3_BUCKET" ] && aws s3api head-bucket --bucket "$S3_BUCKET" --region "${AWS_REGION}" &> /dev/null; then
         S3_COUNT=$(aws s3 ls "s3://$S3_BUCKET/$S3_PREFIX" --region "${AWS_REGION}" 2>/dev/null | wc -l | tr -d ' ')
         if [ "$S3_COUNT" -gt 0 ]; then
             S3_EXISTS=true

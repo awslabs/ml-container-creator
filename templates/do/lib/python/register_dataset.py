@@ -63,6 +63,8 @@ def _register_dataset_native(*, name, s3_uri, technique, region, description, cu
     except ai_registry_native.NativeRegistrySkipped as skip:
         print(f"\u2139\ufe0f  Native AI Registry registration skipped: {skip}", file=sys.stderr)
         return None, None
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
     except Exception as e:  # noqa: BLE001 — native registration is best-effort
         _warn(
             f"Native AI Registry registration failed ({e}); the S3 sidecar remains "
@@ -131,6 +133,8 @@ def _count_newlines_streaming(s3_client, bucket, key):
             if len(data) < chunk:
                 break
             start += chunk
+        except (NameError, AttributeError):
+            raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
         except Exception:
             break
     return count
@@ -151,6 +155,8 @@ def _count_rows_parquet(s3_client, bucket, key):
         if idx == -1 or idx + 11 > len(footer_bytes):
             return None
         return struct.unpack('>q', footer_bytes[idx + 3:idx + 11])[0]
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
     except Exception:
         return None
 
@@ -169,6 +175,8 @@ def _count_rows(s3_uri, region):
         elif ext in ('parquet', 'parq'):
             return _count_rows_parquet(s3, bucket, key)
         return None
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
     except Exception as e:
         print(f'\u26a0\ufe0f  Row count failed: {e}', file=sys.stderr)
         return None
@@ -283,7 +291,7 @@ def _resolve_core_bucket(args):
 
 
 def _log_dataset_to_mlflow(*, s3_uri, name, content_hash, row_count, data_format,
-                           technique, source_type="s3-uri"):
+                           technique, project_name="", source_type="s3-uri"):
     """Log the dataset to MLflow as a run input (BL110), non-fatally.
 
     Called only when MLflow is configured, AFTER the durable sidecar write.
@@ -316,21 +324,36 @@ def _log_dataset_to_mlflow(*, s3_uri, name, content_hash, row_count, data_format
 
         active = mlflow.active_run()
         if active is not None:
+            # BL167: first-class Dataset (browsable catalog) + the run-input edge.
+            mlcc_mlflow.log_first_class_dataset(
+                source=s3_uri, name=name, meta=meta, context=context,
+            )
             return mlcc_mlflow.log_dataset(
                 source=s3_uri, name=name, context=context, meta=meta,
             )
-        # Set experiment explicitly so datasets appear in the "Default" experiment
-        # in the MLflow UI (#/experiments/0/datasets). Without this, SageMaker
-        # MLflow Serverless may auto-create a new experiment per-call.
-        mlflow.set_experiment("Default")
+        # BL163: set the per-project experiment explicitly so each project's
+        # datasets group under their own experiment (sanitized project name)
+        # instead of colliding in the shared "Default" experiment. set_experiment
+        # creates it on first use (idempotent). SageMaker MLflow Serverless would
+        # otherwise auto-create a new experiment per-call, so an explicit name is
+        # still required.
+        mlflow.set_experiment(mlcc_mlflow._project_experiment_name(project_name))
         with mlflow.start_run(run_name=f"register-dataset-{name}"):
+            # BL167: first-class mlflow.data Dataset so it shows in the Experiment
+            # Datasets catalog, PLUS the existing log_dataset run-input lineage edge.
+            mlcc_mlflow.log_first_class_dataset(
+                source=s3_uri, name=name, meta=meta, context=context,
+            )
             return mlcc_mlflow.log_dataset(
                 source=s3_uri, name=name, context=context, meta=meta,
             )
-    except Exception as e:  # noqa: BLE001 — MLflow logging is best-effort
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
+    except Exception as e:  # noqa: BLE001 — BL167 hybrid: local record stands, reconcile on re-run
         _warn(
-            f"MLflow dataset logging failed ({e}); the S3 sidecar remains the "
-            "durable record."
+            f"MLflow dataset logging failed ({e}); '{name}' is saved locally (S3 "
+            "sidecar) — re-run `do/register dataset` when the MLflow App is "
+            "reachable to reconcile the record into MLflow."
         )
         return None
 
@@ -398,6 +421,8 @@ def cmd_register_dataset(args):
         try:
             content_hash = _compute_content_hash(s3_uri, region)
             print(f"Content hash: {content_hash}", file=sys.stderr)
+        except (NameError, AttributeError):
+            raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
         except Exception as e:
             _warn(f"Could not compute content hash: {e}. Proceeding without hash.")
     else:
@@ -491,6 +516,8 @@ def cmd_register_dataset(args):
             latest_entry["arn"] = dataset_arn
             doc["arn"] = dataset_arn
             dataset_store.write_sidecar(s3_client, core_bucket, name, doc)
+        except (NameError, AttributeError):
+            raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
         except Exception as e:  # noqa: BLE001 — ARN backfill is best-effort
             _warn(f"Could not backfill the native ARN into the sidecar ({e}); "
                   "the native asset is registered regardless.")
@@ -509,10 +536,19 @@ def cmd_register_dataset(args):
             handle = _log_dataset_to_mlflow(
                 s3_uri=s3_uri, name=name, content_hash=content_hash,
                 row_count=row_count, data_format=data_format, technique=technique,
+                project_name=project_name,
             )
             mlflow_logged = handle is not None
             if mlflow_logged:
                 print(f"Logged dataset to MLflow as run input: {handle[0]}", file=sys.stderr)
+            else:
+                # BL167: MLflow is configured but the write did not land — drift.
+                # The sidecar (local record) stands; tell the user to reconcile.
+                _warn(f"'{name}' saved locally but not yet recorded in MLflow. "
+                      f"Re-run `do/register dataset {name} ...` when the MLflow App "
+                      f"is reachable to reconcile.")
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
     except Exception as e:  # noqa: BLE001 — never let MLflow break a persisted registration
         _warn(f"MLflow dataset logging skipped ({e}); the S3 sidecar remains the record.")
 
@@ -670,9 +706,17 @@ def cmd_delete_dataset(args):
         try:
             import mlcc_mlflow
             if mlcc_mlflow._mlflow_configured():
-                mlcc_mlflow.tag_dataset_runs_deleted(name)
-        except Exception:  # noqa: BLE001 — MLflow tagging is best-effort
-            pass
+                mlcc_mlflow.tag_dataset_runs_deleted(
+                    name, project_name=getattr(args, "project_name", None),
+                )
+        except (NameError, AttributeError):
+            raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
+        except Exception as e:  # noqa: BLE001 — MLflow tagging is best-effort
+            # BL172: was a bare `pass`, which (with mlcc_mlflow's own swallow) hid
+            # the TAG_DELETED NameError for a whole feature. A transient MLflow
+            # failure is still tolerated, but now visibly.
+            _warn(f"MLflow soft-delete tagging skipped ({e}); the sidecar is removed, "
+                  "but the dataset's MLflow runs may still be listed until re-run.")
         print(f"Deregistered dataset '{name}' (sidecar removed; data bytes untouched)", file=sys.stderr)
         _output({
             "name": name,

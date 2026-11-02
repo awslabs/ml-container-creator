@@ -15,7 +15,7 @@ Common issues and solutions when using ML Container Creator.
 | Endpoint stuck in Creating | Check CloudWatch logs for health check or model loading failures |
 | Model file not found in container | Verify `COPY` directive in Dockerfile targets `/opt/ml/model/` |
 | Adapter "Not Found" on first call | Wait 60s after `do/adapter add` (see [LoRA Adapter Issues](#lora-adapter-issues)) |
-| Adapter read timeout | `./do/test --cli-read-timeout 120` |
+| Adapter read timeout | Re-run `./do/test --adapter <name>` after ~1 minute (see [Read timeout](#read-timeout-on-first-adapter-inference)) |
 | Adapter wrong model name | Use base model name, not adapter name (see [Wrong Model Name](#wrong-model-name-in-adapter-test)) |
 | HuggingFace API timeout | Use `--offline` flag |
 | HuggingFace access denied | Verify token and model license agreement |
@@ -216,7 +216,7 @@ they forward only args the running engine actually accepts. If you see junk
 This applies to SGLang too (`SGLANG_*` → `sglang serve`). The
 model-server-version MCP is **not** at fault — it selects the image correctly;
 the issue is purely serve-script arg harvesting. Full mechanism + a
-troubleshooting matrix: [Serving Engine Arguments & Version Troubleshooting](dev/registries-and-catalogs.md#serving-engine-arguments--version-troubleshooting).
+troubleshooting matrix: [Serving Engine Arguments & Version Troubleshooting](dev/registries-and-catalogs.md#serving-engine-arguments-version-troubleshooting).
 
 ### Model File Not Found
 
@@ -284,7 +284,7 @@ For private or gated models:
 
 1. Verify the model ID at `https://huggingface.co/<model-id>`
 2. Accept the model's license agreement on HuggingFace (for gated models like Llama)
-3. Provide a valid token: `--hf-token='$HF_TOKEN'`
+3. Store the token in Secrets Manager and reference it: `ml-container-creator secrets create --type hf-token --name <label> --secret-value hf_***`, then `mcc bootstrap add-secret hfToken <secret-arn>` (see the plaintext-token entry below)
 
 See [HuggingFace Authentication](configuration.md#huggingface-authentication) for details.
 
@@ -366,13 +366,11 @@ sleep 60
 
 **Root cause:** The first inference triggers JIT compilation of the adapter code path. Combined with thinking-mode tokens (for reasoning models like DeepSeek R1), this can exceed the default CLI read timeout.
 
-**Fix:** Increase the read timeout:
+**Fix:** `do/test` has no read-timeout flag. Wait about a minute and re-run the test; subsequent calls are fast, only the first invocation is slow:
 
 ```bash
-./do/test --cli-read-timeout 120
+./do/test --adapter <name>
 ```
-
-Subsequent calls will be fast — only the first invocation is slow.
 
 ### Wrong model name in adapter test
 
@@ -414,6 +412,70 @@ aws sagemaker describe-inference-component \
 # Check endpoint logs for vLLM errors
 ./do/logs
 ```
+
+### Kubernetes: "No adapter found" when loading a LoRA adapter (hyperpod-eks / eks)
+
+**Symptoms:** `load_lora_adapter` fails with `No adapter found for <path>`, or vLLM tries to
+download the adapter from Hugging Face.
+
+**Root cause:** vLLM loads adapters from a LOCAL path. An `s3://` URI (or a path that is not on
+the pod's model mount) is treated as a Hub repo id. The pod has no AWS credentials.
+
+**Fix:** use `./do/adapter add <name> --from-tune <t>` (or `--from-weights`): it promotes the
+adapter to its canonical version `models/<org>/<base>/.mlcc-adapters/<project>/<name>/v<hash12>/`
+in the core bucket and loads `/opt/ml/model/.mlcc-adapters/<project>/<name>/v<hash12>`. If it refuses:
+
+- *model is not served from S3* — `./do/stage` and `./do/deploy --target hyperpod-eks --force`;
+- *prefetchEnabled: true* — redeploy so MLCC turns prefetch off for LoRA + S3:
+  `./do/deploy --target hyperpod-eks --force` (add `--surge-node` on a single-node group);
+- *no S3 model mount* (eks) — set `EKS_MODEL_MOUNT=s3` with a staged model and redeploy;
+- *incompatible base* — the adapter was trained on a different base than the deployment serves.
+
+See [LoRA delivery on Kubernetes](architecture/k8s-lora-delivery.md).
+
+### "rank X > max_lora_rank Y" when adding an adapter
+
+**Symptoms:** `./do/adapter add` refuses with the adapter's rank and the serving limit, or vLLM
+rejects the load with a rank error.
+
+**Root cause:** vLLM fixes `max_lora_rank` at start. Managed-tune adapters are often r32/r64; the
+engine default is 16.
+
+**Fix:** redeploy so the limit is derived from the recorded adapters
+(`./do/deploy --target <target> --force`), or, if `VLLM_MAX_LORA_RANK` is set explicitly in
+`do/config`, raise it to at least the adapter's rank (an allowed value: 1, 8, 16, 32, 64, 128,
+256, 320, 512) first. On realtime-inference the fix is the base IC's `IC_ENV_VLLM_MAX_LORA_RANK`
+and `./do/deploy --target realtime-inference --force-ic`. A rank whose LoRA buffer exceeds 10% of
+the free GPU memory is refused at deploy with the numbers.
+
+### hyperpod-eks: rollout stuck Pending / deploy stops with "rollout cannot schedule"
+
+**Symptoms:** after a pod-template change the new pod stays `Pending` (insufficient
+`nvidia.com/gpu`), or `./do/deploy --target hyperpod-eks --force` stops before applying.
+
+**Root cause:** the instance group has one node and the serving pod holds all its GPUs, so a
+surge pod cannot schedule. MLCC never scales to zero to make room.
+
+**Fix:** `./do/deploy --target hyperpod-eks --force --surge-node` adds one node for the rollout
+and removes the vacated one afterwards (the count is restored on any failure). Capacity errors
+(`InsufficientCapacity`) are printed verbatim — retry later. If nothing changed in the pod
+template, no rollout is needed and none happens.
+
+### hyperpod-eks: deploy stops with "no node has a free pod slot"
+
+**Symptoms:** a first `./do/deploy --target hyperpod-eks` prints
+`The serving pod cannot start on <instance-type>: no node has a free pod slot` and
+`Nothing was applied`. (`./do/add-pod` prints `No node has room for <name> (GPUs and pod slots, …)`;
+it also accepts `--surge-node`.)
+
+**Root cause:** the nodes have free GPUs, but no free pod slots (the node's allocatable `pods`
+minus its running pods). The serving pod needs one slot, plus one for its Mountpoint-S3 pod when
+the model is mounted from S3. Without that slot the pod would schedule and then hang in
+`ContainerCreating` (`FailedMount`, "Too many pods").
+
+**Fix:** free pod slots on a node of that instance type (remove idle pods), add a node to the
+instance group, or deploy on another instance type. The message prints the per-node counts and a
+suggested fix. A GPU shortage alone only warns: the pod is applied and waits `Pending` for a GPU.
 
 ## `do/stage` Processing Job fails for large models
 
@@ -460,7 +522,7 @@ The agent (`ml-container-creator hey`) checks this automatically in its health r
 
 2. Or use base-image-picker with `instanceType` context — it automatically excludes incompatible versions:
    ```bash
-   ml-container-creator mcp add base-image-picker --bundled
+   ml-container-creator mcp --bundled add base-image-picker
    # During generation, base-image-picker filters by driver compatibility
    ```
 
@@ -522,10 +584,26 @@ echo 'export HP_SHM_SIZE=64Gi' >> do/config
    sed -i '' 's|adapters/my-adapter"|adapters/my-adapter/"|' do/adapters/<name>.conf
    
    # Re-add
-   ./do/adapter add <name> --weights "s3://bucket/prefix/"
+   ./do/adapter add <name> --from-weights "s3://bucket/prefix/"
    ```
 
 2. For adapters from `--from-registry`: the template fix (2026-06-29) automatically re-adds the trailing slash for non-tar.gz adapter URIs. Regenerate the project or update the `do/adapter` script.
+
+### Additive deploy: "Contract violation: artifact-kind" or "has no load mechanism"
+
+**Symptoms:** `do/adapter add` or `do/add-ic` exits with code 3 and one of:
+
+- `Contract violation: artifact-kind`: "This source is a 'full_model', but this verb accepts 'lora_adapter'" (or the reverse).
+- `Contract violation: target`: "do/add-ic (accepts: full_model) has no load mechanism on hyperpod-eks … not servable on hyperpod-eks yet".
+
+**Root cause:** Additive deploy follows one contract ([ADR-013](adr/ADR-013-additive-deploy-artifact-kind-contract.md)). The source's artifact kind picks the verb, and the target picks the load mechanism. `do/adapter` hot-loads LoRA adapters only. `do/add-ic` deploys full models only, and only on `realtime-inference`. On `hyperpod-eks` a full model goes through `do/add-pod`. Plain `eks` has no full-model verb yet (planned post-2.0).
+
+**Fix:**
+
+- A LoRA adapter: `./do/adapter add <name> --from-tune` (or `--from-weights s3://...`, `--from-registry <arn>`) on `realtime-inference`, `hyperpod-eks`, or `eks`.
+- A full model: `./do/add-ic <name> --from-tune` (or `--from-weights`, `--from-registry`) on `realtime-inference`, or `./do/add-pod <name> --from-tune` (same `--from-*` flags) on `hyperpod-eks`.
+- An "artifact_kind unknown … falling back to a content check" notice is informational. Raw S3 URIs, Hub repos, and older registry versions carry no recorded kind, so the verb proceeds after an advisory `adapter_config.json` check.
+- "--weights is deprecated" / "--model-data is deprecated" notices: switch to `--from-weights`. The old flags still work.
 
 ---
 

@@ -18,7 +18,7 @@
 #   ./do/logs --target <target> [args]            Override DEPLOYMENT_TARGET
 #
 #   <target> is one of: realtime-inference, async-inference,
-#                       hyperpod-eks, batch-transform
+#                       hyperpod-eks, eks, batch-transform
 #
 # @mlcc-script
 # type: deployment-centric
@@ -45,7 +45,9 @@ while [ $# -gt 0 ]; do
         --target)
             shift
             if [ $# -eq 0 ]; then
-                echo "❌ --target requires a value (realtime-inference, async-inference, batch-transform, hyperpod-eks)"
+            # >>> GENERATED: target-list (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT
+                echo "❌ --target requires a value (realtime-inference, async-inference, batch-transform, hyperpod-eks, eks)"
+            # <<< END GENERATED target-list
                 exit 1
             fi
             FLAG_TARGET="$1"
@@ -496,6 +498,12 @@ _logs_hyperpod_eks() {
 
     echo "   Found ${POD_COUNT} pod(s) matching selector"
     echo ""
+    # BL236: a pod stuck in ContainerCreating has no logs yet. If the S3 CSI
+    # driver reports FailedMount, name its Mountpoint pod's FailedScheduling
+    # reason (e.g. "Too many pods") instead of only "waiting to start".
+    # Read-only and optional: a failure here never stops the tail.
+    python3 "${SCRIPT_DIR}/lib/python/hyperpod_ops.py" mount-diagnose \
+        --namespace "${HP_NAMESPACE}" --selector "${POD_SELECTOR}" >/dev/null || true
     echo "   Press Ctrl+C to stop"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

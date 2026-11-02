@@ -23,15 +23,38 @@
     "HP_GPU_COUNT",
     "HP_CPU_REQUEST",
     "HP_MEM_REQUEST",
-    "KUBECONFIG"
+    "KUBECONFIG",
+    "HP_BENCHMARK_METRICS_ENABLED",
+    "TRAIN_HP_INSTANCE_GROUP",
+    "TRAIN_HP_NAMESPACE"
   ],
   "serving_config_source": "kubernetes",
+  "cluster_contract": { "script": "lib/python/hyperpod_ops.py", "entry": "preflight-env" },
+  "adapter_delivery": { "strategy": "model-prefix", "mount_path": "/opt/ml/model", "subdir": ".mlcc-adapters" },
+  "pricing": { "service": "AmazonSageMaker", "component": "Cluster", "instance_count": { "basis": "replicas", "replicas_var": "HP_REPLICAS", "gpus_per_replica_var": "HP_GPU_COUNT" } },
+  "compute_backends": ["smtj", "hp-eks"],
+  "scale_to_zero": { "support": "pod-only", "mechanism": "hyperpod-autoscalingspec", "wake_signal": null, "requests_at_zero": "unknown", "idle_billing": "nodes-still-billed", "enabled": false, "reason": "scaling pods to zero on fixed HyperPod instance groups saves no node cost; scaling nodes to zero needs Karpenter NodePools, which is cluster provisioning MLCC does not do (ADR-012, ADR-014)" },
   "verbs": {
     "optimize": true,
     "add-ic": false,
+    "add-pod": true,
     "ci": false,
     "adapter": true,
-    "draft": true
+    "draft": true,
+    "metrics": true
+  },
+  "observability": {
+    "store": "amp",
+    "histogram_form": "classic",
+    "selector": { "deployment": "resource_name", "namespace": "namespace" },
+    "gpu_selector": { "deployment": "container", "namespace": "namespace" },
+    "fallback": "engine-scrape",
+    "dashboard": "hyperpod-amg",
+    "amp_discovery": {
+      "addon": "amazon-sagemaker-hyperpod-observability",
+      "endpoint_key": "ampWorkspace.prometheusEndpoint",
+      "amg_name_key": "amgWorkspace.workspaceName"
+    }
   },
   "answer_params": [
     { "answerKey": "target", "configVar": "DEPLOYMENT_TARGET", "flag": "--target", "roles": ["flag-input", "prompt-core"] },

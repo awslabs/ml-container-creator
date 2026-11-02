@@ -31,9 +31,9 @@ import { MlccTrainingStack } from '../training/stack';
 import { MlccCiStack } from '../ci/stack';
 import { MlccSagemakerDomainStack } from '../sagemaker-domain/stack';
 import { MlccHyperpodStack } from '../hyperpod-cluster/stack';
-import { MlccEksClusterStack } from '../hyperpod-cluster/stacks/eks-cluster-stack';
-import { MlccHyperPodClusterStack } from '../hyperpod-cluster/stacks/hyperpod-cluster-stack';
-import { MlccInferenceOperatorStack } from '../hyperpod-cluster/stacks/inference-operator-stack';
+import { MlccEksClusterStack } from '../eks/stacks/eks-cluster-stack';
+import { MlccHyperPodClusterStack } from '../hyperpod/stacks/hyperpod-cluster-stack';
+import { MlccInferenceOperatorStack } from '../hyperpod/stacks/inference-operator-stack';
 
 // Load module manifest
 const manifestPath = path.resolve(__dirname, '..', 'module-manifest.json');
@@ -46,15 +46,17 @@ const profileName = app.node.tryGetContext('profileName') || 'default';
 const accountId = app.node.tryGetContext('accountId');
 const region = app.node.tryGetContext('region');
 const targetModule = app.node.tryGetContext('module'); // undefined = instantiate all
-// When the runner detects a module's S3 bucket already exists (retained from a
-// prior teardown), it passes adoptExistingBuckets=true so the stack adopts the
-// bucket by reference instead of colliding on create.
+// Bucket adopt flags. Each stack declares its buckets (and the context key that
+// adopts each one) in its buckets.json. The runner sets a bucket's adopt flag ONLY
+// when the bucket exists AND is not already a resource of the stack — so a stack
+// adopts by reference only while it is first created (the runner then imports the
+// bucket in the same run, R1.5), and a bucket the stack owns is never orphaned by a
+// later deploy (R1.1).
 const adoptExistingBuckets = app.node.tryGetContext('adoptExistingBuckets') === 'true';
-// The training module owns a SECOND retained bucket (adapters). The runner
-// detects it independently and passes adoptExistingAdaptersBucket=true so the
-// adapters bucket is adopted only when it actually exists, decoupled from the
-// training-data bucket's own adopt decision.
+// The training module owns further independent buckets (adapters, artifacts); each
+// has its own adopt flag so it is adopted only when IT is unowned-but-existing.
 const adoptExistingAdaptersBucket = app.node.tryGetContext('adoptExistingAdaptersBucket') === 'true';
+const adoptExistingArtifactsBucket = app.node.tryGetContext('adoptExistingArtifactsBucket') === 'true';
 // When the runner detects the core ECR repository already exists (retained from
 // a prior teardown), it passes adoptExistingEcr=true so the core stack adopts
 // the repo by reference instead of colliding on create.
@@ -84,7 +86,7 @@ const factories: Record<string, () => cdk.Stack> = {
         description: `MLCC Model Registry (profile: ${profileName})`,
     }),
     training: () => new MlccTrainingStack(app, stackName('training'), {
-        env, profileName, adoptExistingBuckets, adoptExistingAdaptersBucket,
+        env, profileName, adoptExistingBuckets, adoptExistingAdaptersBucket, adoptExistingArtifactsBucket,
         description: `MLCC Training Infrastructure (profile: ${profileName})`,
     }),
     ci: () => new MlccCiStack(app, stackName('ci'), {
@@ -101,15 +103,10 @@ const factories: Record<string, () => cdk.Stack> = {
     }),
     'eks-cluster': () => new MlccEksClusterStack(app, stackName('eks-cluster'), {
         env, profileName,
-        adoptEks: app.node.tryGetContext('adoptEks') === 'true',
-        adoptVpc: app.node.tryGetContext('adoptVpc') === 'true',
+        // RETAIN'd IAM roles survive teardown; the runner passes adoptRoles=true when it
+        // detects them so we adopt instead of colliding on create. Cluster/VPC always create.
         adoptRoles: app.node.tryGetContext('adoptRoles') === 'true',
-        vpcId: app.node.tryGetContext('vpcId'),
-        eksClusterArn: app.node.tryGetContext('EksClusterArn'),
-        eksClusterName: app.node.tryGetContext('EksClusterName'),
-        clusterSecurityGroupId: app.node.tryGetContext('ClusterSecurityGroupId'),
-        privateSubnetIds: app.node.tryGetContext('PrivateSubnetIds'),
-        description: `MLCC EKS Cluster — HyperPod Stack 1 (profile: ${profileName})`,
+        description: `MLCC EKS Cluster — eks module (profile: ${profileName})`,
     }),
     'hyperpod-cluster': () => new MlccHyperPodClusterStack(app, stackName('hyperpod-cluster'), {
         env, profileName,

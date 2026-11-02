@@ -26,9 +26,10 @@ _spec.loader.exec_module(_benchmark_writer)
 
 compute_model_family = _benchmark_writer.compute_model_family
 compute_instance_family = _benchmark_writer.compute_instance_family
-compute_cost_per_1m_tokens = _benchmark_writer.compute_cost_per_1m_tokens
 compute_partition_keys = _benchmark_writer.compute_partition_keys
-INSTANCE_PRICING_USD_PER_HOUR = _benchmark_writer.INSTANCE_PRICING_USD_PER_HOUR
+# Wave 9 (R7.3/R8.1): the hardcoded $/hr table is gone; cost is computed by the
+# shared pricing helper from a resolved price + billed instance count.
+compute_cost = _benchmark_writer._load_helper('pricing').compute_cost
 
 
 # ── Test: compute_model_family ────────────────────────────────────────────────
@@ -175,66 +176,39 @@ class TestComputeInstanceFamily:
         assert compute_instance_family("invalid") == "unknown"
 
 
-# ── Test: compute_cost_per_1m_tokens ──────────────────────────────────────────
+# ── Test: compute_cost (Wave 9 R8.1) ──────────────────────────────────────────
 
 
-class TestComputeCostPer1mTokens:
-    """Test cost per 1M tokens computation.
+class TestComputeCost:
+    """cost per 1M output tokens = usd/h x instance_count x 1e6 / (3600 x tok/s).
 
-    Validates: Requirements 6.3
+    Synthetic prices only — real prices come from the Pricing API (test_pricing.py).
     """
 
     def test_basic_computation(self):
-        """Known instance with known throughput produces expected cost."""
-        # ml.g5.xlarge → g5.xlarge in pricing table = $1.408/hr
-        # At 500 tokens/sec: cost_per_sec = 1.408/3600 = 0.000391
-        # cost_per_token = 0.000391 / 500 = 7.822e-7
-        # cost_per_1m = 7.822e-7 * 1_000_000 = 0.7822
-        result = compute_cost_per_1m_tokens("ml.g5.xlarge", 500.0)
-        assert result is not None
-        assert abs(result - 0.7822) < 0.001
+        result = compute_cost(1.8, 1, 500.0)
+        assert result == pytest.approx(1.8 * 1e6 / (3600 * 500.0), abs=1e-4)
 
     def test_high_throughput_lower_cost(self):
-        """Higher throughput reduces cost per 1M tokens."""
-        cost_low = compute_cost_per_1m_tokens("ml.g5.xlarge", 100.0)
-        cost_high = compute_cost_per_1m_tokens("ml.g5.xlarge", 1000.0)
-        assert cost_low > cost_high
+        assert compute_cost(2.0, 1, 100.0) > compute_cost(2.0, 1, 1000.0)
 
-    def test_unknown_instance_returns_none(self):
-        """Unknown instance type returns None."""
-        result = compute_cost_per_1m_tokens("ml.x99.mega", 500.0)
-        assert result is None
+    def test_instance_count_multiplies(self):
+        assert compute_cost(2.0, 3, 100.0) == pytest.approx(3 * compute_cost(2.0, 1, 100.0), abs=1e-3)
+
+    def test_unknown_price_returns_none(self):
+        assert compute_cost(None, 1, 500.0) is None
 
     def test_zero_throughput_returns_none(self):
-        """Zero throughput returns None (division by zero guard)."""
-        result = compute_cost_per_1m_tokens("ml.g5.xlarge", 0)
-        assert result is None
+        assert compute_cost(2.0, 1, 0) is None
 
     def test_negative_throughput_returns_none(self):
-        """Negative throughput returns None."""
-        result = compute_cost_per_1m_tokens("ml.g5.xlarge", -10.0)
-        assert result is None
-
-    def test_none_instance_returns_none(self):
-        """None instance type returns None."""
-        result = compute_cost_per_1m_tokens(None, 500.0)
-        assert result is None
+        assert compute_cost(2.0, 1, -10.0) is None
 
     def test_none_throughput_returns_none(self):
-        """None throughput returns None."""
-        result = compute_cost_per_1m_tokens("ml.g5.xlarge", None)
-        assert result is None
-
-    def test_p5_expensive_instance(self):
-        """Expensive instance has higher cost per 1M tokens at same throughput."""
-        cost_g5 = compute_cost_per_1m_tokens("ml.g5.xlarge", 500.0)
-        cost_p5 = compute_cost_per_1m_tokens("ml.p5.48xlarge", 500.0)
-        assert cost_p5 > cost_g5
+        assert compute_cost(2.0, 1, None) is None
 
     def test_result_is_rounded(self):
-        """Result is rounded to 4 decimal places."""
-        result = compute_cost_per_1m_tokens("ml.g5.xlarge", 500.0)
-        # Check that it has at most 4 decimal places
+        result = compute_cost(1.234567, 1, 333.0)
         assert result == round(result, 4)
 
 

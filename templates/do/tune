@@ -23,9 +23,12 @@ source "${SCRIPT_DIR}/lib/script-contract.sh"
 _require_python_env
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
+source "${SCRIPT_DIR}/lib/s3-layout.sh"
 
-# ── Profile-resolved variables (env var > profile > default) ──────────────────
-TUNE_S3_BUCKET="${TUNE_S3_BUCKET:-mlcc-tune-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}}"
+# ── Profile-resolved variables ────────────────────────────────────────────────
+# The output (artifacts) bucket is ARTIFACTS_S3_BUCKET, exported by do/lib/profile.sh
+# from the profile key artifactsS3Bucket (TUNE_S3_BUCKET is accepted as an override
+# alias). It is never rebuilt from the account/region — see _resolve_output_bucket.
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 CATALOG_FILE="${SCRIPT_DIR}/.tune_catalog.json"
@@ -36,13 +39,24 @@ POLL_INTERVAL=60
 ARG_TECHNIQUE=""
 ARG_DATASET=""
 ARG_TRAINING_TYPE="lora"
+# Wave 11 (R1.2, R9–R11): compute backend + the hp-eks (HyperPodPyTorchJob) knobs.
+ARG_BACKEND=""
+ARG_ADAPT_SHAPE=false
+ARG_RENDER_ONLY=false
+ARG_INSTANCE_GROUP=""
+ARG_STARTUP_TIMEOUT=""
+ARG_STALL_TIMEOUT=""
+TUNE_BACKEND_RESOLVED=""
 ARG_MODEL=""
-ARG_EPOCHS=""
-ARG_LEARNING_RATE=""
-ARG_MAX_SEQ_LENGTH=""
-ARG_LORA_RANK=""
-ARG_LORA_ALPHA=""
-ARG_BATCH_SIZE=""
+# BL128: technique-aware hyperparameter knobs are collected into SET_KNOBS as plain
+# "KNOB=VALUE" strings (an INDEXED array — NOT `declare -A`, which needs bash 4+; do/tune
+# must run under macOS's default bash 3.2). Both --set KNOB=VALUE and the five legacy flags
+# (--epochs/--learning-rate/--max-seq-length/--lora-rank/--batch-size) append to it, keyed
+# by the descriptor's canonical knob name; the config builder resolves + validates the pairs
+# against the selected technique's tune descriptor.
+SET_KNOBS=()
+ARG_ADVANCED=false
+ARG_NON_INTERACTIVE=false
 ARG_REWARD_FUNCTION=""
 ARG_REWARD_PROMPT=""
 ARG_OUTPUT_BUCKET=""
@@ -96,42 +110,56 @@ _parse_args() {
                     exit 1
                 fi
                 ARG_MODEL="$2"; shift 2 ;;
+            # BL128: generic per-knob setter. --set KNOB=VALUE (repeatable), keyed by the
+            # descriptor's canonical knob name. The config builder validates each against
+            # the selected technique's descriptor (an unknown knob is rejected there).
+            --set)
+                if [ -z "${2:-}" ] || [[ "$2" != *=* ]]; then
+                    echo "❌ --set requires KNOB=VALUE (e.g., --set learning_rate=1e-5)"
+                    exit 1
+                fi
+                SET_KNOBS+=("$2"); shift 2 ;;
+            --advanced) ARG_ADVANCED=true; shift ;;
+            --non-interactive) ARG_NON_INTERACTIVE=true; shift ;;
+            # BL128: the five legacy hyperparameter flags are KEPT as aliases that populate
+            # the SAME SET_KNOBS map under the descriptor's canonical knob name, so existing
+            # scripts/docs keep working and get the same technique-aware validation.
             --epochs)
                 if [ -z "${2:-}" ]; then
                     echo "❌ --epochs requires an integer value"
                     exit 1
                 fi
-                ARG_EPOCHS="$2"; shift 2 ;;
+                SET_KNOBS+=("max_epochs=$2"); shift 2 ;;
             --learning-rate)
                 if [ -z "${2:-}" ]; then
                     echo "❌ --learning-rate requires a float value"
                     exit 1
                 fi
-                ARG_LEARNING_RATE="$2"; shift 2 ;;
+                SET_KNOBS+=("learning_rate=$2"); shift 2 ;;
             --max-seq-length)
                 if [ -z "${2:-}" ]; then
                     echo "❌ --max-seq-length requires an integer value"
                     exit 1
                 fi
-                ARG_MAX_SEQ_LENGTH="$2"; shift 2 ;;
+                SET_KNOBS+=("dataset_max_len=$2"); shift 2 ;;
             --lora-rank)
                 if [ -z "${2:-}" ]; then
                     echo "❌ --lora-rank requires an integer value"
                     exit 1
                 fi
-                ARG_LORA_RANK="$2"; shift 2 ;;
+                SET_KNOBS+=("lora_rank=$2"); shift 2 ;;
             --lora-alpha)
                 if [ -z "${2:-}" ]; then
                     echo "❌ --lora-alpha requires an integer value"
                     exit 1
                 fi
-                ARG_LORA_ALPHA="$2"; shift 2 ;;
+                SET_KNOBS+=("lora_alpha=$2"); shift 2 ;;
             --batch-size)
                 if [ -z "${2:-}" ]; then
                     echo "❌ --batch-size requires an integer value"
                     exit 1
                 fi
-                ARG_BATCH_SIZE="$2"; shift 2 ;;
+                SET_KNOBS+=("global_batch_size=$2"); shift 2 ;;
             --reward-function)
                 if [ -z "${2:-}" ]; then
                     echo "❌ --reward-function requires a Lambda ARN"
@@ -163,6 +191,20 @@ _parse_args() {
             --status) ARG_STATUS=true; shift ;;
             --help|-h) ARG_HELP=true; shift ;;
             --dry-run) ARG_DRY_RUN=true; shift ;;
+            --adapt-shape) ARG_ADAPT_SHAPE=true; shift ;;
+            --render-only) ARG_RENDER_ONLY=true; shift ;;
+            --backend|--instance-group|--startup-timeout|--stall-timeout)
+                if [ -z "${2:-}" ] || [[ "${2}" == -* ]]; then
+                    echo "❌ $1 requires a value"
+                    exit 2
+                fi
+                case "$1" in
+                    --backend) ARG_BACKEND="$2" ;;
+                    --instance-group) ARG_INSTANCE_GROUP="$2" ;;
+                    --startup-timeout) ARG_STARTUP_TIMEOUT="$2" ;;
+                    --stall-timeout) ARG_STALL_TIMEOUT="$2" ;;
+                esac
+                shift 2 ;;
             --list-models) ARG_LIST_MODELS=true; shift ;;
             --list-datasets) ARG_LIST_DATASETS=true; shift ;;
             --source)
@@ -309,7 +351,7 @@ _show_help() {
     echo "        fails before submission if either is missing."
     echo ""
     echo "Overrides:"
-    echo "  --output-bucket <b>   Override output bucket (defaults to TUNE_S3_BUCKET)"
+    echo "  --output-bucket <b>   Override output bucket (defaults to the profile's artifacts bucket)"
     echo "  --role <arn>          Override execution role (defaults to ROLE_ARN)"
     echo ""
     echo "Job control:"
@@ -341,6 +383,13 @@ _show_help() {
     echo "Informational:"
     echo "  --help, -h            Show this help message"
     echo "  --dry-run             Validate inputs and show what would be submitted"
+    echo "  --backend <b>         smtj (default) or hp-eks (hyperpod-eks projects; SFT / DPO only):"
+    echo "                        run AWS's HP-EKS recipe as a HyperPodPyTorchJob on the cluster"
+    echo "  --adapt-shape         hp-eks, EXPERIMENTAL (AWS-unsupported): rewrite the recipe's"
+    echo "                        8-GPU/EFA (p4d/p5) shape to the instance group's allocatable"
+    echo "  --render-only         hp-eks: stage the data and write the patched manifest; apply nothing"
+    echo "  --instance-group <g>  hp-eks: pin the instance group"
+    echo "  --startup-timeout <s> / --stall-timeout <s>  hp-eks watcher limits (1200 / 1800)"
     echo "  --list-models         Print supported models, techniques, and training types"
     echo ""
     echo "Examples:"
@@ -446,7 +495,7 @@ _show_status() {
                     --job-name "${job_name}" \
                     --region "${AWS_REGION}" \
                     --training-type "${training_type}" \
-                    --model-package-group "${PROJECT_NAME}-tune-models" 2>/dev/null) || resolve_result=""
+                    --model-package-group "${PROJECT_NAME}" 2>/dev/null) || resolve_result=""
 
                 if [ -n "${resolve_result}" ]; then
                     local artifact_path
@@ -458,13 +507,21 @@ _show_status() {
                         local technique_upper
                         technique_upper=$(echo "${technique}" | tr '[:lower:]' '[:upper:]')
 
+                        # Promote the servable output to its canonical prefix
+                        # (bucket consolidation R3.3); the raw path stays in
+                        # TUNE_OUTPUT_PATH_<T> / TUNE_OUTPUT_PATH_LATEST.
+                        _promote_tune_output "${artifact_path}" "${output_type}" "tuned-${technique}" \
+                            "${technique}" "${job_name}" "${TUNE_MODEL_ID:-${MODEL_NAME:-}}"
+                        local servable_path="${PROMOTED_URI:-${artifact_path}}"
+                        _update_config_var "TUNE_OUTPUT_PATH_${technique_upper}" "${artifact_path}"
+
                         # Update config
                         if [ "${output_type}" = "adapter" ]; then
-                            _update_config_var "TUNE_ADAPTER_PATH_${technique_upper}" "${artifact_path}"
-                            echo "     Output (adapter): ${artifact_path}"
+                            _update_config_var "TUNE_ADAPTER_PATH_${technique_upper}" "${servable_path}"
+                            echo "     Output (adapter): ${servable_path}"
                         else
-                            _update_config_var "TUNE_MODEL_PATH_${technique_upper}" "${artifact_path}"
-                            echo "     Output (model): ${artifact_path}"
+                            _update_config_var "TUNE_MODEL_PATH_${technique_upper}" "${servable_path}"
+                            echo "     Output (model): ${servable_path}"
                         fi
                         _update_config_var "TUNE_OUTPUT_PATH_LATEST" "${artifact_path}"
                         _update_config_var "TUNE_OUTPUT_TYPE_LATEST" "${output_type}"
@@ -543,8 +600,23 @@ _update_config_var() {
         sed -i.bak "s|^export ${var_name}=.*|export ${var_name}=\"${var_value}\"|" "${config_file}"
         rm -f "${config_file}.bak"
     else
+        # Guard against a config whose last line has no trailing newline: appending
+        # directly would GLUE the new export onto the previous one (observed:
+        # `...SIZE="2"export TUNE_ADAPTER_PATH_DPO=...`, corrupting both vars). If the
+        # file is non-empty and does not already end in a newline, add one first.
+        if [ -s "${config_file}" ] && [ -n "$(tail -c 1 "${config_file}")" ]; then
+            echo "" >> "${config_file}"
+        fi
         echo "export ${var_name}=\"${var_value}\"" >> "${config_file}"
     fi
+}
+
+# ── _promote_tune_output() ────────────────────────────────────────────────────
+# Bucket consolidation R3.3: publish the servable output to its canonical prefix
+# (do/lib/s3-layout.sh → s3_layout.py). Sets PROMOTED_URI ("" → keep the raw path).
+# Usage: _promote_tune_output <raw-uri> <adapter|model> <name> <technique> <job> <base-id>
+_promote_tune_output() {
+    _s3_layout_promote "$1" "$2" "$3" "$4" "$5" "$6" "do/tune"
 }
 
 # ── _check_catalog_staleness() ─────────────────────────────────────────────────
@@ -878,6 +950,12 @@ _validate_dataset() {
     if [ -n "${ARG_DATASET_NAME}" ]; then
         echo "🔍 Resolving dataset '${ARG_DATASET_NAME}' from registry..."
         local resolve_args=("--name" "${ARG_DATASET_NAME}")
+        # Scope resolution to THIS project's MLflow experiment. Without it, name
+        # resolution reads a different experiment set and either misses the dataset
+        # or (with multiple content-versions logged) resolves to a stale URI — the
+        # cause of do/tune resolving a dead `.json` after a re-register. `--list`
+        # (via do/register) already scopes by project; mirror it here.
+        [ -n "${PROJECT_NAME:-}" ] && resolve_args+=("--project-name" "${PROJECT_NAME}")
         if [ -n "${ARG_DATASET_VERSION}" ]; then
             resolve_args+=("--version" "${ARG_DATASET_VERSION}")
             echo "   Version: v${ARG_DATASET_VERSION}"
@@ -920,6 +998,9 @@ _validate_dataset() {
             # Name-based resolution happens below via resolve-dataset
             echo "🔍 Resolving dataset '${ARG_DATASET_NAME}' from registry..."
             local resolve_args=("--name" "${ARG_DATASET_NAME}")
+            # Scope to this project's MLflow experiment (see note above) so a
+            # re-registered dataset resolves to its NEWEST URI, not a stale one.
+            [ -n "${PROJECT_NAME:-}" ] && resolve_args+=("--project-name" "${PROJECT_NAME}")
             if [ -n "${ARG_DATASET_VERSION}" ]; then
                 resolve_args+=("--version" "${ARG_DATASET_VERSION}")
                 echo "   Version: v${ARG_DATASET_VERSION}"
@@ -999,6 +1080,15 @@ _validate_dataset() {
                     exit 1
                 fi
                 echo "   Dataset is parquet (${sample_object##*/}); RL format check passed."
+                # BL129 — field-schema half of the Gate. The format half above only
+                # checks the file is parquet; now verify the ROW SCHEMA carries the
+                # verl fields the descriptor's dataset_contract requires (the SAME
+                # contract the register-side Producer wrote against), so a
+                # contract-violating parquet fails in sub-second preflight instead of
+                # deep in the GPU job. Techniques whose contract is unverified
+                # (mtrl-rollout → required_dataset_fields == []) are format-checked
+                # ONLY — the reader returns [] and the check is skipped.
+                _validate_rl_field_schema "${sample_object}" "${ARG_TECHNIQUE}"
                 return 0
                 ;;
         esac
@@ -1070,6 +1160,91 @@ _validate_dataset() {
     fi
 }
 
+# ── _validate_rl_field_schema() ───────────────────────────────────────────────
+# BL129 Gate field-schema half. Given a sampled PARQUET object and an RL technique,
+# verify the row schema carries the verl fields the technique's tune descriptor
+# requires (dataset_contract → required_dataset_fields). Fails fast (exit 1) naming
+# the first missing field. A technique whose contract is unverified
+# (required_dataset_fields == [], e.g. mtrl-rollout) is skipped — format-check only.
+# pipefail-safe: the descriptor read and the S3 sample read each guard their pipe.
+_validate_rl_field_schema() {
+    local sample_object="$1"
+    local technique="$2"
+    local reader="${SCRIPT_DIR}/lib/python/tune_manifest.py"
+
+    if [ ! -f "${reader}" ]; then
+        # No descriptor reader (older generated project) — skip field check, keep the
+        # format check that already passed. Non-fatal by design.
+        return 0
+    fi
+
+    # Required fields for this technique's dataset contract (JSON array). pipefail-safe:
+    # capture separately and default to [] on any error so a reader hiccup never blocks.
+    local required_json
+    required_json=$(python3 "${reader}" required_dataset_fields "${technique}" 2>/dev/null) || required_json="[]"
+    if [ -z "${required_json}" ] || [ "${required_json}" = "[]" ]; then
+        # Unverified / no field contract (e.g. mtrl) → format check only.
+        return 0
+    fi
+
+    # Download the sample object to a temp file (pipefail-safe: no pipe to SIGPIPE),
+    # then read its first-row column names with pyarrow and compare to the contract.
+    local tmp_parquet
+    tmp_parquet=$(mktemp -t mcc-rl-sample.XXXXXX.parquet) || {
+        echo "   ⚠️  Could not create a temp file for the RL field-schema check; skipping it."
+        return 0
+    }
+    # shellcheck disable=SC2064
+    trap "rm -f '${tmp_parquet}'" RETURN
+
+    if ! aws s3 cp "${sample_object}" "${tmp_parquet}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+        echo "   ⚠️  Could not download the sample object for the RL field-schema check; skipping it."
+        return 0
+    fi
+
+    local check_result
+    check_result=$(REQUIRED_JSON="${required_json}" PARQUET_PATH="${tmp_parquet}" python3 -c "
+import json, os, sys
+required = json.loads(os.environ['REQUIRED_JSON'])
+path = os.environ['PARQUET_PATH']
+try:
+    import pyarrow.parquet as pq
+except ImportError:
+    print(json.dumps({'skip': 'pyarrow not installed'})); sys.exit(0)
+try:
+    cols = set(pq.ParquetFile(path).schema_arrow.names)
+except Exception as e:  # noqa: BLE001 — surface as a non-fatal skip
+    print(json.dumps({'skip': f'could not read parquet schema: {e}'})); sys.exit(0)
+missing = [f for f in required if f not in cols]
+print(json.dumps({'missing': missing, 'present': sorted(cols)}))
+" 2>/dev/null) || check_result='{\"skip\":\"field check failed to run\"}'
+
+    local skip_reason
+    skip_reason=$(echo "${check_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('skip','') or '')" 2>/dev/null) || skip_reason=""
+    if [ -n "${skip_reason}" ]; then
+        echo "   ⚠️  RL field-schema check skipped (${skip_reason}); the training container will still validate."
+        return 0
+    fi
+
+    local missing
+    missing=$(echo "${check_result}" | python3 -c "import sys,json; print(','.join(json.load(sys.stdin).get('missing',[])))" 2>/dev/null) || missing=""
+    if [ -n "${missing}" ]; then
+        local present
+        present=$(echo "${check_result}" | python3 -c "import sys,json; print(', '.join(json.load(sys.stdin).get('present',[])))" 2>/dev/null) || present=""
+        echo "❌ ${technique} dataset is missing required verl field(s): ${missing}"
+        echo "   The managed RL trainer (verl RLHFDataset) requires the 5-field row schema:"
+        echo "   data_source, prompt (chat message list), ability, reward_model {style, ground_truth}, extra_info."
+        echo "   Found columns: ${present}"
+        echo ""
+        echo "   Re-register the dataset for this technique so the Producer emits the verl"
+        echo "   schema:  ./do/register dataset <name> --hf-id <org/name> --technique ${technique}"
+        exit 1
+    fi
+
+    echo "   RL field-schema check passed (verl 5-field contract satisfied)."
+    return 0
+}
+
 # ── _get_dataset_schema() ─────────────────────────────────────────────────────
 # Get the dataset schema JSON for the current model+technique from the catalog.
 _get_dataset_schema() {
@@ -1088,20 +1263,17 @@ print(json.dumps(schema))
 }
 
 # ── _resolve_output_bucket() ──────────────────────────────────────────────────
-# Resolve the S3 output bucket from --output-bucket, TUNE_S3_BUCKET, or fallback.
+# Resolve the S3 output bucket: --output-bucket, else the profile's artifacts
+# bucket (ARTIFACTS_S3_BUCKET; TUNE_S3_BUCKET override alias). No fallback name —
+# a missing profile key is a hard error naming the bootstrap module to add.
 _resolve_output_bucket() {
     if [ -n "${ARG_OUTPUT_BUCKET}" ]; then
         echo "${ARG_OUTPUT_BUCKET}"
-    elif [ -n "${TUNE_S3_BUCKET:-}" ]; then
-        echo "${TUNE_S3_BUCKET}"
-    elif [ -n "${ADAPTER_S3_BUCKET:-}" ]; then
-        echo "${ADAPTER_S3_BUCKET}"
-    else
-        echo "mlcc-tune-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo 'UNKNOWN')-${AWS_REGION}"
+        return 0
     fi
+    _require_bucket ARTIFACTS_S3_BUCKET || return 1
+    echo "${ARTIFACTS_S3_BUCKET}"
 }
-
-
 # ── _check_idempotency() ──────────────────────────────────────────────────────
 # Check TUNE_JOB_NAME_<TECHNIQUE> in config, query status if exists.
 # Returns 0 if a new job should be created, 1 if existing job was handled.
@@ -1293,13 +1465,119 @@ _preflight_rft_inputs() {
     return 0
 }
 
+# ── _resolve_hyperparameters() (BL128) ────────────────────────────────────────
+# Resolve the technique-aware knob values via the config builder: descriptor defaults
+# overlaid with the SET_KNOBS map (--set + legacy-flag aliases), validated against the
+# selected technique's tune descriptor. Prints the resolved {knob: value} JSON on
+# success; on any validation error prints the errors and returns 1 (caller exits).
+# Interactive unless --non-interactive / no TTY (the builder prompts primary knobs, and
+# advanced knobs when --advanced).
+_resolve_hyperparameters() {
+    # Build the --supplied JSON object from SET_KNOBS ("KNOB=VALUE" strings → JSON). Each
+    # pair is a positional arg to python (robust to values containing '='/spaces); a later
+    # pair for the same knob wins (last --set / flag). Guard the empty-array case under
+    # `set -u` with "${SET_KNOBS[@]+"${SET_KNOBS[@]}"}".
+    local supplied_json
+    supplied_json=$(python3 -c "
+import json, sys
+vals = {}
+for pair in sys.argv[1:]:
+    if '=' in pair:
+        k, v = pair.split('=', 1)
+        vals[k] = v
+print(json.dumps(vals))
+" ${SET_KNOBS[@]+"${SET_KNOBS[@]}"} 2>/dev/null) || supplied_json="{}"
+
+    local bc_args=(
+        --technique "${ARG_TECHNIQUE}"
+        --variant "${ARG_TRAINING_TYPE:-lora}"
+        --supplied "${supplied_json}"
+    )
+    # BL180 Option 1: pass the resolved model so build-config reads the AUTHORITATIVE
+    # per-model hyperparameter specs live from the SMTJ SDK (not the stale, per-technique
+    # synced descriptor). build-config falls back to the descriptor if the model/SDK
+    # can't be resolved.
+    [ -n "${RESOLVED_MODEL_ID:-}" ] && bc_args+=(--model "${RESOLVED_MODEL_ID}")
+    [ "${ARG_ADVANCED}" = true ] && bc_args+=(--advanced)
+    [ "${ARG_NON_INTERACTIVE}" = true ] && bc_args+=(--non-interactive)
+    # RLAIF: when the judge template was already chosen via --reward-prompt (resolved
+    # into ARG_REWARD_PROMPT by _preflight_rft_inputs), drop judge_prompt_template from
+    # the HP prompts so the user is not asked to pick the same template a second time.
+    # The SDK sets judge_prompt_template from reward_prompt, so this knob is redundant
+    # here. (Only meaningful for rlaif; harmless for other techniques that lack it.)
+    if [ "${ARG_TECHNIQUE}" = "rlaif" ] && [ -n "${ARG_REWARD_PROMPT}" ]; then
+        bc_args+=(--skip-knob judge_prompt_template)
+    fi
+
+    # BL178: do NOT swallow build-config's stderr. The interactive questionary
+    # prompt UI renders to stderr (so it stays out of the captured stdout JSON) —
+    # discarding stderr (2>/dev/null) made the prompt INVISIBLE and the CLI appeared
+    # to hang. Let stderr flow to the terminal so prompts show and a real error
+    # (e.g. a missing-dependency ImportError) is visible instead of the generic
+    # message (also addresses the BL165 error-swallowing class on this path).
+    local bc_result
+    bc_result=$(python3 "${HELPER_SCRIPT}" build-config "${bc_args[@]}") || {
+        echo "❌ Failed to resolve hyperparameters for ${ARG_TECHNIQUE}." >&2
+        return 1
+    }
+
+    # Surface validation errors (fail-fast).
+    local errors
+    errors=$(echo "${bc_result}" | python3 -c "import sys,json; print('\n'.join(json.load(sys.stdin).get('errors',[])))" 2>/dev/null) || errors=""
+    if [ -n "${errors}" ]; then
+        echo "❌ Hyperparameter validation failed for ${ARG_TECHNIQUE}:" >&2
+        echo "${errors}" | sed 's/^/   • /' >&2
+        return 1
+    fi
+
+    # Surface informational notes (e.g. an auto-adjusted default length pair) so the
+    # user SEES what the builder changed on their behalf. Non-fatal; stderr only.
+    local notes
+    notes=$(echo "${bc_result}" | python3 -c "import sys,json; print('\n'.join(json.load(sys.stdin).get('notes',[])))" 2>/dev/null) || notes=""
+    if [ -n "${notes}" ]; then
+        echo "${notes}" | sed 's/^/ℹ  /' >&2
+    fi
+
+    # Option-A transparency: show EVERY knob the job will receive and where each
+    # value came from, so knobs that land in SageMaker at their SDK default (advanced/
+    # tertiary knobs the UX never prompts, e.g. lr_scheduler, weight_decay) are visible
+    # here — not a surprise in the console. Defaults carry a hint that --set overrides
+    # them. Rendered to STDERR so the captured stdout stays clean JSON (BL178).
+    echo "${bc_result}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+resolved = data.get('resolved', {}) or {}
+sources = data.get('sources', {}) or {}
+if not resolved:
+    sys.exit(0)
+LABEL = {'supplied': 'set by you', 'prompt': 'entered', 'default': 'SDK default'}
+has_default = any(sources.get(k) == 'default' for k in resolved)
+print('', file=sys.stderr)
+print('\u2699\ufe0f  Hyperparameters this job will use:', file=sys.stderr)
+width = max((len(k) for k in resolved), default=0)
+for k in sorted(resolved):
+    src = sources.get(k, 'default')
+    print('   {name:<{w}}  {val:<16}  ({lbl})'.format(
+        name=k, w=width, val=str(resolved[k]), lbl=LABEL.get(src, src)), file=sys.stderr)
+if has_default:
+    print('', file=sys.stderr)
+    print('   \u2139\ufe0f  Values marked \"SDK default\" were not prompted. Override any with', file=sys.stderr)
+    print('      --set <knob>=<value> (or --advanced to be prompted for more).', file=sys.stderr)
+print('', file=sys.stderr)
+" 2>/dev/null || true
+
+    # Echo the resolved {knob: value} JSON for the caller to pass to submit.
+    echo "${bc_result}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin).get('resolved',{})))" 2>/dev/null || echo "{}"
+    return 0
+}
+
 # Sets JOB_NAME on success.
 _submit_job() {
     # Req 3A two-input pre-flight: RFT techniques need BOTH dataset + evaluator.
     _preflight_rft_inputs
 
     local output_bucket
-    output_bucket=$(_resolve_output_bucket)
+    output_bucket=$(_resolve_output_bucket) || exit 1
 
     local role_arn
     if [ -n "${ARG_ROLE}" ]; then
@@ -1396,27 +1674,20 @@ print(entry.get('provider', ''))
         --project-name "${PROJECT_NAME}"
     )
 
-    # Add model package group
-    submit_args+=(--model-package-group "${PROJECT_NAME}-tune-models")
+    # Add model package group (BL164: the PROJECT group, not -tune-models, so the
+    # tune output shares one catalog with do/register's bridge registrations).
+    submit_args+=(--model-package-group "${PROJECT_NAME}")
 
-    # Add optional hyperparameters
-    if [ -n "${ARG_EPOCHS}" ]; then
-        submit_args+=(--epochs "${ARG_EPOCHS}")
-    fi
-    if [ -n "${ARG_LEARNING_RATE}" ]; then
-        submit_args+=(--learning-rate "${ARG_LEARNING_RATE}")
-    fi
-    if [ -n "${ARG_MAX_SEQ_LENGTH}" ]; then
-        submit_args+=(--max-seq-length "${ARG_MAX_SEQ_LENGTH}")
-    fi
-    if [ -n "${ARG_LORA_RANK}" ]; then
-        submit_args+=(--lora-rank "${ARG_LORA_RANK}")
-    fi
-    if [ -n "${ARG_LORA_ALPHA}" ]; then
-        submit_args+=(--lora-alpha "${ARG_LORA_ALPHA}")
-    fi
-    if [ -n "${ARG_BATCH_SIZE}" ]; then
-        submit_args+=(--batch-size "${ARG_BATCH_SIZE}")
+    # BL128: resolve the technique-aware hyperparameter knobs from the tune descriptor
+    # (defaults + --set/legacy-flag overrides), validating each against the selected
+    # technique's descriptor BEFORE submission. The resolved {knob: value} map is passed
+    # to submit as a single --hyperparameters JSON blob (tune_submit merges it — the old
+    # per-flag map is gone). An unknown knob, an out-of-range value, or a required knob
+    # with no value fails fast HERE, not deep in the job.
+    local resolved_hp
+    resolved_hp=$(_resolve_hyperparameters) || exit 1
+    if [ -n "${resolved_hp}" ] && [ "${resolved_hp}" != "{}" ]; then
+        submit_args+=(--hyperparameters "${resolved_hp}")
     fi
     if [ -n "${ARG_REWARD_FUNCTION}" ]; then
         submit_args+=(--reward-function "${ARG_REWARD_FUNCTION}")
@@ -1434,6 +1705,20 @@ print(entry.get('provider', ''))
     if [ "${ARG_ACCEPT_EULA}" = true ]; then
         submit_args+=(--accept-eula)
     fi
+
+    # BL166 (R3): ensure the per-project MLflow experiment exists BEFORE submit so
+    # the tune job's first logged step has a project home (the trainer's
+    # mlflow_experiment_name pin, set in tune_submit, names an existing experiment).
+    # Idempotent + non-fatal (no-op when MLflow unconfigured).
+    python3 -c "
+import sys
+sys.path.insert(0, '${SCRIPT_DIR}/lib/python')
+try:
+    import mlcc_mlflow as m
+    m.ensure_project_experiment('${PROJECT_NAME}')
+except Exception:
+    pass
+" 2>/dev/null || true
 
     # Invoke Python helper (stderr visible to user for diagnostics)
     local submit_result
@@ -1519,6 +1804,20 @@ print(entry.get('provider', ''))
     local technique_upper
     technique_upper=$(echo "${ARG_TECHNIQUE}" | tr '[:lower:]' '[:upper:]')
     _update_config_var "TUNE_JOB_NAME_${technique_upper}" "${JOB_NAME}"
+    # Wave 6.1 R2.2 (BL188): record the rank this technique will PRODUCE (the
+    # resolved lora_rank knob — the per-model SDK recipe default or the user's
+    # --set/--lora-rank) so deploy derives max_lora_rank from it without the SDK.
+    # Never blocks or lowers the technique's rank (R2.5).
+    local _tune_lora_rank=""
+    _tune_lora_rank=$(printf '%s' "${resolved_hp:-}" | python3 -c 'import json,sys
+try:
+    v = json.load(sys.stdin).get("lora_rank")
+except (ValueError, AttributeError):
+    v = None
+print(v if isinstance(v, int) and v > 0 else "")' 2>/dev/null || echo "")
+    if [ -n "${_tune_lora_rank}" ]; then
+        _update_config_var "TUNE_LORA_RANK_${technique_upper}" "${_tune_lora_rank}"
+    fi
     _update_config_var "TUNE_TECHNIQUE" "${ARG_TECHNIQUE}"
     _update_config_var "TUNE_TRAINING_TYPE" "${ARG_TRAINING_TYPE}"
     _update_config_var "TUNE_DATASET_PATH" "${ARG_DATASET}"
@@ -1666,45 +1965,47 @@ _handle_completion() {
     local technique_upper
     technique_upper=$(echo "${ARG_TECHNIQUE}" | tr '[:lower:]' '[:upper:]')
 
-    # Resolve artifact path via Python helper
-    local resolve_args=(
-        --job-name "${job_name}"
-        --region "${AWS_REGION}"
-        --training-type "${ARG_TRAINING_TYPE}"
-    )
-    resolve_args+=(--model-package-group "${PROJECT_NAME}-tune-models")
+    # Wave 11 (R5.3): an hp-eks run hands in the artifact it resolved from the
+    # job's S3 output (<artifact> <adapter|model>); the promotion + config writes
+    # below are then exactly the SMTJ ones.
+    local artifact_path="${2:-}" output_type="${3:-}" model_package_arn=""
+    if [ -z "${artifact_path}" ]; then
+        # Resolve artifact path via Python helper
+        local resolve_args=(
+            --job-name "${job_name}"
+            --region "${AWS_REGION}"
+            --training-type "${ARG_TRAINING_TYPE}"
+        )
+        resolve_args+=(--model-package-group "${PROJECT_NAME}")
 
-    local resolve_result
-    resolve_result=$(python3 "${HELPER_SCRIPT}" resolve "${resolve_args[@]}" 2>/dev/null) || {
-        echo "⚠️  Could not resolve output artifacts"
-        echo "   Check job output manually:"
-        echo "   python3 ${HELPER_SCRIPT} resolve --job-name ${job_name} --region ${AWS_REGION} --training-type ${ARG_TRAINING_TYPE}"
-        return 0
-    }
+        local resolve_result
+        resolve_result=$(python3 "${HELPER_SCRIPT}" resolve "${resolve_args[@]}" 2>/dev/null) || {
+            echo "⚠️  Could not resolve output artifacts"
+            echo "   Check job output manually:"
+            echo "   python3 ${HELPER_SCRIPT} resolve --job-name ${job_name} --region ${AWS_REGION} --training-type ${ARG_TRAINING_TYPE}"
+            return 0
+        }
 
-    # Check for error
-    local has_error
-    has_error=$(echo "${resolve_result}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if 'error' in d else 'no')" 2>/dev/null) || has_error="yes"
+        # Check for error
+        local has_error
+        has_error=$(echo "${resolve_result}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if 'error' in d else 'no')" 2>/dev/null) || has_error="yes"
 
-    if [ "${has_error}" = "yes" ]; then
-        local error_msg
-        error_msg=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',''))" 2>/dev/null) || error_msg=""
-        if [ -n "${error_msg}" ]; then
-            echo "   ⚠️  ${error_msg}"
+        if [ "${has_error}" = "yes" ]; then
+            local error_msg
+            error_msg=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',''))" 2>/dev/null) || error_msg=""
+            if [ -n "${error_msg}" ]; then
+                echo "   ⚠️  ${error_msg}"
+            fi
+            return 0
         fi
-        return 0
+
+        # Extract results
+        artifact_path=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('artifact_path',''))" 2>/dev/null) || artifact_path=""
+
+        output_type=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('output_type',''))" 2>/dev/null) || output_type=""
+
+        model_package_arn=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('model_package_arn','') or '')" 2>/dev/null) || model_package_arn=""
     fi
-
-    # Extract results
-    local artifact_path
-    artifact_path=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('artifact_path',''))" 2>/dev/null) || artifact_path=""
-
-    local output_type
-    output_type=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('output_type',''))" 2>/dev/null) || output_type=""
-
-    local model_package_arn
-    model_package_arn=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('model_package_arn','') or '')" 2>/dev/null) || model_package_arn=""
-
     # Display results
     echo "🎉 Customization complete!"
     echo ""
@@ -1713,21 +2014,84 @@ _handle_completion() {
     if [ -n "${model_package_arn}" ]; then
         echo "   Model Package: ${model_package_arn}"
     fi
+
+    # ── BL164 R5: post-tune deploy-fit handoff (LoRA adapters only) ───────────
+    # Surface the adapter's effective rank/alpha from its adapter_config.json
+    # (fall back to the submitted values), and WARN — never block (OQ-5) — when
+    # the rank exceeds the serving engine's buffer (VLLM_MAX_LORA_RANK). Degrade
+    # to the plain output (with a note) when the config can't be read.
+    if [ "${output_type}" = "adapter" ] && [ -n "${artifact_path}" ]; then
+        local _acfg_json _lora_r _lora_alpha
+        _acfg_json=$(aws s3 cp "${artifact_path%/}/adapter_config.json" - --region "${AWS_REGION}" 2>/dev/null || echo "")
+        if [ -n "${_acfg_json}" ]; then
+            _lora_r=$(echo "${_acfg_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('r',''))" 2>/dev/null || echo "")
+            _lora_alpha=$(echo "${_acfg_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('lora_alpha',''))" 2>/dev/null || echo "")
+        else
+            # Fall back to submitted hyperparameters recorded in do/config.
+            _lora_r="${LORA_RANK:-}"
+            _lora_alpha="${LORA_ALPHA:-}"
+        fi
+        if [ -n "${_lora_r}" ]; then
+            echo "   LoRA rank: ${_lora_r}${_lora_alpha:+  | alpha: ${_lora_alpha}}"
+            # Rank-fit (BL164 R5, Wave 6.1 R2.5): compare against the EFFECTIVE
+            # serving limit — what the next deploy applies (explicit
+            # <engine>_MAX_LORA_RANK, else derived from the recorded adapters +
+            # engine default) — so the note is no longer silent when no explicit
+            # VLLM_MAX_LORA_RANK is set. Informational only: never blocks the
+            # tune and never lowers the technique's rank.
+            # "Current" = the limit WITHOUT this technique's own records (what the
+            # deployment was sized for before this tune); the next deploy derives
+            # the limit WITH them.
+            local _eff_json _eff_rank _eff_explicit _technique_lc
+            _technique_lc=$(echo "${ARG_TECHNIQUE}" | tr '[:upper:]' '[:lower:]')
+            _eff_json=$(python3 "${SCRIPT_DIR}/lib/python/right_sizing.py" effective-lora-rank --rank-only \
+                --exclude-technique "${_technique_lc}" 2>/dev/null || echo "")
+            _eff_rank=$(printf '%s' "${_eff_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("rank") or "")' 2>/dev/null || echo "")
+            _eff_explicit=$(printf '%s' "${_eff_json}" | python3 -c 'import json,sys; v=json.load(sys.stdin).get("explicit"); print("" if v is None else v)' 2>/dev/null || echo "")
+            if [ -n "${_eff_rank}" ] && [ "${_lora_r}" -gt "${_eff_rank}" ] 2>/dev/null; then
+                echo ""
+                echo "   ℹ️  Adapter rank ${_lora_r} is above the current serving max_lora_rank (${_eff_rank})."
+                if [ -n "${_eff_explicit}" ]; then
+                    echo "      Your explicit max_lora_rank=${_eff_explicit} in do/config wins: raise it to at least"
+                    echo "      ${_lora_r} (or unset it so deploy derives it) and redeploy before hot-loading."
+                else
+                    echo "      The next ./do/deploy raises it automatically (derived from the recorded"
+                    echo "      tune adapters) — redeploy before hot-loading this adapter"
+                    echo "      (./do/adapter add refuses it until then)."
+                fi
+            fi
+        else
+            echo "   (adapter rank/alpha unavailable — adapter_config.json not readable)"
+        fi
+    fi
     echo ""
+
+    # ── Promotion (bucket consolidation R3.3) ─────────────────────────────
+    # The raw job output stays in the artifacts bucket (TUNE_OUTPUT_PATH_<T> /
+    # TUNE_OUTPUT_PATH_LATEST); the canonical core URI is what TUNE_ADAPTER_PATH_*
+    # / TUNE_MODEL_PATH_* record. Name = the auto-registered adapter name.
+    local _promo_slug _promo_name
+    _promo_slug=$(_derive_dataset_slug "${ARG_DATASET:-}")
+    _promo_name="tuned-$(echo "${ARG_TECHNIQUE}" | tr '[:upper:]' '[:lower:]')${_promo_slug:+-${_promo_slug}}"
+    _promote_tune_output "${artifact_path}" "${output_type}" "${_promo_name}" \
+        "$(echo "${ARG_TECHNIQUE}" | tr '[:upper:]' '[:lower:]')" "${job_name}" \
+        "${RESOLVED_MODEL_ID:-${TUNE_MODEL_ID:-${MODEL_NAME:-}}}"
+    local servable_path="${PROMOTED_URI:-${artifact_path}}"
+    _update_config_var "TUNE_OUTPUT_PATH_${technique_upper}" "${artifact_path}"
 
     # Store output paths in config
     if [ "${output_type}" = "adapter" ]; then
-        _update_config_var "TUNE_ADAPTER_PATH_${technique_upper}" "${artifact_path}"
+        _update_config_var "TUNE_ADAPTER_PATH_${technique_upper}" "${servable_path}"
         # Write dataset-specific adapter path if dataset slug is available
         local dataset_slug
         dataset_slug=$(_derive_dataset_slug "${ARG_DATASET:-}")
         if [ -n "${dataset_slug}" ]; then
             local slug_upper
             slug_upper=$(echo "${dataset_slug}" | tr '[:lower:]' '[:upper:]' | sed 's/-/_/g')
-            _update_config_var "TUNE_ADAPTER_PATH_${technique_upper}_${slug_upper}" "${artifact_path}"
+            _update_config_var "TUNE_ADAPTER_PATH_${technique_upper}_${slug_upper}" "${servable_path}"
         fi
     else
-        _update_config_var "TUNE_MODEL_PATH_${technique_upper}" "${artifact_path}"
+        _update_config_var "TUNE_MODEL_PATH_${technique_upper}" "${servable_path}"
     fi
     _update_config_var "TUNE_OUTPUT_PATH_LATEST" "${artifact_path}"
     _update_config_var "TUNE_OUTPUT_TYPE_LATEST" "${output_type}"
@@ -1755,12 +2119,35 @@ _handle_completion() {
 # Auto-registered by do/tune (${ARG_TECHNIQUE})
 # Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 export ADAPTER_NAME="${adapter_name}"
-export ADAPTER_WEIGHTS_URI="${artifact_path}"
+export ADAPTER_WEIGHTS_URI="${servable_path}"
 export ADAPTER_TECHNIQUE="${ARG_TECHNIQUE}"
 export ADAPTER_SOURCE="tune"
+# BL176: record the base model this adapter was tuned FROM, so do/register can
+# pass --base-id to the bridge and set mlcc.family → the base→adapter linkage the
+# SageMaker console renders (without it the family tag is empty and the derivation
+# panel is missing). RESOLVED_MODEL_ID is the tune's base (TUNE_MODEL_ID / --model).
+export ADAPTER_BASE_ID="${RESOLVED_MODEL_ID}"
 ADAPTER_CONF
         echo "   ✅ Adapter registered: ${adapter_name}"
-        echo "      Weights: ${artifact_path}"
+        echo "      Weights: ${servable_path}"
+        echo ""
+
+        # ── BL174: consolidate the tune output into the MLflow bridge catalog ─────
+        # The SMTJ managed trainer SELF-REGISTERS this adapter into a verbatim
+        # project-named Model Package Group it creates server-side (BL164 Task 11
+        # live finding) — that group carries NO artifact_kind tag and is NOT the
+        # bridge's unified catalog. `do/register` ALREADY registers the base model +
+        # loops over do/adapters/*.conf to bridge-register each adapter LINKED to the
+        # base (parent-version-arn = the base's bridge package), with the lora_adapter
+        # artifact_kind + base→adapter MLflow lineage. The adapter conf we just wrote
+        # is exactly what that loop consumes. So the correct consolidation is to run
+        # `do/register` (which resolves the base parent the bridge adapter requires) —
+        # NOT a standalone adapter bridge-register (which cannot resolve its parent).
+        echo "   📦 Register this adapter into the project's bridge catalog (base + adapter,"
+        echo "      with artifact_kind + lineage) — run:"
+        echo "        ./do/register"
+        echo "      (the SMTJ trainer already self-registered a plain '${PROJECT_NAME}' Model"
+        echo "       Package Group; do/register adds the unified bridge catalog entry. BL174.)"
         echo ""
         echo "   Deploy to live endpoint:"
         echo "     ./do/adapter add ${adapter_name} --from-tune ${ARG_TECHNIQUE}"
@@ -1777,19 +2164,328 @@ ADAPTER_CONF
         if [ -n "${dataset_slug}" ]; then
             echo "     ./do/adapter add tuned-${ARG_TECHNIQUE}-${dataset_slug} --from-tune ${ARG_TECHNIQUE}-${dataset_slug}"
         fi
-        echo "     ./do/adapter add tuned-${ARG_TECHNIQUE} --weights ${artifact_path}"
+        echo "     ./do/adapter add tuned-${ARG_TECHNIQUE} --from-weights ${servable_path}"
         echo ""
     else
         echo "📋 Next steps:"
         echo ""
         echo "   Deploy as new inference component:"
         echo "     ./do/add-ic tuned-v1 --from-tune"
-        echo "     ./do/add-ic tuned-v1 --model-data ${artifact_path}"
-        echo "     ./do/deploy --force-ic --model-data ${artifact_path}"
+        echo "     ./do/add-ic tuned-v1 --from-weights ${servable_path}"
+        echo "     ./do/add-ic default --update --from-weights ${servable_path}   # swap the base IC in place"
         echo ""
     fi
 }
 
+
+# ══ Wave 11: do/tune --backend hp-eks (R9–R12; F4) ════════════════════════════
+# Runs AWS's own HP-EKS recipe (the Hub `HpEksPayloadTemplateS3Uri`, recorded per
+# model / technique / PEFT in the tune catalog) as a single-node HyperPodPyTorchJob,
+# rendered and patched by lib/python/hp_payload.py and watched by the shared
+# lib/python/hp_job.py substrate. The backend comes from the target descriptor's
+# compute_backends (smtj is the default everywhere, OQ-11.5).
+
+# _tune_variant — the descriptor / catalog variant key for --training-type.
+_tune_variant() {
+    case "${ARG_TRAINING_TYPE}" in
+        full*|fft) echo "full" ;;
+        *) echo "lora" ;;
+    esac
+}
+
+# _tune_resolve_backend — --backend > compute_backends[0]; refuses (exit 3) a
+# backend the target does not offer, naming the allowed set.
+_tune_resolve_backend() {
+    local _allowed _req
+    _allowed=$(python3 "${SCRIPT_DIR}/lib/python/target_manifest.py" compute_backends "${DEPLOYMENT_TARGET:-}" 2>/dev/null \
+        | tr -d '[]",') || _allowed=""
+    _allowed=$(echo ${_allowed})
+    _allowed="${_allowed:-smtj}"
+    _req="${ARG_BACKEND:-${_allowed%% *}}"
+    case " ${_allowed} " in
+        *" ${_req} "*) ;;
+        *)
+            _contract_violation "backend" \
+                "--backend ${_req} is not available for do/tune on ${DEPLOYMENT_TARGET:-<unset>}." \
+                "Allowed backends here: $(echo "${_allowed}" | sed 's/ /, /g') (default: ${_allowed%% *})."
+            ;;
+    esac
+    TUNE_BACKEND_RESOLVED="${_req}"
+    if [ "${_req}" != "hp-eks" ]; then
+        if [ "${ARG_ADAPT_SHAPE}" = true ] || [ "${ARG_RENDER_ONLY}" = true ] || [ -n "${ARG_INSTANCE_GROUP}" ]; then
+            echo "❌ --adapt-shape / --render-only / --instance-group need --backend hp-eks"
+            exit 2
+        fi
+    fi
+}
+
+# _hp_tune_gate — R9.1 / R9.2: only HyperPodPyTorchJob recipes run on hp-eks.
+_hp_tune_gate() {
+    local _kind
+    _kind=$(python3 "${SCRIPT_DIR}/lib/python/tune_manifest.py" hp_eks_workload_kind \
+        "${ARG_TECHNIQUE}" "$(_tune_variant)" 2>/dev/null) || _kind="unknown"
+    case "${_kind}" in
+        HyperPodPyTorchJob) return 0 ;;
+        RayJob)
+            _contract_violation "backend" \
+                "${ARG_TECHNIQUE} on --backend hp-eks is post-2.0: AWS's HP-EKS recipe for it is a RayJob, which needs KubeRay installed by the cluster owner (MLCC never installs it; ADR-012)." \
+                "Run it as a SageMaker training job: ./do/tune --technique ${ARG_TECHNIQUE} --dataset ... (no --backend hp-eks)."
+            ;;
+        "")
+            _contract_violation "backend" \
+                "AWS publishes no HP-EKS payload for ${ARG_TECHNIQUE} (${ARG_TRAINING_TYPE})." \
+                "Run it as a SageMaker training job: drop --backend hp-eks."
+            ;;
+        *)
+            _contract_violation "backend" \
+                "the ${ARG_TECHNIQUE} tune descriptor has no synced hp-eks workload kind." \
+                "Regenerate the project with a current ml-container-creator (its descriptors carry the kind)."
+            ;;
+    esac
+}
+
+# _hp_tune_json <json> <key> — one top-level / resolved.* field.
+_hp_tune_json() {
+    printf '%s' "$1" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except ValueError:
+    d = {}
+v = d.get(sys.argv[1], (d.get('resolved') or {}).get(sys.argv[1], ''))
+print('' if v is None else v)
+" "$2" 2>/dev/null || true
+}
+
+# _hp_tune_watch <sub> <job> — the shared watcher (main container: AWS's `pytorch`).
+_hp_tune_watch() {
+    python3 "${SCRIPT_DIR}/lib/python/hp_job.py" "$1" --job "$2" --namespace "${HP_NAMESPACE:-default}" \
+        --artifacts-bucket "${ARTIFACTS_S3_BUCKET:-}" --project "${PROJECT_NAME}" --kind tune \
+        --main-container pytorch --startup-timeout "${ARG_STARTUP_TIMEOUT:-1200}" \
+        --stall-timeout "${ARG_STALL_TIMEOUT:-1800}" --poll 60
+}
+
+# _hp_tune_complete <job> <watch-json> — resolve the adapter / model under the job's
+# S3 output and run the SAME promotion + TUNE_* writes as an SMTJ completion.
+_hp_tune_complete() {
+    local _job="$1" _out="$2" _prefix _bucket _keys _hit _type
+    _prefix=$(_hp_tune_json "${_out}" artifact_prefix)
+    _bucket="${_prefix#s3://}"
+    _bucket="${_bucket%%/*}"
+    _keys=$(aws s3 ls --recursive "${_prefix%/}/" --region "${AWS_REGION}" 2>/dev/null | awk '{print $4}') || _keys=""
+    _hit=$(printf '%s\n' "${_keys}" | grep '/adapter_config\.json$' | sort | tail -1 || true)
+    _type="adapter"
+    if [ -z "${_hit}" ]; then
+        _hit=$(printf '%s\n' "${_keys}" | grep '/config\.json$' | sort | tail -1 || true)
+        _type="model"
+    fi
+    if [ -z "${_hit}" ]; then
+        echo "⚠  No adapter_config.json / config.json under ${_prefix}; nothing to promote."
+        echo "   Inspect: aws s3 ls --recursive ${_prefix%/}/"
+        return 1
+    fi
+    JOB_NAME="${_job}"
+    _handle_completion "${_job}" "s3://${_bucket}/${_hit%/*}/" "${_type}"
+}
+
+# _hp_tune_after_watch <rc> <json> <job>
+_hp_tune_after_watch() {
+    local _state
+    _state=$(_hp_tune_json "$2" state)
+    case "${_state}" in
+        Succeeded) echo "✅ Tune job completed: $3"; _hp_tune_complete "$3" "$2" ;;
+        Running|Pending) echo "   🔄 ${_state}: $(_hp_tune_json "$2" reason)" ;;
+        *)
+            echo "❌ Tune job failed: $3"
+            echo "   Reason: $(_hp_tune_json "$2" reason)"
+            [ -n "$(_hp_tune_json "$2" precondition)" ] && echo "   $(_hp_tune_json "$2" precondition)"
+            echo "   Durable log: $(_hp_tune_json "$2" logs_uri)"
+            exit 2
+            ;;
+    esac
+}
+
+# _hp_tune_status — --status for an hp-eks tune job (one classify + act pass; a
+# finished job is deleted, a success not yet recorded is completed).
+_hp_tune_status() {
+    local _t_u _job _out _rc=0
+    _t_u=$(echo "${ARG_TECHNIQUE}" | tr '[:lower:]' '[:upper:]')
+    _job=$(eval echo "\${TUNE_JOB_NAME_${_t_u}:-}")
+    if [ -z "${_job}" ]; then
+        echo "📊 No ${ARG_TECHNIQUE} tune job tracked."
+        exit 0
+    fi
+    echo "📊 ${_job} (hp-eks, ${HP_NAMESPACE:-default})"
+    _out=$(_hp_tune_watch status "${_job}") || _rc=$?
+    _hp_tune_after_watch "${_rc}" "${_out}" "${_job}"
+    exit 0
+}
+
+_hp_tune_run() {
+    local _peft _ns _job _tmp _ptr _tmpl_uri _op_uri _shape _kind _t _e _input _crc=0 _cjson
+    _peft=$(_tune_variant)
+    _ns="${HP_NAMESPACE:-default}"
+    if [ -z "${HP_CLUSTER_NAME:-}" ]; then
+        echo "❌ HP_CLUSTER_NAME is not set (hp-eks runs on the project's HyperPod cluster)"
+        exit 1
+    fi
+    if [ -z "${ARTIFACTS_S3_BUCKET:-}" ]; then
+        echo "❌ The profile has no artifacts bucket (ARTIFACTS_S3_BUCKET): ml-container-creator bootstrap update --module training"
+        exit 1
+    fi
+    case "${STAGED_MODEL_PATH:-}" in
+        s3://*) ;;
+        *)
+            echo "❌ hp-eks tunes the base model from S3 and it is not staged: run ./do/stage first"
+            exit 3
+            ;;
+    esac
+    _ptr=$(python3 -c "
+import json, sys
+cat = json.load(open(sys.argv[1]))
+p = (((cat.get('models') or {}).get(sys.argv[2]) or {}).get('techniques') or {}).get(sys.argv[3], {}).get('hpEks', {}).get(sys.argv[4]) or {}
+if not p.get('payloadTemplate') or not p.get('overrideParams'):
+    sys.exit(3)
+print(p['payloadTemplate'], p['overrideParams'])
+" "${CATALOG_FILE}" "${RESOLVED_MODEL_ID}" "${ARG_TECHNIQUE}" "${_peft}" 2>/dev/null) || {
+        echo "❌ The tune catalog has no HP-EKS payload for ${RESOLVED_MODEL_ID} / ${ARG_TECHNIQUE} / ${_peft}"
+        echo "   Regenerate the project with a current ml-container-creator (the catalog records the pointers)."
+        exit 3
+    }
+    _tmpl_uri="${_ptr%% *}"
+    _op_uri="${_ptr##* }"
+    _job="$(echo "${PROJECT_NAME}" | tr '[:upper:]_' '[:lower:]-')-tune-${ARG_TECHNIQUE}-$(date +%Y%m%d-%H%M%S)"
+    _tmp="$(mktemp -d)"
+    if ! aws s3 cp --only-show-errors "${_tmpl_uri}" "${_tmp}/payload.yaml" --region "${AWS_REGION}" \
+        || ! aws s3 cp --only-show-errors "${_op_uri}" "${_tmp}/override.json" --region "${AWS_REGION}"; then
+        rm -rf "${_tmp}"
+        echo "❌ Could not fetch the HP-EKS recipe (${_tmpl_uri})"
+        exit 3
+    fi
+    _shape=$(python3 "${SCRIPT_DIR}/lib/python/hp_payload.py" shape --template "${_tmp}/payload.yaml") || {
+        rm -rf "${_tmp}"
+        exit 3
+    }
+    _kind=$(_hp_tune_json "${_shape}" kind)
+    if [ "${_kind}" != "HyperPodPyTorchJob" ]; then
+        rm -rf "${_tmp}"
+        echo "❌ The fetched recipe's workload is '${_kind}', not HyperPodPyTorchJob; refusing."
+        exit 3
+    fi
+    _t=$(_hp_tune_json "${_shape}" gpus)
+    _e=$(_hp_tune_json "${_shape}" efa)
+    # R10.2: the recipe's dataset format (SFT: messages; DPO: prompt/chosen/rejected).
+    if ! aws s3 cp --only-show-errors "${RESOLVED_DATASET_S3_URI}" "${_tmp}/in.jsonl" --region "${AWS_REGION}" \
+        || ! python3 "${SCRIPT_DIR}/lib/python/hp_payload.py" prepare-data --technique "${ARG_TECHNIQUE}" \
+            --in "${_tmp}/in.jsonl" --out "${_tmp}/train.jsonl" >/dev/null; then
+        rm -rf "${_tmp}"
+        echo "❌ The dataset could not be prepared for the HP-EKS recipe (see above)"
+        exit 3
+    fi
+    _input="s3://${ARTIFACTS_S3_BUCKET}/${PROJECT_NAME}/tune/${_job}/input/"
+
+    echo ""
+    echo "🔎 Cluster contract (hp-eks tune, read-only):"
+    local _contract_script _adapt=""
+    [ "${ARG_ADAPT_SHAPE}" = true ] && _adapt="--adapt-shape"
+    _contract_script=$(python3 "${SCRIPT_DIR}/lib/python/target_manifest.py" cluster_contract "${DEPLOYMENT_TARGET}" \
+        | python3 -c "import json,sys; print(json.load(sys.stdin).get('script',''))")
+    _cjson=$(python3 "${SCRIPT_DIR}/${_contract_script}" contract --verb tune --namespace "${_ns}" \
+        --project "${PROJECT_NAME}" --group "${ARG_INSTANCE_GROUP:-${TUNE_HP_INSTANCE_GROUP:-}}" \
+        --dataset "${_input}train.jsonl" --job "${_job}" --template-gpus "${_t}" --template-efa "${_e}" ${_adapt}) || _crc=$?
+    if [ "${_crc}" -eq 4 ] && [ "${ARG_DRY_RUN}" != true ]; then
+        rm -rf "${_tmp}"
+        echo "❌ The cluster contract has blocking findings (above); nothing was submitted."
+        exit 4
+    elif [ "${_crc}" -ne 0 ] && [ "${_crc}" -ne 4 ]; then
+        rm -rf "${_tmp}"
+        echo "❌ The cluster contract could not run (exit ${_crc})"
+        exit 1
+    fi
+    local _group _alloc _gefa _itype _vram _bytes _hp_args=()
+    _group=$(_hp_tune_json "${_cjson}" group)
+    _alloc=$(_hp_tune_json "${_cjson}" allocatable)
+    _gefa=$(_hp_tune_json "${_cjson}" efa)
+    _itype=$(_hp_tune_json "${_cjson}" instance_type)
+    if [ -z "${_group}" ] || [ -z "${_alloc}" ]; then
+        rm -rf "${_tmp}"
+        echo "❌ No GPU node could be chosen (see free-gpus above)."
+        exit 4
+    fi
+    _vram=$(python3 -c "
+import sys; sys.path.insert(0, sys.argv[1])
+import right_sizing
+print(right_sizing.gpu_memory_gib_for(sys.argv[2]) or '')" "${SCRIPT_DIR}/lib/python" "${_itype}" 2>/dev/null || true)
+    _bytes=$(python3 -c "
+import sys; sys.path.insert(0, sys.argv[1])
+import hp_job
+print(hp_job.s3_prefix_bytes(sys.argv[2]) or '')" "${SCRIPT_DIR}/lib/python" "${STAGED_MODEL_PATH}" 2>/dev/null || true)
+    [ -n "${_vram}" ] && _hp_args+=(--gpu-vram-gib "${_vram}")
+    [ -n "${_bytes}" ] && _hp_args+=(--model-bytes "${_bytes}")
+    [ "${ARG_ADAPT_SHAPE}" = true ] && _hp_args+=(--adapt-shape)
+    local _kv
+    for _kv in ${SET_KNOBS[@]+"${SET_KNOBS[@]}"}; do
+        _hp_args+=(--set "${_kv}")
+    done
+    local _values='{}'
+    [ -n "${MLFLOW_APP_ARN:-}" ] && _values="{\"mlflow_tracking_uri\": \"${MLFLOW_APP_ARN}\"}"
+    local _manifest="${_tmp}/manifest.json"
+    if ! python3 "${SCRIPT_DIR}/lib/python/hp_payload.py" render --template "${_tmp}/payload.yaml" \
+        --override-params "${_tmp}/override.json" --values-json "${_values}" --group "${_group}" \
+        --group-gpus "${_alloc}" --group-efa "${_gefa:-0}" --project "${PROJECT_NAME}" --job "${_job}" \
+        --namespace "${_ns}" --artifacts-bucket "${ARTIFACTS_S3_BUCKET}" --region "${AWS_REGION}" \
+        --max-runtime "${TUNE_MAX_RUNTIME:-86400}" --dataset-uri "${_input}" --model-uri "${STAGED_MODEL_PATH}" \
+        --technique "${ARG_TECHNIQUE}" --out "${_manifest}" ${_hp_args[@]+"${_hp_args[@]}"} >/dev/null; then
+        local _rr=$?
+        rm -rf "${_tmp}"
+        exit "${_rr}"
+    fi
+    echo ""
+    echo "📋 HyperPodPyTorchJob: ${_ns}/${_job}  (group ${_group}, recipe ${_tmpl_uri##*/})"
+    if [ "${ARG_DRY_RUN}" = true ]; then
+        echo ""
+        echo "🔍 Dry run — patched HP-EKS manifest (nothing uploaded or applied):"
+        cat "${_manifest}"
+        rm -rf "${_tmp}"
+        exit 0
+    fi
+    if ! aws s3 cp --only-show-errors "${_tmp}/train.jsonl" "${_input}train.jsonl" --region "${AWS_REGION}"; then
+        rm -rf "${_tmp}"
+        echo "❌ Could not upload the prepared dataset to ${_input}"
+        exit 1
+    fi
+    if [ "${ARG_RENDER_ONLY}" = true ]; then
+        local _keep="${SCRIPT_DIR}/.hp-tune-${_job}.json"
+        cp "${_manifest}" "${_keep}"
+        rm -rf "${_tmp}"
+        echo ""
+        echo "📝 Render only — data staged at ${_input}; manifest: ${_keep}"
+        echo "   Apply (cluster owner / attended run):"
+        echo "     kubectl create serviceaccount mlcc-train-sa -n ${_ns} --dry-run=client -o yaml | kubectl apply -f -"
+        echo "     kubectl apply -f ${_keep}"
+        echo "   Watch (deletes the job on any terminal state):"
+        echo "     python3 do/lib/python/hp_job.py watch --job ${_job} --namespace ${_ns} --artifacts-bucket ${ARTIFACTS_S3_BUCKET} --project ${PROJECT_NAME} --kind tune --main-container pytorch"
+        exit 0
+    fi
+    echo "🚀 Submitting to HyperPod EKS (${HP_CLUSTER_NAME})..."
+    if ! python3 "${SCRIPT_DIR}/lib/python/hp_job.py" submit --manifest "${_manifest}" --namespace "${_ns}" >/dev/null; then
+        rm -rf "${_tmp}"
+        echo "❌ kubectl apply failed (see above)"
+        exit 1
+    fi
+    rm -rf "${_tmp}"
+    local _t_u
+    _t_u=$(echo "${ARG_TECHNIQUE}" | tr '[:lower:]' '[:upper:]')
+    _update_config_var "TUNE_JOB_NAME_${_t_u}" "${_job}"
+    _update_config_var "TUNE_BACKEND_${_t_u}" "hp-eks"
+    if [ "${ARG_NO_WAIT}" = true ]; then
+        echo "   --no-wait: ./do/tune --technique ${ARG_TECHNIQUE} --status checks it (and releases the GPUs when done)."
+        exit 0
+    fi
+    local _out _rc=0
+    _out=$(_hp_tune_watch watch "${_job}") || _rc=$?
+    _hp_tune_after_watch "${_rc}" "${_out}" "${_job}"
+}
 
 # ── _dry_run() ────────────────────────────────────────────────────────────────
 # Validate all inputs and show what would be submitted without creating a job.
@@ -1799,7 +2495,7 @@ _dry_run() {
     _preflight_rft_inputs
 
     local output_bucket
-    output_bucket=$(_resolve_output_bucket)
+    output_bucket=$(_resolve_output_bucket) || exit 1
 
     local role_arn
     if [ -n "${ARG_ROLE}" ]; then
@@ -1823,25 +2519,17 @@ _dry_run() {
     echo "   Dataset:       ${RESOLVED_DATASET_S3_URI}"
     echo "   Output bucket: ${output_bucket}"
     echo "   Role:          ${role_arn}"
-    echo "   Package group: ${PROJECT_NAME}-tune-models"
+    echo "   Package group: ${PROJECT_NAME}"
 
-    if [ -n "${ARG_EPOCHS}" ]; then
-        echo "   Epochs:        ${ARG_EPOCHS}"
-    fi
-    if [ -n "${ARG_LEARNING_RATE}" ]; then
-        echo "   Learning rate: ${ARG_LEARNING_RATE}"
-    fi
-    if [ -n "${ARG_MAX_SEQ_LENGTH}" ]; then
-        echo "   Max seq len:   ${ARG_MAX_SEQ_LENGTH}"
-    fi
-    if [ -n "${ARG_LORA_RANK}" ]; then
-        echo "   LoRA rank:     ${ARG_LORA_RANK}"
-    fi
-    if [ -n "${ARG_LORA_ALPHA}" ]; then
-        echo "   LoRA alpha:    ${ARG_LORA_ALPHA}"
-    fi
-    if [ -n "${ARG_BATCH_SIZE}" ]; then
-        echo "   Batch size:    ${ARG_BATCH_SIZE}"
+    # BL128: show the technique-aware knobs the user set (--set / legacy aliases), keyed
+    # by the descriptor's canonical knob name. Defaults the builder fills in are NOT shown
+    # here (they are the descriptor's, not user-supplied); the builder validates them.
+    if [ "${#SET_KNOBS[@]}" -gt 0 ]; then
+        echo "   Hyperparameters (overrides):"
+        local _pair
+        for _pair in ${SET_KNOBS[@]+"${SET_KNOBS[@]}"}; do
+            echo "      ${_pair%%=*} = ${_pair#*=}"
+        done
     fi
     if [ -n "${ARG_REWARD_FUNCTION}" ]; then
         echo "   Reward fn:     ${ARG_REWARD_FUNCTION}"
@@ -1874,6 +2562,13 @@ if [ "${ARG_LIST_MODELS}" = true ]; then
 fi
 
 if [ "${ARG_STATUS}" = true ]; then
+    # Wave 11 (R6.3): an hp-eks job is watched by the shared HPPJ watcher.
+    if [ -n "${ARG_TECHNIQUE}" ]; then
+        _ST_T_U=$(echo "${ARG_TECHNIQUE}" | tr '[:lower:]' '[:upper:]')
+        if [ "$(eval echo "\${TUNE_BACKEND_${_ST_T_U}:-}")" = "hp-eks" ]; then
+            _hp_tune_status
+        fi
+    fi
     _show_status
 fi
 
@@ -1938,7 +2633,15 @@ _check_catalog_staleness
 _resolve_tune_model
 _validate_technique
 _validate_training_type
+# Wave 11 (R1.2, R9): resolve the compute backend from the target descriptor and
+# gate the hp-eks workload kind BEFORE the dataset preflight touches anything.
+_tune_resolve_backend
+[ "${TUNE_BACKEND_RESOLVED}" = "hp-eks" ] && _hp_tune_gate
 _validate_dataset
+if [ "${TUNE_BACKEND_RESOLVED}" = "hp-eks" ]; then
+    _hp_tune_run
+    exit $?
+fi
 
 # Check idempotency (may exit early if existing job is handled)
 if _check_idempotency; then

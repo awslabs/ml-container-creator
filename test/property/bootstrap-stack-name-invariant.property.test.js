@@ -39,8 +39,11 @@ const arbAccountId = fc.stringMatching(/^[0-9]{12}$/);
 // Generate dependency-valid module subsets.
 // Defaults are core + registry (always included). ci requires benchmark (in addition to core + registry).
 // All others only depend on core which is always present.
+// NOTE: real provisionable modules only. `hyperpod-cluster` (pre-Wave-2-split name) was
+// replaced by `eks` + `hyperpod`; `hyperpod` is DEPRECATED (refuses provisioning) so it is
+// deliberately excluded here — a --with hyperpod would not end up in provisionedModules.
 const arbExtraModules = fc.subarray(
-    ['benchmark', 'training', 'ci', 'sagemaker-domain', 'hyperpod-cluster'],
+    ['benchmark', 'training', 'ci', 'sagemaker-domain', 'eks'],
     { minLength: 0, maxLength: 3 }
 ).map(modules => {
     // Satisfy ci's dependency on benchmark

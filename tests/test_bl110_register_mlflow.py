@@ -128,6 +128,24 @@ class TestRegisterDelegatesToLogDataset:
         assert kwargs["meta"]["digest"] == "hash123"
         assert kwargs["meta"]["row_count"] == 10
 
+    def test_no_pandas_still_logs_dataset_exactly_once(self, monkeypatch):
+        # BL234: without pandas (from_pandas unavailable) the first-class Dataset
+        # is skipped; the meta-dataset run-input edge is logged once, not twice.
+        spy = MagicMock(return_value=("my--set", "hash123"))
+        monkeypatch.setattr(mlcc_mlflow, "log_dataset", spy)
+        fake_mlflow = MagicMock()
+        fake_mlflow.active_run.return_value = MagicMock()
+        fake_mlflow.data.from_pandas.side_effect = ImportError("no pandas")
+        monkeypatch.setitem(sys.modules, "mlflow", fake_mlflow)
+
+        handle = register_dataset._log_dataset_to_mlflow(
+            s3_uri="s3://core/datasets/my/set.jsonl", name="my/set",
+            content_hash="hash123", row_count=10, data_format="jsonl", technique="sft",
+        )
+        assert handle == ("my--set", "hash123")
+        spy.assert_called_once()
+        fake_mlflow.log_input.assert_not_called()
+
     def test_mlflow_failure_is_non_fatal(self, monkeypatch):
         # log_dataset raising must NOT propagate — sidecar is the durable record.
         monkeypatch.setattr(

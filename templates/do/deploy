@@ -60,13 +60,17 @@ FLAG_BATCH_OUTPUT_PATH=""
 FLAG_BATCH_SPLIT_TYPE=""
 FLAG_BATCH_STRATEGY=""
 FLAG_BATCH_MAX_CONCURRENT=""
+FLAG_SCALE_TO_ZERO=""
+FLAG_SCALE_MAX=""
 DEPLOY_ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --target)
             shift
             if [ $# -eq 0 ]; then
+            # >>> GENERATED: target-list (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT
                 echo "❌ --target requires a value (realtime-inference, async-inference, batch-transform, hyperpod-eks, eks)"
+            # <<< END GENERATED target-list
                 exit 1
             fi
             FLAG_TARGET="$1"
@@ -187,6 +191,18 @@ while [ $# -gt 0 ]; do
             FLAG_INSTANCE_TYPES="$1"
             shift
             ;;
+        --scale-to-zero)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --scale-to-zero requires a value"; exit 1; fi
+            FLAG_SCALE_TO_ZERO="$1"
+            shift
+            ;;
+        --scale-max)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --scale-max requires a value"; exit 1; fi
+            FLAG_SCALE_MAX="$1"
+            shift
+            ;;
         # <<< END GENERATED deploy-flag arg-parse
         --status)
             FLAG_STATUS=1
@@ -198,6 +214,13 @@ while [ $# -gt 0 ]; do
             ;;
         --dry-run)
             FLAG_DRY_RUN=1
+            shift
+            ;;
+        --ignore-sizing)
+            # Wave 8 (OQ-8.7): override a right-sizing BLOCK (preflight + the
+            # eks / hyperpod-eks LoRA rank refusal). Parsed here, never a schema
+            # parameter; --force keeps its own meaning and does NOT bypass sizing.
+            FLAG_IGNORE_SIZING=1
             shift
             ;;
         --allow-plaintext-secret)
@@ -225,20 +248,36 @@ while [ $# -gt 0 ]; do
             echo "                          focus without redeploying (updates DEPLOYMENT_TARGET)."
             echo "  --instance-type <type>  Instance type for deployment (skip instance-type prompt)"
             echo "  --status                Show deployment state for all targets; no deployment"
-            echo "  --dry-run               Show resolved config without deploying"
+            echo "  --dry-run               Show resolved config and run the right-sizing preflight"
+            echo "                          without deploying (creates/applies nothing). Exit 1 on a"
+            echo "                          sizing block (0 with --ignore-sizing). Preflight-only check"
+            echo "                          after regenerate: ./do/deploy --dry-run"
             echo "  --reconfigure           Re-prompt all deployment settings for active target"
+            echo "  --force                 Redeploy a target that is already deployed (right-sizing"
+            echo "                          checks still run)"
+            echo "  --ignore-sizing         Proceed even when the right-sizing preflight blocks"
+            echo "                          (KV cache + weights over GPU memory, context limit, TP,"
+            echo "                          dtype vs GPU, LoRA rank/buffer, ...). Prints a warning."
+            echo "                          See docs/architecture/right-sizing.md"
             echo "  --allow-plaintext-secret"
             echo "                          Allow a plaintext HF_TOKEN / NGC_API_KEY (no *_ARN) in the"
             echo "                          container Environment. Visible in SageMaker Describe* APIs"
             echo "                          and CloudTrail; prefer HF_TOKEN_ARN / NGC_API_KEY_ARN."
             echo ""
             echo "Managed / Async Inference flags:"
-            echo "  --endpoint-name <name>      Endpoint name (default: \${PROJECT_NAME}-ep)"
+            echo "  --endpoint-name <name>      Endpoint name (default: \${PROJECT_NAME}-endpoint-<timestamp>;"
+            echo "                              async: \${PROJECT_NAME}-async-ep-<timestamp>)"
             echo "  --endpoint-strategy <s>     new | existing | heterogeneous"
             echo "  --instance-types <list>     Comma-separated types (heterogeneous strategy)"
             echo "  --async-output-path <p>     S3 output path"
             echo "  --async-sns-topic <arn>     SNS topic ARN for completion notifications"
             echo "  --async-max-concurrent <n>  Max concurrent async invocations"
+            echo "  --scale-to-zero <on|off>    Real-time IC endpoints only: scale to zero instances when"
+            echo "                              idle (opt-in). Not for interactive SLAs: while at zero,"
+            echo "                              requests FAIL for minutes until a copy is ready."
+            echo "                              With --reconfigure, applies to the live endpoint."
+            echo "                              See docs/scale-to-zero.md"
+            echo "  --scale-max <n>             Max IC copies and instances with scale-to-zero (1-20, default 1)"
             echo ""
             echo "Batch Transform flags:"
             echo "  --batch-input-path <p>      S3 input path (required)"
@@ -253,8 +292,13 @@ while [ $# -gt 0 ]; do
             echo "  --replicas <n>          Pod replicas (default: 1)"
             echo "  --gpu-count <n>         GPUs per pod (auto-detected from instance type)"
             echo "  --queue <name>          Kueue queue name"
+            echo "  --surge-node            If a changed pod template cannot roll out (single-node"
+            echo "                          instance group, no spare GPUs), temporarily add ONE node"
+            echo "                          (UpdateCluster), roll out, then restore the count. Billed"
+            echo "                          for the extra instance while it runs. Without it, deploy"
+            echo "                          stops before applying and prints this command."
             echo "  --status                Show deployment state for all targets and exit"
-            echo "  --dry-run               Show resolved config and command without deploying"
+            echo "  --dry-run               Show resolved config, preflight, and command without deploying"
             echo ""
             echo "After a successful deploy, DEPLOYMENT_TARGET is written back to do/config."
             echo "Re-run without --target to switch focus to a different active deployment."
@@ -280,6 +324,30 @@ if [ -n "$FLAG_TARGET" ]; then
         async)                      FLAG_TARGET="async-inference" ;;
     esac
     DEPLOYMENT_TARGET="$FLAG_TARGET"
+fi
+
+# ── Scale-to-zero flags (Wave 10, ADR-014; do/lib/scale-to-zero.sh) ───────────
+# A bad --scale-to-zero / --scale-max value exits 1 here, before any AWS call.
+# A target whose descriptor has scale_to_zero.enabled=false refuses either flag
+# with the descriptor reason (exit 3). --dry-run writes nothing to do/config.
+source "${SCRIPT_DIR}/lib/scale-to-zero.sh"
+stz_parse_flags "${FLAG_SCALE_TO_ZERO:-}" "${FLAG_SCALE_MAX:-}"
+_STZ_PERSIST=1
+[ "${FLAG_DRY_RUN:-0}" -eq 1 ] && _STZ_PERSIST=0
+if [ -n "${STZ_FLAGS_GIVEN}" ] && [ -n "${DEPLOYMENT_TARGET:-}" ]; then
+    stz_apply_flags "${DEPLOYMENT_TARGET}" "${_STZ_PERSIST}"
+    if stz_target_live "${DEPLOYMENT_TARGET}"; then
+        if [ "${FLAG_RECONFIGURE:-0}" -eq 1 ]; then
+            # R2.5: --reconfigure + a scale-to-zero flag changes the LIVE endpoint
+            # in place (no clean, no re-prompt), then exits 0 / 4 / 5.
+            _STZ_RC=0
+            stz_reconfigure_live "${DEPLOYMENT_TARGET}" || _STZ_RC=$?
+            exit "${_STZ_RC}"
+        elif [ "${FLAG_DRY_RUN:-0}" -ne 1 ]; then
+            echo "ℹ️  Saved SCALE_TO_ZERO=${SCALE_TO_ZERO} (max ${SCALE_MAX_CAPACITY}) for ${DEPLOYMENT_TARGET}; the live deployment is unchanged."
+            echo "   Apply it in place: ./do/deploy --reconfigure --scale-to-zero $([ "${SCALE_TO_ZERO}" = "true" ] && echo on || echo off)"
+        fi
+    fi
 fi
 
 # ── Status var back-fill for v1.4 migration (FR-9.1) ─────────────────────
@@ -550,6 +618,7 @@ fi
 # If --target was provided and that target already has a deployment,
 # just switch focus without redeploying (CP-5: <1 second).
 _NEEDS_HELPER=0
+_DRY_RUN_DEPLOYED=0
 if [ -n "$FLAG_TARGET" ]; then
     # Map target to its status variable name
     # >>> GENERATED: switch-or-deploy target->status_var (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT
@@ -563,7 +632,15 @@ if [ -n "$FLAG_TARGET" ]; then
     esac
     # <<< END GENERATED switch-or-deploy
 
-    if [ -n "$_STATUS_VAR" ] && [ -n "${!_STATUS_VAR:-}" ] && ! echo " ${DEPLOY_ARGS[*]:-} " | grep -qw -- "--force"; then
+    if [ -n "$_STATUS_VAR" ] && [ -n "${!_STATUS_VAR:-}" ] && [ "${FLAG_DRY_RUN:-0}" -eq 1 ]; then
+        # BL204: --dry-run on an already-deployed target previews its PERSISTED
+        # configuration and runs the right-sizing preflight. It neither switches
+        # focus (no do/config write) nor takes the --force / new-target path
+        # (which clears INSTANCE_TYPE and re-prompts) — with or without --force.
+        echo "ℹ️  ${FLAG_TARGET} is already deployed (${!_STATUS_VAR}); --dry-run previews its saved configuration and runs the preflight (nothing is written)."
+        _DRY_RUN_DEPLOYED=1
+    fi
+    if [ "${_DRY_RUN_DEPLOYED:-0}" -eq 0 ] && [ -n "$_STATUS_VAR" ] && [ -n "${!_STATUS_VAR:-}" ] && ! echo " ${DEPLOY_ARGS[*]:-} " | grep -qw -- "--force"; then
         # Existing deployment — switch focus only (FR-4.4, FR-4.5)
         _update_config DEPLOYMENT_TARGET "$FLAG_TARGET"
         # Resolve ENDPOINT_NAME and INSTANCE_TYPE from target-specific vars
@@ -601,12 +678,14 @@ if [ -n "$FLAG_TARGET" ]; then
         fi
         exit 0
     fi
-    # No existing deployment — fall through to deploy flow
-    _NEEDS_HELPER=1
-    # Deploying to a new target: clear INSTANCE_TYPE in config so the
-    # builder prompts fresh (a GPU instance from SMAI isn't for batch)
-    _update_config "INSTANCE_TYPE" ""
-    export INSTANCE_TYPE=""
+    if [ "${_DRY_RUN_DEPLOYED:-0}" -eq 0 ]; then
+        # No existing deployment — fall through to deploy flow
+        _NEEDS_HELPER=1
+        # Deploying to a new target: clear INSTANCE_TYPE in config so the
+        # builder prompts fresh (a GPU instance from SMAI isn't for batch)
+        _update_config "INSTANCE_TYPE" ""
+        export INSTANCE_TYPE=""
+    fi
 fi
 
 # Also check: target is set but required vars are missing (e.g.,
@@ -650,6 +729,8 @@ _HELPER_INVOKED=0
     FLAG_QUEUE="${FLAG_QUEUE:-}"; [ -n "$FLAG_QUEUE" ] && _DEPLOY_FLAG_ARGS+=("--queue" "$FLAG_QUEUE")
     FLAG_GPU_COUNT="${FLAG_GPU_COUNT:-}"; [ -n "$FLAG_GPU_COUNT" ] && _DEPLOY_FLAG_ARGS+=("--gpu-count" "$FLAG_GPU_COUNT")
     FLAG_INSTANCE_TYPES="${FLAG_INSTANCE_TYPES:-}"; [ -n "$FLAG_INSTANCE_TYPES" ] && _DEPLOY_FLAG_ARGS+=("--instance-types" "$FLAG_INSTANCE_TYPES")
+    FLAG_SCALE_TO_ZERO="${FLAG_SCALE_TO_ZERO:-}"; [ -n "$FLAG_SCALE_TO_ZERO" ] && _DEPLOY_FLAG_ARGS+=("--scale-to-zero" "$FLAG_SCALE_TO_ZERO")
+    FLAG_SCALE_MAX="${FLAG_SCALE_MAX:-}"; [ -n "$FLAG_SCALE_MAX" ] && _DEPLOY_FLAG_ARGS+=("--scale-max" "$FLAG_SCALE_MAX")
     # <<< END GENERATED deploy-flag args-array
 if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
     # Invoke the deploy helper prompt to collect deployment parameters
@@ -757,6 +838,12 @@ if [ -n "${MLCC_DEPLOY_ERR_FILE:-}" ] && [ -f "${MLCC_DEPLOY_ERR_FILE}" ]; then
     exit 1
 fi
 
+# Scale-to-zero (Wave 10): re-check now that the target and endpoint strategy
+# may only have come from the interactive builder.
+if [ -n "${STZ_FLAGS_GIVEN}" ] && [ -n "${DEPLOYMENT_TARGET:-}" ]; then
+    stz_apply_flags "${DEPLOYMENT_TARGET}" "${_STZ_PERSIST}"
+fi
+
 # ── Persist answers before dispatch (FR-2.5, CP-7) ────────
 # Write all deployment vars to do/config so retry doesn't re-prompt.
 # Only writes vars that have non-empty values. Runs only when the
@@ -831,36 +918,9 @@ if [ "${_lora_on_for_target}" = "true" ] && [ -n "${HP_SPECULATIVE_ALGORITHM:-}"
     echo "⚠️ LoRA + speculative decoding may conflict — verify vLLM version supports both simultaneously"
 fi
 
-# ── Dry-run output (FR-3.6, CP-4) ────────────────────────────
-# Show resolved config and the command that would execute, without deploying.
-if [ "${FLAG_DRY_RUN:-0}" -eq 1 ]; then
-    echo "── Dry Run ──────────────────────────────────────────────"
-    echo ""
-    echo "Target: $DEPLOYMENT_TARGET"
-    echo "Script: ${SCRIPT_DIR}/deploy.d/${DEPLOYMENT_TARGET}"
-    echo ""
-    echo "Resolved configuration:"
-    for var in DEPLOYMENT_TARGET INSTANCE_TYPE ENDPOINT_NAME ENDPOINT_STRATEGY \
-               IC_GPU_COUNT INSTANCE_TYPES HP_CLUSTER_NAME HP_GPU_COUNT \
-               HP_NAMESPACE HP_REPLICAS HP_QUEUE ASYNC_S3_OUTPUT_PATH \
-               ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT_INVOCATIONS BATCH_INPUT_PATH \
-               BATCH_OUTPUT_PATH BATCH_SPLIT_TYPE BATCH_STRATEGY BATCH_MAX_CONCURRENT; do
-        val="${!var:-}"
-        if [ -n "$val" ]; then
-            echo "  $var=$val"
-        fi
-    done
-    echo ""
-    echo "Would execute:"
-    echo "  source ${SCRIPT_DIR}/deploy.d/${DEPLOYMENT_TARGET} ${DEPLOY_ARGS[*]:-}"
-    echo ""
-    echo "── No changes made (dry run) ──────────────────────────"
-    exit 0
-fi
-
-# Resolve ENDPOINT_NAME from the target-specific var before dispatch.
-# Resolve ENDPOINT_NAME and INSTANCE_TYPE from target-specific vars before dispatch.
-# This ensures deploy.d/* scripts and do/test, do/logs use the right values.
+# Resolve ENDPOINT_NAME and INSTANCE_TYPE from target-specific vars. Runs BEFORE
+# the dry-run output and the right-sizing preflight (BL204) so both see the
+# values the deploy.d/* driver (and do/test, do/logs) will actually use.
 case "${DEPLOYMENT_TARGET}" in
     realtime-inference|managed-inference)
         export ENDPOINT_NAME="${SMAI_ENDPOINT_NAME:-${ENDPOINT_NAME:-}}"
@@ -880,6 +940,100 @@ case "${DEPLOYMENT_TARGET}" in
         export INSTANCE_TYPE="${HP_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
         ;;
 esac
+
+# ── Right-sizing preflight (Wave 8 R3.1, OQ-8.1 / OQ-8.7) ─────────────────────
+# One shared module (do/lib/python/right_sizing.py `check`) decides whether this
+# serving configuration fits BEFORE any per-target create/apply: KV cache +
+# weights (+ LoRA buffer, + draft) vs usable GPU memory, context limit, TP vs
+# GPUs/heads, dtype vs GPU architecture, LoRA rank / buffer, IC packing, ...
+# Applies to every target with a targets.d descriptor; the module itself skips
+# (exit 0) when the instance is not a catalogued GPU instance. Exit 2 = block:
+# stop (exit 1) unless --ignore-sizing. --force does NOT bypass it. stderr is
+# never swallowed. The k8s drivers then only ask for the rank VALUE (--quiet).
+# BL204: ONE function, called by both --dry-run (preflight-only check) and the
+# real deploy, so the two can never disagree.
+_run_sizing_preflight() {
+    if python3 "${SCRIPT_DIR}/lib/python/target_manifest.py" family "${DEPLOYMENT_TARGET}" >/dev/null 2>&1; then
+        echo "📏 Right-sizing preflight (${DEPLOYMENT_TARGET}, ${INSTANCE_TYPE:-no instance type})..."
+        _SIZING_RC=0
+        DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET}" INSTANCE_TYPE="${INSTANCE_TYPE:-}" \
+            python3 "${SCRIPT_DIR}/lib/python/right_sizing.py" check || _SIZING_RC=$?
+        case "${_SIZING_RC}" in
+            0) echo "✅ Right-sizing: fits." ;;
+            1) echo "⚠️  Right-sizing: warnings above; proceeding." ;;
+            2)
+                if [ "${FLAG_IGNORE_SIZING:-0}" -eq 1 ]; then
+                    echo "⚠️  --ignore-sizing: proceeding despite the right-sizing block above (the deploy may fail at start)."
+                else
+                    echo "❌ Right-sizing blocked this deploy (see the findings above). Nothing was created or applied." >&2
+                    echo "   Apply a fix above, or override at your own risk: ./do/deploy --ignore-sizing" >&2
+                    exit 1
+                fi
+                ;;
+            *) echo "⚠️  Right-sizing check could not run (exit ${_SIZING_RC}); proceeding without it." >&2 ;;
+        esac
+        export MLCC_SIZING_PREFLIGHT_DONE=1
+    fi
+    if [ "${FLAG_IGNORE_SIZING:-0}" -eq 1 ]; then
+        export MLCC_IGNORE_SIZING=1
+    fi
+}
+
+# ── Dry-run output (FR-3.6, CP-4; BL204 preflight-only check) ─────────────────
+# Show resolved config, the right-sizing preflight findings, and the command
+# that would execute — without creating, applying, or dispatching anything.
+# Exit 0 when the preflight fits / warns (or --ignore-sizing overrides a block);
+# exit 1 on a block (from _run_sizing_preflight).
+if [ "${FLAG_DRY_RUN:-0}" -eq 1 ]; then
+    echo "── Dry Run ──────────────────────────────────────────────"
+    echo ""
+    echo "Target: $DEPLOYMENT_TARGET"
+    echo "Script: ${SCRIPT_DIR}/deploy.d/${DEPLOYMENT_TARGET}"
+    echo ""
+    echo "Resolved configuration:"
+    for var in DEPLOYMENT_TARGET INSTANCE_TYPE ENDPOINT_NAME ENDPOINT_STRATEGY \
+               IC_GPU_COUNT INSTANCE_TYPES HP_CLUSTER_NAME HP_GPU_COUNT \
+               HP_NAMESPACE HP_REPLICAS HP_QUEUE ASYNC_S3_OUTPUT_PATH \
+               ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT_INVOCATIONS BATCH_INPUT_PATH \
+               BATCH_OUTPUT_PATH BATCH_SPLIT_TYPE BATCH_STRATEGY BATCH_MAX_CONCURRENT \
+               SCALE_TO_ZERO SCALE_MAX_CAPACITY; do
+        val="${!var:-}"
+        if [ -n "$val" ]; then
+            echo "  $var=$val"
+        fi
+    done
+    echo ""
+    _run_sizing_preflight
+    echo ""
+    # Wave 10: the planned scaling calls and the cold-start warning (nothing runs).
+    if stz_active "${DEPLOYMENT_TARGET}"; then
+        stz_plan "${DEPLOYMENT_TARGET}"
+        echo ""
+    fi
+    echo "Would execute:"
+    echo "  source ${SCRIPT_DIR}/deploy.d/${DEPLOYMENT_TARGET} ${DEPLOY_ARGS[*]:-}"
+    echo ""
+    echo "── No changes made (dry run) ──────────────────────────"
+    exit 0
+fi
+
+# Real deploy: the same preflight, still before any create/apply / dispatch.
+_run_sizing_preflight
+
+# ── BL166: ensure the per-project MLflow experiment exists at first touch ──
+# Deploy is a lifecycle entry point too (OQ-1): a deploy-a-pre-existing-model flow
+# with no prior tune/register still gets a project experiment on first touch.
+# Idempotent (resolves if already created) and non-fatal (no-op when MLflow is
+# unconfigured). Runs here — past --help/dry-run, before the real deploy.
+python3 -c "
+import sys
+sys.path.insert(0, '${SCRIPT_DIR}/lib/python')
+try:
+    import mlcc_mlflow as m
+    m.ensure_project_experiment('${PROJECT_NAME}')
+except Exception:
+    pass
+" 2>/dev/null || true
 
 # Dispatch to target-specific deploy script
 case "$DEPLOYMENT_TARGET" in

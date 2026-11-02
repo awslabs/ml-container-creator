@@ -39,20 +39,30 @@ def _get_required_columns(technique):
 
 
 def _get_schema_types(technique):
-    """Return a dict mapping column names to their expected types for a technique."""
+    """Return a dict mapping column names to their expected types for a technique.
+
+    BL129 — prompt-shape reconciliation (R4.6): rlaif/rlvr are NO LONGER typed
+    `prompt: "string"`. The authoritative dataset contract now lives in the tune
+    descriptor (`templates/code/tune.d/<technique>/manifest.json` → dataset_contract,
+    `prompt_shape: message-list`), and the register-side Producer (tune_producer_rl)
+    owns rlvr/rlaif staging — it emits verl 5-field PARQUET with the prompt kept as a
+    chat message LIST (what verl's RLHFDataset wants), reached BEFORE this jsonl/flatten
+    path. So the two assumptions no longer compete: the Producer/descriptor are the
+    single source of truth for the RL prompt shape; this map governs only the jsonl
+    techniques (sft/dpo/benchmark). The earlier `prompt: "string"` entry existed to
+    force the auto-flatten for an old JSONL managed-RL channel — that channel is
+    superseded by the parquet Producer.
+    """
     schemas = {
         "sft": {"prompt": "string", "completion": "string"},
         "dpo": {"prompt": "string", "chosen": "string", "rejected": "string"},
-        # RLAIF/RLVR managed-customization loaders tokenize `prompt` as TEXT and
-        # reject a message-array value. A live RLAIF job on allenai/RLVR-GSM
-        # (prompt = [{"role":"user","content":...}]) failed in the training
-        # container with `JSONDecodeError: Unterminated string` the moment the
-        # loader hit the `[{` where it expected a string. Typing `prompt` as
-        # "string" lets the shared auto-flatten (_detect_chat_columns /
-        # _flatten_value) collapse a single-turn message list to its content
-        # string before upload, which the loader accepts.
-        "rlaif": {"prompt": "string"},
-        "rlvr": {"prompt": "string"},
+        # RLAIF/RLVR: verl wants a message-LIST prompt in parquet (built by the
+        # Producer). Typed "message-list" here so any remaining jsonl-path caller
+        # (validation/discovery) does NOT auto-flatten the prompt — _detect_chat_columns
+        # only inspects "string" columns, so a "message-list" type is excluded from
+        # flattening, preserving the list.
+        "rlaif": {"prompt": "message-list"},
+        "rlvr": {"prompt": "message-list"},
         # BL100: AIPerf single_turn BYOD dataset — `text` is the required prompt
         # column; optional `output_length` (per-request max tokens) is not part
         # of the required-column contract.

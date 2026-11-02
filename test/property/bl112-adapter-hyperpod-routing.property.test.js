@@ -66,7 +66,9 @@ function hyperpodBody(rendered) {
 
 /** The router-classification portion (first arg -> ACTION), before dispatch. */
 function routerClassification(body) {
-    const end = body.indexOf('# ── Direct-pod port-forward setup');
+    // Wave 6.1: the router ends where the cluster connection begins (the
+    // delivery mapping, rank pre-check and per-pod port-forwards follow it).
+    const end = body.indexOf('# ── Cluster connection (kubeconfig)');
     assert.ok(end !== -1, 'router must precede the port-forward setup');
     return body.slice(0, end);
 }
@@ -78,6 +80,9 @@ function dispatchBlock(body) {
     return body.slice(start);
 }
 
+// Wave 6 / BL165: every lora_vllm.py call goes through _lora_helper_call, which
+// forwards its args verbatim ("$@") and surfaces the helper's stderr on a crash.
+const LORA_HELPER_CALL_RE = /python3 "\$\{SCRIPT_DIR\}\/lib\/python\/lora_vllm\.py" "\$@"/;
 // Generators for adapter names and S3 weights URIs.
 const adapterNameArb = fc.stringMatching(/^[a-z][a-z0-9-]{1,30}$/);
 const s3UriArb = fc
@@ -107,12 +112,28 @@ describe('Feature: v18-w4-01-bl112 — do/adapter hyperpod-eks verb routing', ()
                 assert.ok(/--weights\)/.test(router), 'add must parse --weights');
 
                 // ACTION=load dispatches through the load helper -> lora_vllm.py load.
+                // Wave 6.1 R1.5: the load helper receives the IN-POD path the
+                // s3:// source maps to (adapter_delivery.py), never the s3:// URI.
                 assert.ok(
-                    /load\)\s*\n\s*_lora_do_load "\$\{LORA_NAME\}" "\$\{WEIGHTS_URI\}"/.test(dispatch),
-                    'ACTION=load must invoke the load helper with name + weights'
+                    /load\)\s*\n\s*_lora_do_load "\$\{LORA_NAME\}" "\$\{_LORA_PATH\}"/.test(dispatch),
+                    'ACTION=load must invoke the load helper with name + the mapped in-pod path'
                 );
+                // Wave 6.1 Part B + BL199: WEIGHTS_URI goes to adapter_delivery.py deliver
+                // (dry-run plan, then promote / serving copy). The in-pod path comes
+                // from the plan, or from the delivery result once a promotion picked
+                // the content-addressed version. It never comes from the raw URI.
+                assert.ok(/--uri "\$\{WEIGHTS_URI\}"/.test(body), 'WEIGHTS_URI must be the delivery source');
+                assert.ok(/adapter_delivery\.py" deliver --dry-run/.test(body) &&
+                    /adapter_delivery\.py" deliver \\\s*\n\s*"\$\{_adapter_deliver_args\[@\]\}"/.test(body),
+                'WEIGHTS_URI must be planned and delivered through adapter_delivery.py deliver');
+                assert.ok(/_LORA_PATH=\$\(_adapter_json_get "\$\{_plan_out\}" path\)/.test(body) &&
+                    /_LORA_PATH=\$\(_adapter_json_get "\$\{_deliver_out\}" path\)/.test(body),
+                '_LORA_PATH must be the mapped in-pod path from the delivery plan / result');
+                assert.ok(!/_LORA_PATH="?\$\{WEIGHTS_URI\}/.test(body), 'the raw s3:// URI never becomes the load path');
+                assert.ok(/if \[ -z "\$\{_LORA_PATH\}" \]; then/.test(body), 'an unmapped path is refused before the engine');
                 assert.ok(
-                    /lora_vllm\.py" load "\$\{_name\}" "\$\{_uri\}" "\$\{BASE_URL\}"/.test(dispatch),
+                    /_lora_helper_call RESULT load "\$\{_name\}" "\$\{_uri\}" "\$\{BASE_URL\}"/.test(dispatch) &&
+                        LORA_HELPER_CALL_RE.test(dispatch),
                     'load helper must call lora_vllm.py load <name> <uri> <base_url>'
                 );
 
@@ -146,7 +167,8 @@ describe('Feature: v18-w4-01-bl112 — do/adapter hyperpod-eks verb routing', ()
                     'ACTION=unload must invoke the unload helper'
                 );
                 assert.ok(
-                    /lora_vllm\.py" unload "\$\{_name\}" "\$\{BASE_URL\}"/.test(dispatch),
+                    /_lora_helper_call RESULT unload "\$\{_name\}" "\$\{BASE_URL\}"/.test(dispatch) &&
+                        LORA_HELPER_CALL_RE.test(dispatch),
                     'unload helper must call lora_vllm.py unload <name> <base_url>'
                 );
 
@@ -172,7 +194,8 @@ describe('Feature: v18-w4-01-bl112 — do/adapter hyperpod-eks verb routing', ()
 
                 assert.ok(/list\)\s*\n\s*ACTION="list"/.test(router), 'list must map to ACTION=list');
                 assert.ok(
-                    /lora_vllm\.py" list "\$\{BASE_URL\}"/.test(dispatch),
+                    /_lora_helper_call RESULT list "\$\{BASE_URL\}"/.test(dispatch) &&
+                        LORA_HELPER_CALL_RE.test(dispatch),
                     'ACTION=list must call lora_vllm.py list <base_url>'
                 );
                 // Client GETs /v1/models and filters out the base model.
@@ -200,18 +223,16 @@ describe('Feature: v18-w4-01-bl112 — do/adapter hyperpod-eks verb routing', ()
                 assert.ok(/--weights\)/.test(router), 'update must parse --weights');
 
                 // ACTION=update: unload THEN load, in that order, both via POST helpers.
-                const updateArm = dispatch.slice(
-                    dispatch.indexOf('update)'),
-                    dispatch.indexOf('list)')
-                );
+                const updateStart = dispatch.indexOf('update)');
+                const updateArm = dispatch.slice(updateStart, dispatch.indexOf('list)', updateStart));
                 const unloadPos = updateArm.indexOf('_lora_do_unload "${LORA_NAME}"');
-                const loadPos = updateArm.indexOf('_lora_do_load "${LORA_NAME}" "${WEIGHTS_URI}"');
+                const loadPos = updateArm.indexOf('_lora_do_load "${LORA_NAME}" "${_LORA_PATH}"');
                 assert.ok(unloadPos !== -1, 'update must unload');
                 assert.ok(loadPos !== -1, 'update must load');
                 assert.ok(unloadPos < loadPos, 'update must unload BEFORE load (remove-then-add)');
                 // A failed unload aborts before load.
                 assert.ok(
-                    /_lora_do_unload "\$\{LORA_NAME\}" \|\| exit 1\s*\n\s*_lora_do_load/.test(updateArm),
+                    /_lora_do_unload "\$\{LORA_NAME\}" \|\| return 1\s*\n\s*_lora_do_load/.test(updateArm),
                     'a failed unload must abort before load'
                 );
                 // Neither helper uses DELETE.

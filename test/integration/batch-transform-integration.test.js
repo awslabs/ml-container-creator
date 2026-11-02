@@ -13,6 +13,7 @@
 import { runGenerator } from '../helpers/run-generator.js';
 import assert from 'assert';
 import { readFileSync } from 'fs';
+import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
@@ -105,15 +106,34 @@ describe('batch-transform integration: generated template content', function () 
         result.assertFileContent('do/register', '--instance-type');
     });
 
-    // Requirement 15.1: do/export contains --batch-input-path
-    it('do/export contains --batch-input-path when deploymentTarget === batch-transform', () => {
-        const exportTemplate = readFileSync(path.join(TEMPLATES_DIR, 'export'), 'utf8');
-        assert.ok(exportTemplate.includes('--batch-input-path'),
-            'do/export template must contain --batch-input-path for batch-transform target');
+    // Requirement 15.1 (updated by Wave 8 / BL160): do/export no longer hardcodes
+    // per-target flags — it derives them at run time from do/config through the
+    // schema's doConfigVar map. Run the generated script and check its output.
+    // BATCH_INPUT_PATH / BATCH_OUTPUT_PATH are profile-resolved at deploy time
+    // (b77ffd61), not do/config inputs, so they are not part of the export. This
+    // suite's project keeps the default DEPLOYMENT_TARGET, so the export is run with
+    // --target batch-transform (the same override do/deploy --target offers).
+    function runExport(args = []) {
+        const env = {};
+        for (const [k, v] of Object.entries(process.env)) {
+            if (!/^(AWS_|BATCH_|INSTANCE_TYPE$|DEPLOYMENT_TARGET$)/.test(k)) env[k] = v;
+        }
+        return execFileSync('/bin/bash', [result.file('do/export'), ...args], {
+            cwd: result.dir, env: { ...env, HOME: result.dir }, encoding: 'utf8'
+        });
+    }
+    it('do/export emits the batch-transform flags from do/config', () => {
+        const out = runExport(['--target', 'batch-transform']);
+        assert.ok(out.includes('--deployment-target=batch-transform'), out);
+        assert.ok(out.includes('--instance-type=ml.m5.large'), out);
+        assert.ok(!out.includes('--batch-input-path'), 'profile-resolved batch paths are not exported');
     });
-
-    // Requirement 15.1: do/export contains --instance-type
-    it('do/export contains --instance-type when deploymentTarget === batch-transform', () => {
-        result.assertFileContent('do/export', '--instance-type');
+    it('do/export --json emits typed schema keys for batch-transform', () => {
+        const data = JSON.parse(runExport(['--json', '--target', 'batch-transform']));
+        assert.strictEqual(data.deploymentTarget, 'batch-transform');
+        assert.strictEqual(data.instanceType, 'ml.m5.large');
+        // Only what do/config declares is exported: this project was generated for the
+        // default target, so its batch block is commented out and not exported.
+        assert.ok(!('batchInstanceCount' in data), JSON.stringify(data));
     });
 });

@@ -48,70 +48,51 @@ function scriptMatches(script, regex) {
 // remaining non-realtime targets. The intent — block the wrong target with
 // actionable guidance, after config is sourced — is unchanged.
 
-describe('do/add-ic HyperPod guard (BL063 / ADR-007)', () => {
+describe('do/add-ic target guard (BL063 / ADR-007 → ADR-013 derived contract)', () => {
+    // Wave 6 (ADR-013): the hand-written hyperpod-eks branch + _restrict_targets
+    // list are replaced by ONE derived gate, _additive_verb_supported_on add-ic,
+    // whose refusal is computed from the additive-deploy contract table. The
+    // per-target accept/refuse behavior (and its agreement with the target
+    // descriptors) is asserted end-to-end in additive-deploy-contract.test.js;
+    // the hyperpod-eks guidance text is asserted in additive-deploy-verbs.test.js.
     describe('guard presence and structure', () => {
-        it('contains a HyperPod guard block', () => {
+        it('gates through the derived additive-deploy contract', () => {
             assert.ok(
-                scriptContains(ADD_IC_SCRIPT, 'HyperPod guard'),
-                'should have a HyperPod guard comment'
+                scriptMatches(ADD_IC_SCRIPT, /^_additive_verb_supported_on add-ic "\$\{DEPLOYMENT_TARGET:-\}"/m),
+                'do/add-ic must gate with _additive_verb_supported_on add-ic'
             );
         });
 
-        it('checks DEPLOYMENT_TARGET for hyperpod-eks', () => {
-            assert.ok(
-                scriptMatches(ADD_IC_SCRIPT, /if \[ "\$\{DEPLOYMENT_TARGET:-\}" = "hyperpod-eks" \]/),
-                'should check for hyperpod-eks with the safe-unset equality pattern'
-            );
-        });
-
-        it('signals a contract violation (exit 3) via the shared primitive', () => {
-            assert.ok(
-                scriptContains(ADD_IC_SCRIPT, '_contract_violation'),
-                'should use _contract_violation (exit 3) instead of a hand-rolled exit 1'
-            );
+        it('has no hand-listed target branch or allow-list left', () => {
+            assert.ok(!scriptMatches(ADD_IC_SCRIPT, /^if \[ "\$\{DEPLOYMENT_TARGET:-\}" = "hyperpod-eks" \]/m),
+                'the per-target hyperpod-eks branch must be derived, not hardcoded');
+            assert.ok(!scriptMatches(ADD_IC_SCRIPT, /^_restrict_targets /m),
+                'the realtime-only allow-list must be derived, not hardcoded');
         });
 
         it('guard appears BEFORE the _usage function', () => {
-            const guardPos = ADD_IC_SCRIPT.indexOf('HyperPod guard');
+            const guardPos = ADD_IC_SCRIPT.indexOf('_additive_verb_supported_on add-ic');
             const usagePos = ADD_IC_SCRIPT.indexOf('_usage()');
-            assert.ok(
-                guardPos < usagePos,
-                'guard must appear before _usage() to prevent any execution on HyperPod'
-            );
+            assert.ok(guardPos > -1 && guardPos < usagePos,
+                'guard must appear before _usage() to prevent any execution on an unsupported target');
         });
 
         it('guard appears AFTER source config', () => {
             const sourcePos = ADD_IC_SCRIPT.indexOf('source "${SCRIPT_DIR}/config"');
-            const guardPos = ADD_IC_SCRIPT.indexOf('HyperPod guard');
-            assert.ok(
-                sourcePos < guardPos,
-                'guard must appear after sourcing config (which sets DEPLOYMENT_TARGET)'
-            );
+            const guardPos = ADD_IC_SCRIPT.indexOf('_additive_verb_supported_on add-ic');
+            assert.ok(sourcePos < guardPos,
+                'guard must appear after sourcing config (which sets DEPLOYMENT_TARGET)');
         });
     });
 
-    describe('error message content', () => {
-        it('mentions Inference Components are a SageMaker concept', () => {
-            assert.ok(
-                scriptContains(ADD_IC_SCRIPT, 'Inference Components are a SageMaker managed inference concept'),
-                'should explain WHY the script is unsupported'
-            );
+    describe('guidance content', () => {
+        it('no longer points HyperPod users at the deprecated do/adapter --load-lora', () => {
+            assert.ok(!scriptContains(ADD_IC_SCRIPT, 'do/adapter --load-lora'),
+                'stale --load-lora guidance must be replaced by do/adapter add <name> --from-tune');
         });
 
-        it('suggests do/adapter --load-lora as alternative', () => {
-            assert.ok(
-                scriptContains(ADD_IC_SCRIPT, 'do/adapter --load-lora'),
-                'should provide actionable alternative for HyperPod users'
-            );
-        });
-    });
-
-    describe('non-realtime targets are restricted', () => {
-        it('restricts to realtime-inference via _restrict_targets', () => {
-            assert.ok(
-                scriptMatches(ADD_IC_SCRIPT, /_restrict_targets "realtime-inference"/),
-                'should restrict to realtime-inference for the generic (async/batch) case'
-            );
+        it('refuses a LoRA adapter with a pointer to do/adapter add <name> --from-tune', () => {
+            assert.ok(scriptContains(ADD_IC_SCRIPT, 'do/adapter add <name> --from-tune'));
         });
     });
 });

@@ -12,7 +12,8 @@
 # Available techniques:
 #   custom  — Your own training script (default, user-provided logic)
 #   sft     — Supervised Fine-Tuning using TRL SFTTrainer + PEFT LoRA
-#   dpo     — Direct Preference Optimization (future, see Spec G2)
+#   dpo     — Direct Preference Optimization using TRL DPOTrainer + PEFT LoRA
+#   grpo    — Group Relative Policy Optimization (self-managed RL)
 #
 # Override with CLI: ./do/train --technique sft
 technique: "custom"
@@ -102,6 +103,18 @@ output_path: ""
 # Key-value pairs passed to your training script as command-line arguments.
 # All values must be strings. SageMaker passes these as string arguments to
 # the training script entry point.
+#
+# Precedence (lowest -> highest):
+#   do/training/<technique>/manifest.json default
+#   < do/training/<technique>/defaults.yaml
+#   < this hyperparameters section
+#   < ./do/train --set KNOB=VALUE / legacy flags (--learning-rate, ...) = answers
+#     from ./do/train -i (which rewrites ONLY this hyperparameters block)
+#
+# Techniques with a manifest.json (sft, dpo, grpo) type- and range-check every
+# value before submission; ./do/train --help and docs/train-plugin-authoring.md
+# explain --set, --advanced, and --allow-unknown. Keys listed here that the
+# manifest does not declare are passed to train.py unchanged.
 #
 # For 'custom' technique: define your own hyperparameters.
 # For 'sft' technique: the following are recognized:

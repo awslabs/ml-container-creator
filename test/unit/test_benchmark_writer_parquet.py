@@ -145,7 +145,13 @@ class TestParquetRoundTrip:
         """Single concurrency level → write → read → values match."""
         # Use only the first metric entry
         results_single = {"job_name": sample_results["job_name"], "metrics": [sample_results["metrics"][0]]}
-        records = enrich_records(sample_config, results_single, fixed_timestamp)
+        # Wave 9: cost comes from a resolved price + billed count (synthetic here).
+        cost_context = {
+            'price': {'usd_per_hour': 2.0, 'source': 'pricing-api', 'as_of': '2026-10-26T00:00:00Z',
+                      'component': 'Hosting'},
+            'instance_count': 1,
+        }
+        records = enrich_records(sample_config, results_single, fixed_timestamp, cost_context=cost_context)
         assert len(records) == 1
 
         path = _write_parquet_to_temp(records)
@@ -175,6 +181,8 @@ class TestParquetRoundTrip:
             assert row["enable_lora"][0] is True
             assert row["kv_cache_dtype"][0] is None  # Not set in sample_config
             assert row["cost_per_1m_tokens"][0] is not None
+            assert row["price_source"][0] == 'pricing-api'
+            assert row["instance_count"][0] == 1
         finally:
             os.unlink(path)
 

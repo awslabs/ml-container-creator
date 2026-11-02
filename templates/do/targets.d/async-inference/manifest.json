@@ -14,13 +14,20 @@
   },
   "runtime_owned_vars": ["DEPLOYMENT_TARGET_ASYNC_STATUS"],
   "serving_config_source": "sagemaker-ic",
+  "service_quota_usage": "endpoint usage",
+  "pricing": { "service": "AmazonSageMaker", "component": "AsyncInf", "instance_count": { "basis": "endpoint-current" } },
+  "compute_backends": ["smtj"],
+  "scale_to_zero": { "support": "native", "mechanism": "sagemaker-async-backlog", "wake_signal": "HasBacklogWithoutCapacity", "requests_at_zero": "queued", "idle_billing": "none-at-zero", "enabled": false, "reason": "async scale-to-zero is a post-2.0 follow-up (ADR-014): async endpoints queue requests at zero and are the natural next target, but MLCC v2 does not wire it yet" },
   "verbs": {
     "optimize": false,
     "add-ic": false,
+    "add-pod": false,
     "ci": false,
     "adapter": false,
-    "draft": false
+    "draft": false,
+    "metrics": false
   },
+  "observability": { "store": "none" },
   "answer_params": [
     { "answerKey": "target", "configVar": "DEPLOYMENT_TARGET", "flag": "--target", "roles": ["flag-input", "prompt-core"] },
     { "answerKey": "instance_type", "configVar": "INSTANCE_TYPE", "flag": "--instance-type", "roles": ["flag-input", "prompt-core"] },

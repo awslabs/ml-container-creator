@@ -8,7 +8,7 @@ Used by do/adapter on HyperPod EKS deployments to load/unload/list LoRA adapters
 through vLLM's built-in REST endpoints.
 
 Usage (CLI mode):
-    python3 lora_vllm.py load <name> <s3_path> <base_url>
+    python3 lora_vllm.py load <name> <local_path> <base_url>
     python3 lora_vllm.py unload <name> <base_url>
     python3 lora_vllm.py list <base_url>
 """
@@ -19,17 +19,34 @@ import sys
 import requests
 
 
-def load_lora(base_url: str, name: str, s3_path: str) -> dict:
+def load_lora(base_url: str, name: str, lora_path: str) -> dict:
     """Load a LoRA adapter into vLLM.
 
-    POST /v1/load_lora_adapter with {"lora_name": name, "lora_path": s3_path}.
+    POST /v1/load_lora_adapter with {"lora_name": name, "lora_path": lora_path}.
+    lora_path must be a path INSIDE the serving container; s3:// is refused.
 
     Returns:
         {"success": True} on success.
         {"success": False, "error": "...", "status_code": N} on failure.
     """
+    # Wave 6.1 R1.5 (BL189): vLLM treats a non-local lora_path as a Hugging Face
+    # repo id ("Error downloading the HuggingFace model" -> FileNotFoundError on
+    # s3://.../adapter_config.json), and the serving container has no AWS
+    # credentials. An s3:// path can never load, so refuse it here — the
+    # regression guard for every target — before any engine call.
+    if str(lora_path).startswith("s3://"):
+        return {
+            "success": False,
+            "error": (
+                f"refusing to load '{name}' from {lora_path}: vLLM loads LoRA adapters from a "
+                "LOCAL path inside the serving container, not s3:// (it would treat the URI as a "
+                "Hugging Face repo id). Map the adapter to its path under the pod's model mount "
+                "(do/adapter does this for adapters under <model-prefix>/.mlcc-adapters/)."
+            ),
+            "status_code": 0,
+        }
     url = f"{base_url.rstrip('/')}/v1/load_lora_adapter"
-    payload = {"lora_name": name, "lora_path": s3_path}
+    payload = {"lora_name": name, "lora_path": lora_path}
 
     try:
         resp = requests.post(url, json=payload, timeout=60)
@@ -131,7 +148,7 @@ def _cli_main():
     """CLI entry point for bash integration."""
     if len(sys.argv) < 3:
         print("Usage: python3 lora_vllm.py <command> <args...>", file=sys.stderr)
-        print("Commands: load <name> <s3_path> <base_url>", file=sys.stderr)
+        print("Commands: load <name> <local_path> <base_url>", file=sys.stderr)
         print("          unload <name> <base_url>", file=sys.stderr)
         print("          list <base_url>", file=sys.stderr)
         sys.exit(1)
@@ -140,10 +157,10 @@ def _cli_main():
 
     if command == "load":
         if len(sys.argv) != 5:
-            print("Usage: python3 lora_vllm.py load <name> <s3_path> <base_url>", file=sys.stderr)
+            print("Usage: python3 lora_vllm.py load <name> <local_path> <base_url>", file=sys.stderr)
             sys.exit(1)
-        name, s3_path, base_url = sys.argv[2], sys.argv[3], sys.argv[4]
-        result = load_lora(base_url, name, s3_path)
+        name, lora_path, base_url = sys.argv[2], sys.argv[3], sys.argv[4]
+        result = load_lora(base_url, name, lora_path)
         print(json.dumps(result))
         sys.exit(0 if result["success"] else 1)
 

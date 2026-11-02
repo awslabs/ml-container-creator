@@ -55,7 +55,12 @@ ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-con
 export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
 
 # Batch-specific derived variables
-_BATCH_BUCKET="${_PROFILE_batchS3Bucket:-${_PROFILE_coreS3Bucket:-${_PROFILE_modelsS3Bucket:-mlcc-core-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}}}}"
+# Default I/O bucket = the profile's core bucket (CORE_S3_BUCKET via
+# do/lib/profile.sh). No convention-built fallback name (bucket consolidation R2.1).
+_BATCH_BUCKET="${CORE_S3_BUCKET:-}"
+if [ -z "${_BATCH_BUCKET}" ] && { [ -z "${BATCH_INPUT_PATH:-}" ] || [ -z "${BATCH_OUTPUT_PATH:-}" ]; }; then
+    _require_bucket CORE_S3_BUCKET || exit 1
+fi
 BATCH_INPUT_PATH="${BATCH_INPUT_PATH:-s3://${_BATCH_BUCKET}/batch-input/${PROJECT_NAME}/}"
 BATCH_OUTPUT_PATH="${BATCH_OUTPUT_PATH:-s3://${_BATCH_BUCKET}/batch-output/${PROJECT_NAME}/}"
 

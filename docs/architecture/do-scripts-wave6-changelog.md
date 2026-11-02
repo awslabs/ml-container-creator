@@ -18,9 +18,10 @@ see [do/adapter](#doadapter) and the `eks` note below.
 `eks` is a **first-class deployment target**: a model served as standard
 Kubernetes objects on an EKS cluster **without** the HyperPod Inference Operator
 (contrast `hyperpod-eks`, which uses the operator and its `InferenceEndpointConfig`
-CRD). It is currently **untested / unvalidated** end-to-end, but it is *supported*,
-not deprecated. Earlier Wave 6 notes described it dismissively as "legacy /
-plain-k8s"; that framing was wrong and has been corrected across the docs.
+CRD). It is a *supported*, bring-your-own-cluster target (not deprecated): MLCC
+consumes a cluster you provisioned and validates a deploy-time contract. Earlier
+notes described it dismissively as "legacy / plain-k8s"; that framing was wrong and
+has been corrected across the docs.
 
 ## Legend
 

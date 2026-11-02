@@ -31,11 +31,11 @@ print_completion_feedback() {
     echo "   Next steps:"
 
     if [ "${output_type}" = "adapter" ]; then
-        echo "     • Deploy as LoRA adapter:  ./do/adapter add my-adapter --weights ${output_path}"
+        echo "     • Deploy as LoRA adapter:  ./do/adapter add my-adapter --from-weights ${output_path}"
         echo "     • (Requires running endpoint with LoRA enabled)"
     elif [ "${output_type}" = "full-model" ]; then
-        echo "     • Deploy as new IC:        ./do/add-ic my-model --model-data ${output_path}"
-        echo "     • Replace current base:    ./do/deploy --force-ic --model-data ${output_path}"
+        echo "     • Deploy as new IC:        ./do/add-ic my-model --from-weights ${output_path}"
+        echo "     • Replace current base:    ./do/add-ic default --update --from-weights ${output_path}"
     fi
     echo ""
 }

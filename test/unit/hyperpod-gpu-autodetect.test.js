@@ -80,7 +80,9 @@ describe('BL096: deploy driver bash GPU lookup', () => {
             'driver must derive memory as gpu*16 Gi');
         // The derivation must precede the substitution pass.
         const gpuIdx = driver.indexOf('export HP_GPU_COUNT=');
-        const subIdx = driver.indexOf('RENDERED=$(envsubst < "${manifest}")');
+        // Wave 11 R7.4: the substitution pass runs inside the shared lib's
+        // _hp_render_iec, which the driver calls after the exports.
+        const subIdx = driver.indexOf('_hp_render_iec "${_HP_RENDER_DIR}"');
         assert.ok(gpuIdx > 0 && subIdx > gpuIdx,
             'GPU/CPU/mem must be exported before the substitution pass');
     });

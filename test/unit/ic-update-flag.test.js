@@ -71,8 +71,8 @@ describe('do/add-ic --update flag', () => {
             assert.ok(scriptContains('FROM_TUNE="true"'), 'should still set FROM_TUNE');
         });
 
-        it('does not conflict with existing --model-data parsing', () => {
-            assert.ok(scriptContains('--model-data)'), 'should still parse --model-data');
+        it('does not conflict with existing --model-data parsing (deprecated alias)', () => {
+            assert.ok(scriptContains('--from-weights|--model-data)'), 'should still parse --model-data as an alias');
         });
     });
 
@@ -138,10 +138,10 @@ describe('do/add-ic --update flag', () => {
             );
         });
 
-        it('passes --model-data when MODEL_DATA is set', () => {
+        it('passes --from-weights (canonical; --model-data is its alias) when MODEL_DATA is set', () => {
             assert.ok(
-                scriptContains('"--model-data" "${MODEL_DATA}"'),
-                'should pass --model-data to ic_update.py'
+                scriptContains('"--from-weights" "${MODEL_DATA}"'),
+                'should pass --from-weights to ic_update.py'
             );
         });
 
@@ -232,11 +232,11 @@ describe('do/add-ic --update flag', () => {
             );
         });
 
-        it('shows update with --model-data example', () => {
+        it('shows update with --from-weights example', () => {
             const usage = getUsageSection();
             assert.ok(
-                usage.includes('--update --model-data'),
-                'should show update + model-data example'
+                usage.includes('--update --from-weights'),
+                'should show update + from-weights example'
             );
         });
     });

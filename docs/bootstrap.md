@@ -1,6 +1,6 @@
 # Bootstrap
 
-Bootstrap provisions the shared AWS infrastructure that MCC projects depend on. As of **v1.2**, infrastructure is decomposed into **independent, selectively-provisioned modules** — you choose which pieces you need, and each is deployed as its own CDK stack. Run it once per environment; all MCC projects using that profile reuse the same resources.
+Bootstrap provisions the shared AWS infrastructure that MCC projects depend on. Infrastructure is decomposed into **independent, selectively-provisioned modules** — you choose which pieces you need, and each is deployed as its own CDK stack. Run it once per environment; all MCC projects using that profile reuse the same resources.
 
 ```bash
 ml-container-creator bootstrap add <profile-name>
@@ -23,15 +23,24 @@ Bootstrap infrastructure is organized into modules. Only `core` is required; eve
 | `core` | IAM execution role + ECR repository | ~$1/mo | **Yes** | — |
 | `benchmark` | S3 bucket + Glue DB for benchmark results | ~$5/mo | No | core |
 | `registry` | Model Package Group + AI Registry Hub | ~$0/mo | No | core |
-| `training` | Training data bucket + execution role (+ MLflow, best-effort) | ~$2/mo | No | core |
+| `training` | Artifacts bucket (tune/train/optimize output + MLflow store), legacy training/adapters buckets, reward-Lambda role, HyperPod training role (`mlcc-hp-train-role-<region>`), MLflow (best-effort) | ~$2/mo | No | core |
 | `ci` | CodeBuild + DynamoDB + StepFunctions + EventBridge | ~$15/mo | No | core, benchmark, registry |
 | `sagemaker-domain` | Studio domain + default user profile | ~$10/mo | No | core |
-| `hyperpod-cluster` | HyperPod config intent only (does **not** create a cluster) | ~$0/mo | No | core |
+| `eks` | Standalone EKS cluster (VPC, control plane, OIDC, Fargate, CSI/metrics add-ons, inference IRSA role) | ~$73+/mo | No | core |
+| `hyperpod` | ⚠️ **DEPRECATED** — HyperPod cluster + Inference Operator | ~$1,300/mo | No | eks |
 
 Each module is a standalone CDK stack named `mlcc-<profile>-<module>` (e.g., `mlcc-default-core`). Modules expose their outputs as CloudFormation cross-stack exports (`mlcc-<profile>-<module>-<ExportName>`), which the next module imports as needed.
 
-!!! warning "hyperpod-cluster records intent only"
-    The `hyperpod-cluster` module does **not** create a HyperPod cluster — it stores configuration intent in an SSM parameter and reports `status: not-provisioned`. Creating a real cluster requires a pre-existing EKS cluster, subnets, security groups, and an instance role. Real provisioning is tracked separately (spec `e8-h4-hyperpod-cluster-provisioning`).
+!!! danger "`hyperpod` module is DEPRECATED (v2.0.0)"
+    HyperPod **cluster provisioning** via `bootstrap add-module hyperpod` is deprecated and
+    refuses to run (hidden from the interactive picker). A live rehearsal established that
+    MLCC's cluster-creation path does not enable inference at `CreateCluster` time, so the
+    inference operator never creates a SageMaker endpoint. **Provision a HyperPod cluster via
+    the AWS SageMaker console (Quick Install) or the published CloudFormation templates
+    instead** — the `hyperpod-eks` deploy target then works normally against it. A dedicated
+    spike (BL153) will decide the long-term HP-native provisioning path. See
+    [HyperPod Bootstrap](hyperpod-bootstrap.md) and the
+    [EKS/HyperPod migration findings](architecture/eks-hyperpod-migration.md).
 
 !!! info "Module definitions live in the manifest"
     `infra/bootstrap-modules/module-manifest.json` is the single source of truth for module metadata (display name, cost, dependencies, exports). Adding a module is a matter of adding a manifest entry + a CDK stack.
@@ -53,16 +62,18 @@ The flow:
 5. **CDK bootstrap check** — if the account/region isn't CDK-bootstrapped, `npx cdk bootstrap` runs automatically
 6. **Module selection** — a spacebar multi-select:
    ```
-   Select infrastructure modules to provision:
-     ◉ Core Infrastructure — IAM role + ECR repository (~$1/mo)     [required]
-     ◻ Benchmark Infrastructure — S3 bucket + Glue DB (~$5/mo)
-     ◻ Model Registry — Model Package Group + AI Registry Hub (~$0/mo)
-     ◻ Training Infrastructure — Training data bucket + role (~$2/mo)
-     ◻ CI/CD Pipeline — CodeBuild + DynamoDB + StepFunctions (~$15/mo)
-     ◻ SageMaker Studio Domain — Studio domain + user profile (~$10/mo)
-     ◻ HyperPod Cluster — HyperPod EKS cluster config (~$0/mo)
+   Select infrastructure modules to provision:   (descriptions abbreviated)
+     ◉ Core Infrastructure — IAM role + ECR repository … (~$1/mo)     (required)
+     ◻ Benchmark Infrastructure — S3 bucket + Glue DB … (~$5/mo)
+     ◻ Model Registry — Model Package Group + AI Registry Hub … (~$0/mo)
+     ◻ Training Infrastructure — Artifacts bucket … + MLflow … (~$2/mo)
+     ◻ CI/CD Pipeline — CodeBuild + DynamoDB + StepFunctions … (~$15/mo)
+     ◻ SageMaker Studio Domain — Studio domain + default user profile (~$10/mo)
+     ◻ EKS Cluster — standalone EKS environment … (~$73+/mo …)
    ```
-7. **Dependency validation** — missing dependencies are auto-added (with a notice). For example, selecting `ci` pulls in `benchmark` and `registry`.
+
+   The list comes from `infra/bootstrap-modules/module-manifest.json`. The deprecated `hyperpod` module is hidden from new selection (it only appears, marked deprecated, on a profile that already has it).
+7. **Dependency validation** — dependencies are **not** auto-added. If you select `ci` without `benchmark` and `registry`, bootstrap stops before provisioning anything and tells you which modules to select as well, so you see every module and its cost.
 8. **Provisioning** — selected modules deploy in topological order (dependencies first). Each becomes a `mlcc-<profile>-<module>` CDK stack.
 9. **Post-setup chain** — runs `mcp init` → `sync-architectures` → `sync-schemas`
 
@@ -86,7 +97,7 @@ ml-container-creator bootstrap \
   --with benchmark,training
 ```
 
-The default module set for non-interactive mode is **`core` + `registry`**. Use `--with` to add more (comma-separated). Dependencies are auto-validated.
+The default module set for non-interactive mode is **`core` + `registry`**. Use `--with` to add more (comma-separated). Dependencies are validated, not auto-added: list every module you need.
 
 | Flag | Required | Description |
 |---|---|---|
@@ -205,6 +216,8 @@ Profiles are stored at `~/.ml-container-creator/config.json`. A modular profile 
       "awsProfile": "my-aws-profile",
       "awsRegion": "us-west-2",
       "accountId": "111111111111",
+      "coreS3Bucket": "<core bucket from the core stack outputs>",
+      "artifactsS3Bucket": "<artifacts bucket from the training stack outputs>",
       "provisionedModules": ["core", "benchmark", "registry"],
       "moduleOutputs": {
         "core": {
@@ -236,12 +249,13 @@ Profiles are stored at `~/.ml-container-creator/config.json`. A modular profile 
 
 ## Runtime Profile Loader
 
-Generated projects include `do/lib/profile.sh` — a shared loader sourced by all `do/` scripts. It reads the active bootstrap profile into a bash associative array (`_PROFILE[]`) at runtime:
+Generated projects include `do/lib/profile.sh` — a shared loader sourced by all `do/` scripts. It reads the active bootstrap profile into `_PROFILE_<key>` shell variables at runtime (for example `${_PROFILE_roleArn}`):
 
 - **No regeneration needed** when switching profiles — run `mcc bootstrap use <profile>` then re-run any `do/` script
-- **Precedence**: explicit env var > `_PROFILE[key]` > hardcoded default
-- **Bash 4+ required** (Linux default; macOS users need Homebrew bash)
-- **Graceful degradation**: if `~/.ml-container-creator/config.json` doesn't exist, `_PROFILE` stays empty and scripts fall back to env vars
+- **Precedence**: explicit env var > `_PROFILE_<key>` > default
+- **Works on bash 3.2+** (the macOS default) — no associative arrays
+- **Graceful degradation**: if `~/.ml-container-creator/config.json` doesn't exist, the `_PROFILE_<key>` variables stay empty and scripts fall back to env vars
+- **Bucket names come only from the profile** (`coreS3Bucket`, `artifactsS3Bucket`, ...); a script that needs a bucket stops with an error when its key is missing
 
 This enables workflows where you switch profiles and immediately run `do/deploy` against the new region/account without regenerating the project.
 
@@ -258,11 +272,15 @@ ml-container-creator bootstrap update
 This re-provisions every module in the active profile's `provisionedModules` (in topological order) without prompts, then re-runs the post-setup chain. Sanity checks before updating:
 
 1. **Account match** — your current AWS caller identity must match the profile's `accountId`.
+2. **Provisioned set** — only modules already in the profile are re-provisioned; use `bootstrap add-module` to introduce new ones.
+
+```bash
 # Preview what would change across all installed modules (cdk diff per module)
 ml-container-creator bootstrap update --dry-run
 
 # Apply the updates
-2. **Provisioned set** — only modules already in the profile are re-provisioned; use `bootstrap add-module` to introduce new ones.
+ml-container-creator bootstrap update
+```
 
 !!! tip "Preview updates with --dry-run"
     `bootstrap update --dry-run` runs `cdk diff` per module and shows exactly what would change — applying nothing. Use it after pulling new template code to see the blast radius before committing.
@@ -283,7 +301,7 @@ This deploys only the named module's CDK stack and leaves all other modules unto
 
 The `training` module provisions an MLflow tracking app on a **best-effort** basis after the training bucket + role are created. If MLflow isn't available in your region (or the CLI version doesn't support it), provisioning logs a warning and continues — the training module still succeeds.
 
-When present, the MLflow app ARN is surfaced as `MLFLOW_APP_ARN` in generated projects, and `do/tune` prints the tracking URL. When absent, `do/tune` runs normally without a tracking URL — **it is never a hard dependency**.
+When present, the MLflow app ARN is surfaced as `MLFLOW_APP_ARN` in generated projects, and `do/tune` prints the tracking URL. Each project logs to its own MLflow experiment, named after the project; whichever of `do/register`, `do/tune`, `do/train` or `do/deploy` runs first creates it, and `do/tune` and `do/train` both log there (see [Custom Training](custom-training.md)). When absent, `do/tune` runs normally without a tracking URL — **it is never a hard dependency**.
 
 ---
 
@@ -296,11 +314,21 @@ The `core` module's execution role includes permissions for:
 - **Fine-tuning** — Training Jobs, Model Packages, Hub Contents, MLflow
 - **ECR** — Pull images from the `ml-container-creator` repository
 - **S3** — Read/write to `mlcc-*` and `ml-container-creator-*` prefixed buckets
-- **Secrets Manager** — Read/write secrets with `mlcc/` or `ml-container-creator/` prefix
+- **Secrets Manager** — Read/write secrets with `mlcc/` or `ml-container-creator/` prefix, read `mlcc-hf-token-*`, and `kms:Decrypt` through Secrets Manager for those secrets (see [Secrets](secrets.md#iam-permissions))
 - **CloudWatch Logs** — Create log groups/streams for endpoint logging
 - **SNS** — Publish notifications for async inference completion
 - **Lambda** — Invoke reward functions for RLVR/RLAIF tuning
 - **Service Quotas** — Check instance availability
+
+The `training` module adds a separate HyperPod training role, `mlcc-hp-train-role-<region>`, assumed by `do/train` / `do/tune --backend hp-eks` pods through EKS Pod Identity. The generated project's `IAM_PERMISSIONS.md` lists its permissions.
+
+### Operator (caller) permissions
+
+The permissions above belong to the roles bootstrap creates. The identity that **runs** MLCC (your operator role or CI role) needs its own permissions to bootstrap, build, deploy and tune.
+
+[`MLCC_OPERATOR_POLICY_STATEMENT.json`](MLCC_OPERATOR_POLICY_STATEMENT.json) is the inline policy `MLCCOperatorPolicy`. Today it is used **together with AWS-managed policies** on the operator role: it adds the MLCC-specific statements (scoped S3, bootstrap IAM and `iam:PassRole`, CDK bootstrap SSM and role assumption, EKS, Secrets Manager, Service Quotas, Bedrock, `iam:SimulatePrincipalPolicy` for the training-role check), but it is not a standalone policy and does not cover everything on its own. Least-privilege tightening of the operator role is planned. Two statements, `S3ForJumpStart` and `EC2ForHyperPodVPC`, support paths that are deprecated in v2 (JumpStart model sources and HyperPod cluster provisioning).
+
+Each generated project's `IAM_PERMISSIONS.md` lists the permissions every `do/` script calls.
 
 ---
 
@@ -341,6 +369,35 @@ ml-container-creator bootstrap sync-model-families
 ```
 
 These also run automatically as part of the post-setup chain during initial bootstrap.
+
+---
+
+## All Actions and Flags
+
+`ml-container-creator bootstrap --help` is the authoritative list.
+
+| Action | What it does |
+|---|---|
+| *(none)* | Status + next steps if a profile exists, else getting-started guidance (never provisions) |
+| `add <profile>` / `remove <profile>` | Create a profile (interactive setup + module selection) / remove it (config only) |
+| `add-module <module>` / `remove-module <module>` | Add one module to the active profile / tear one down (`cdk destroy`) |
+| `add-secret <type> <arn>` | Record a Secrets Manager ARN on the profile (`hfToken` or `ngcApiKey`); see [Secrets](secrets.md) |
+| `status [--verify]` | Active profile, per-module state and resources |
+| `use <profile>` / `list` | Switch the active profile / list profiles |
+| `update [--module <names>]` | Re-provision the profile's modules (or only the named ones) |
+| `scan` / `prune` | Discover MCC stacks in the account/region / remove stale profiles |
+| `migrate` | Fix legacy profile naming (previews the changes and asks before writing) |
+| `sync-schemas` / `sync-model-families` | Refresh local schemas / model family definitions |
+
+| Flag | Use |
+|---|---|
+| `--dry-run` | Preview provisioning, removal or update without changing anything |
+| `--with <modules>` | Non-interactive module list (default `core,registry`) |
+| `--module <names>` | `update` only these modules |
+| `--force` | Remove without confirmation |
+| `--force-delete` | On `remove-module eks` / `hyperpod`, also destroy retained roles and buckets |
+| `--skip-teardown` | Forget a module from the profile without a `cdk destroy` (stacks already deleted out-of-band) |
+| `--skip-post-setup` | Skip the post-setup chain (mcp init, sync-architectures, sync-schemas) |
 
 ---
 

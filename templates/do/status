@@ -19,6 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/aws-preflight.sh"
+source "${SCRIPT_DIR}/lib/scale-to-zero.sh"
 
 # ============================================================
 # SageMaker Real-Time Inference Status
@@ -26,6 +27,16 @@ source "${SCRIPT_DIR}/lib/aws-preflight.sh"
 
 # Validate AWS credentials (general runtime error — exit 1, not a contract violation)
 _aws_preflight
+
+# BL236: on a Kubernetes-family target (derived from targets.d), a serving pod
+# stuck in ContainerCreating with a FailedMount from the S3 CSI driver gets its
+# Mountpoint pod's FailedScheduling reason printed (e.g. "Too many pods").
+# Read-only, optional: never fails do/status.
+if [ "$(python3 "${SCRIPT_DIR}/lib/python/target_manifest.py" family "${DEPLOYMENT_TARGET:-}" 2>/dev/null || true)" = "kubernetes" ] \
+    && command -v kubectl >/dev/null 2>&1; then
+    python3 "${SCRIPT_DIR}/lib/python/hyperpod_ops.py" mount-diagnose \
+        --namespace "${HP_NAMESPACE:-default}" --selector "app=${PROJECT_NAME}" >/dev/null || true
+fi
 
 # Check that we have an endpoint to query
 if [ -z "${ENDPOINT_NAME:-}" ]; then
@@ -45,13 +56,20 @@ ENDPOINT_JSON=$(aws sagemaker describe-endpoint \
     exit 1
 }
 
-EP_STATUS=$(echo "${ENDPOINT_JSON}" | grep -o '"EndpointStatus":"[^"]*"' | head -1 | cut -d'"' -f4)
-EP_INSTANCE_TYPE=$(echo "${ENDPOINT_JSON}" | grep -o '"InstanceType":"[^"]*"' | head -1 | cut -d'"' -f4)
-EP_INSTANCE_COUNT=$(echo "${ENDPOINT_JSON}" | grep -o '"CurrentInstanceCount":[0-9]*' | head -1 | cut -d':' -f2)
+# JSON field readers tolerant of the AWS CLI's pretty-printed output
+# ("Key": "value" / "Key": 3). The previous compact-only patterns ("Key":"value")
+# never matched real CLI output, so under `set -o pipefail` do/status exited 1
+# right here. A missing key prints "" and never aborts.
+_json_str() { echo "$1" | grep -o "\"$2\": *\"[^\"]*\"" | head -1 | sed 's/^"[^"]*": *"//; s/"$//' || true; }
+_json_num() { echo "$1" | grep -o "\"$2\": *[0-9][0-9]*" | head -1 | sed 's/^"[^"]*": *//' || true; }
+
+EP_STATUS=$(_json_str "${ENDPOINT_JSON}" EndpointStatus)
+EP_INSTANCE_TYPE=$(_json_str "${ENDPOINT_JSON}" InstanceType)
+EP_INSTANCE_COUNT=$(_json_num "${ENDPOINT_JSON}" CurrentInstanceCount)
 
 # Fallback for instance count if not available
 if [ -z "${EP_INSTANCE_COUNT}" ]; then
-    EP_INSTANCE_COUNT=$(echo "${ENDPOINT_JSON}" | grep -o '"InitialInstanceCount":[0-9]*' | head -1 | cut -d':' -f2)
+    EP_INSTANCE_COUNT=$(_json_num "${ENDPOINT_JSON}" InitialInstanceCount)
 fi
 EP_INSTANCE_COUNT="${EP_INSTANCE_COUNT:-1}"
 
@@ -171,6 +189,25 @@ echo ""
 # ============================================================
 TOTAL_GPU_USED=0
 IC_ROWS=""
+# Wave 10 (R5.3): lowest current copy count across the ICs ("" = none read).
+_STZ_MIN_COPIES=""
+_stz_track_copies() {
+    local _cur="${1%%/*}"
+    case "${_cur}" in ''|*[!0-9]*) return 0 ;; esac
+    if [ -z "${_STZ_MIN_COPIES}" ] || [ "${_cur}" -lt "${_STZ_MIN_COPIES}" ]; then
+        _STZ_MIN_COPIES="${_cur}"
+    fi
+}
+
+# "<current>/<desired>" copy counts from a DescribeInferenceComponent JSON
+# (RuntimeConfig.CurrentCopyCount / DesiredCopyCount); "-" when absent. Uses the
+# whitespace-tolerant _json_num reader defined above.
+_ic_copies() {
+    local _json="$1" _cur _des
+    _cur=$(_json_num "${_json}" CurrentCopyCount)
+    _des=$(_json_num "${_json}" DesiredCopyCount)
+    echo "${_cur:--}/${_des:--}"
+}
 
 if [ -d "${SCRIPT_DIR}/ic" ]; then
     # Multi-IC path: iterate do/ic/*.conf files
@@ -205,17 +242,15 @@ if [ -d "${SCRIPT_DIR}/ic" ]; then
             continue
         }
 
-        ic_status=$(echo "${IC_JSON}" | grep -o '"InferenceComponentStatus":"[^"]*"' | head -1 | cut -d'"' -f4)
+        ic_status=$(_json_str "${IC_JSON}" InferenceComponentStatus)
         ic_status="${ic_status:-Unknown}"
 
-        ic_gpu_count=$(echo "${IC_JSON}" | grep -o '"NumberOfAcceleratorDevicesRequired":[0-9]*' | head -1 | cut -d':' -f2)
+        ic_gpu_count=$(_json_num "${IC_JSON}" NumberOfAcceleratorDevicesRequired)
         ic_gpu_count="${ic_gpu_count:-0}"
 
-        ic_copy_count=$(echo "${IC_JSON}" | grep -o '"DesiredCopyCount":[0-9]*' | head -1 | cut -d':' -f2)
-        if [ -z "${ic_copy_count}" ]; then
-            ic_copy_count=$(echo "${IC_JSON}" | grep -o '"CurrentCopyCount":[0-9]*' | head -1 | cut -d':' -f2)
-        fi
-        ic_copy_count="${ic_copy_count:-1}"
+        # Wave 9 R12.3: show Current AND Desired copies (Desired alone hid scale lag).
+        ic_copy_count=$(_ic_copies "${IC_JSON}")
+        _stz_track_copies "${ic_copy_count}"
 
         TOTAL_GPU_USED=$(( TOTAL_GPU_USED + ic_gpu_count ))
 
@@ -224,8 +259,10 @@ if [ -d "${SCRIPT_DIR}/ic" ]; then
 
     if [ "${HAS_ICS}" = true ]; then
         echo "Inference Components:"
-        printf "%-18s %-12s %-6s %-6s\n" "NAME" "STATUS" "GPUs" "COPIES"
-        echo -e "${IC_ROWS}" | head -n -1
+        printf "%-18s %-12s %-6s %-6s\n" "NAME" "STATUS" "GPUs" "COPIES (current/desired)"
+        # printf %b: the rows without the trailing blank line (GNU-only `head -n -1`
+        # failed on macOS / BSD head and aborted do/status under set -e).
+        printf '%b' "${IC_ROWS}"
         echo "                                    ─────"
         if [ -n "${TOTAL_GPUS}" ]; then
             printf "Total GPU usage:                    %s/%s\n" "${TOTAL_GPU_USED}" "${TOTAL_GPUS}"
@@ -247,28 +284,26 @@ else
             --inference-component-name "${ic_name}" \
             --region "${AWS_REGION}" 2>/dev/null) || {
             echo "Inference Components:"
-            printf "%-18s %-12s %-6s %-6s\n" "NAME" "STATUS" "GPUs" "COPIES"
+            printf "%-18s %-12s %-6s %-6s\n" "NAME" "STATUS" "GPUs" "COPIES (current/desired)"
             printf "%-18s %-12s %-6s %-6s\n" "default" "Not Found" "-" "-"
             echo ""
             exit 0
         }
 
-        ic_status=$(echo "${IC_JSON}" | grep -o '"InferenceComponentStatus":"[^"]*"' | head -1 | cut -d'"' -f4)
+        ic_status=$(_json_str "${IC_JSON}" InferenceComponentStatus)
         ic_status="${ic_status:-Unknown}"
 
-        ic_gpu_count=$(echo "${IC_JSON}" | grep -o '"NumberOfAcceleratorDevicesRequired":[0-9]*' | head -1 | cut -d':' -f2)
+        ic_gpu_count=$(_json_num "${IC_JSON}" NumberOfAcceleratorDevicesRequired)
         ic_gpu_count="${ic_gpu_count:-0}"
 
-        ic_copy_count=$(echo "${IC_JSON}" | grep -o '"DesiredCopyCount":[0-9]*' | head -1 | cut -d':' -f2)
-        if [ -z "${ic_copy_count}" ]; then
-            ic_copy_count=$(echo "${IC_JSON}" | grep -o '"CurrentCopyCount":[0-9]*' | head -1 | cut -d':' -f2)
-        fi
-        ic_copy_count="${ic_copy_count:-1}"
+        # Wave 9 R12.3: show Current AND Desired copies (Desired alone hid scale lag).
+        ic_copy_count=$(_ic_copies "${IC_JSON}")
+        _stz_track_copies "${ic_copy_count}"
 
         TOTAL_GPU_USED=$(( TOTAL_GPU_USED + ic_gpu_count ))
 
         echo "Inference Components:"
-        printf "%-18s %-12s %-6s %-6s\n" "NAME" "STATUS" "GPUs" "COPIES"
+        printf "%-18s %-12s %-6s %-6s\n" "NAME" "STATUS" "GPUs" "COPIES (current/desired)"
         printf "%-18s %-12s %-6s %-6s\n" "default" "${ic_status}" "${ic_gpu_count}" "${ic_copy_count}"
         echo "                                    ─────"
         if [ -n "${TOTAL_GPUS}" ]; then
@@ -280,6 +315,34 @@ else
 fi
 
 echo ""
+
+# ============================================================
+# Scale-to-zero (Wave 10, ADR-014 R5.3)
+# ============================================================
+# Derived from the descriptor (scale_to_zero.enabled) + do/config SCALE_TO_ZERO;
+# min/max read live from the scalable target (read-only). At 0 copies the plain
+# warning prints: requests to this endpoint fail until a copy is ready.
+if stz_active "${DEPLOYMENT_TARGET:-}"; then
+    stz_status_line "${_STZ_MIN_COPIES}"
+    if [ "${_STZ_MIN_COPIES}" = "0" ]; then
+        stz_warning "${DEPLOYMENT_TARGET}"
+    fi
+    echo ""
+fi
+
+# ============================================================
+# Native dashboard pointer (Wave 9 R12.2, one line)
+# ============================================================
+# Derived from targets.d/<target>/manifest.json observability.dashboard; the
+# metrics themselves are do/metrics' job (OQ-9.9). Optional probe: a failure
+# here must never fail do/status, so stderr is dropped and the line is skipped.
+_STATUS_DASHBOARD=$(python3 "${SCRIPT_DIR}/lib/python/endpoint_metrics.py" dashboard \
+    --target "${DEPLOYMENT_TARGET:-realtime-inference}" --region "${AWS_REGION}" \
+    --endpoint-name "${ENDPOINT_NAME}" --cluster "${HP_CLUSTER_NAME:-}" 2>/dev/null) || _STATUS_DASHBOARD=""
+if [ -n "${_STATUS_DASHBOARD}" ]; then
+    echo "${_STATUS_DASHBOARD} — readout: ./do/metrics"
+    echo ""
+fi
 
 <% if (typeof enableLora !== 'undefined' && enableLora) { %>
 # ============================================================
@@ -332,7 +395,7 @@ if [ "${ENABLE_LORA:-}" = "true" ]; then
             echo "  No adapters deployed"
         else
             printf '%-14s%-12s%s\n' "NAME" "STATUS" "WEIGHTS"
-            echo -e "${ADAPTER_ROWS}" | head -n -1
+            printf '%b' "${ADAPTER_ROWS}"
         fi
     else
         echo "Adapters (LoRA):  [max: <%= maxLoras %> GPU / 70 CPU]"

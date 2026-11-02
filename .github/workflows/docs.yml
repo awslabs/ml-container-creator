@@ -40,7 +40,7 @@ jobs:
           
       - name: Install dependencies
         run: |
-          pip install mkdocs-material pymdown-extensions
+          pip install "mkdocs>=1.6,<2" mkdocs-material pymdown-extensions
           
       - name: Build docs
         run: mkdocs build --strict

@@ -37,19 +37,25 @@ export async function selectModules(alreadyProvisioned = [], promptFn) {
     const modules = manifest.modules;
 
     // Build choices for the multi-select
-    const choices = Object.entries(modules).map(([name, config]) => {
-        const isCore = config.required;
-        const isProvisioned = alreadyProvisioned.includes(name);
-        const costLabel = config.estimatedMonthlyCost ? ` (~${config.estimatedMonthlyCost}/mo)` : '';
-        const statusLabel = isProvisioned ? ' [provisioned]' : '';
+    const choices = Object.entries(modules)
+        // Hide deprecated modules from NEW selection unless already provisioned (an
+        // existing install still needs to see them to remove them). Deprecated modules
+        // can no longer be freshly selected. (BL153 — hyperpod cluster provisioning.)
+        .filter(([name, config]) => !config.deprecated || alreadyProvisioned.includes(name))
+        .map(([name, config]) => {
+            const isCore = config.required;
+            const isProvisioned = alreadyProvisioned.includes(name);
+            const costLabel = config.estimatedMonthlyCost ? ` (~${config.estimatedMonthlyCost}/mo)` : '';
+            const statusLabel = isProvisioned ? ' [provisioned]' : '';
+            const deprecatedLabel = config.deprecated ? ' [DEPRECATED]' : '';
 
-        return {
-            name: `${config.displayName} — ${config.description}${costLabel}${statusLabel}`,
-            value: name,
-            checked: isCore || isProvisioned,
-            disabled: isCore ? '(required)' : false
-        };
-    });
+            return {
+                name: `${config.displayName} — ${config.description}${costLabel}${statusLabel}${deprecatedLabel}`,
+                value: name,
+                checked: isCore || (isProvisioned && !config.deprecated),
+                disabled: isCore ? '(required)' : (config.deprecated ? '(deprecated)' : false)
+            };
+        });
 
     const answers = await promptFn([{
         type: 'checkbox',

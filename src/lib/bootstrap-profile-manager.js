@@ -135,6 +135,12 @@ export default class BootstrapProfileManager {
                         const sIcon = r.ok ? '  ✓' : '  ✗';
                         moduleLines.push(`     ${sIcon} ${r.stackName} — ${r.status}`);
                     }
+                    // Per-layer recovery hint (BL143): name the specific failed layer(s)
+                    // so the user recovers the right thing, not the whole module.
+                    if (!allOk) {
+                        const broken = stackResults.filter(r => !r.ok).map(r => r.stackSuffix);
+                        moduleLines.push(`     ↳ needs recovery: ${broken.join(', ')} layer${broken.length > 1 ? 's' : ''}`);
+                    }
                 } else {
                     // Single-stack module
                     const suffix = (mod && mod.stackNameSuffix) || moduleName;

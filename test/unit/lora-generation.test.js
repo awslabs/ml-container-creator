@@ -54,8 +54,11 @@ function renderDockerfile(overrides = {}) {
         orderedEnvVars: [],
         includeSampleModel: false,
         enableLora: false,
-        maxLoras: 30,
-        maxLoraRank: 64,
+        // Memory-safe LoRA defaults (schema parameter-schema-v2.json): max_loras=4,
+        // max_lora_rank=16. vLLM's upstream 30/64 pre-allocates a large LoRA buffer
+        // that OOMs big models on tight VRAM (see capability-matrix remediation).
+        maxLoras: 4,
+        maxLoraRank: 16,
         ...overrides
     };
     return ejs.render(DOCKERFILE_TEMPLATE, vars);
@@ -71,7 +74,7 @@ function renderServingProperties(overrides = {}) {
         chatTemplate: '',
         orderedEnvVars: [],
         enableLora: false,
-        maxLoras: 30,
+        maxLoras: 4,
         ...overrides
     };
     return ejs.render(SERVING_PROPS_TEMPLATE, vars);
@@ -88,9 +91,7 @@ describe('Feature: lora-adapter-lifecycle — Generation-time LoRA configuration
         it('sets VLLM_ENABLE_LORA=true when enableLora is true', () => {
             const rendered = renderDockerfile({
                 modelServer: 'vllm',
-                enableLora: true,
-                maxLoras: 30,
-                maxLoraRank: 64
+                enableLora: true
             });
             assert.ok(
                 rendered.includes('ENV VLLM_ENABLE_LORA=true'),
@@ -98,29 +99,46 @@ describe('Feature: lora-adapter-lifecycle — Generation-time LoRA configuration
             );
         });
 
-        it('sets VLLM_MAX_LORAS to default 30', () => {
+        it('sets VLLM_MAX_LORAS to the memory-safe default (4)', () => {
+            // No maxLoras override → the schema default (4) flows through the helper.
             const rendered = renderDockerfile({
                 modelServer: 'vllm',
-                enableLora: true,
-                maxLoras: 30,
-                maxLoraRank: 64
+                enableLora: true
             });
             assert.ok(
-                rendered.includes('ENV VLLM_MAX_LORAS=30'),
-                'Must set VLLM_MAX_LORAS=30'
+                rendered.includes('ENV VLLM_MAX_LORAS=4'),
+                'Must set VLLM_MAX_LORAS to the memory-safe default 4'
+            );
+            assert.ok(
+                !rendered.includes('ENV VLLM_MAX_LORAS=30'),
+                'Must NOT bake in the OOM-prone upstream default 30'
             );
         });
 
-        it('sets VLLM_MAX_LORA_RANK to default 64', () => {
+        it('renders an explicit maxLoras override verbatim', () => {
             const rendered = renderDockerfile({
                 modelServer: 'vllm',
                 enableLora: true,
-                maxLoras: 30,
-                maxLoraRank: 64
+                maxLoras: 8
             });
             assert.ok(
-                rendered.includes('ENV VLLM_MAX_LORA_RANK=64'),
-                'Must set VLLM_MAX_LORA_RANK=64'
+                rendered.includes('ENV VLLM_MAX_LORAS=8'),
+                'An explicit maxLoras must render verbatim'
+            );
+        });
+
+        it('sets VLLM_MAX_LORA_RANK to the memory-safe default (16)', () => {
+            const rendered = renderDockerfile({
+                modelServer: 'vllm',
+                enableLora: true
+            });
+            assert.ok(
+                rendered.includes('ENV VLLM_MAX_LORA_RANK=16'),
+                'Must set VLLM_MAX_LORA_RANK to the memory-safe default 16'
+            );
+            assert.ok(
+                !rendered.includes('ENV VLLM_MAX_LORA_RANK=64'),
+                'Must NOT bake in the OOM-prone upstream default 64'
             );
         });
 
@@ -128,8 +146,8 @@ describe('Feature: lora-adapter-lifecycle — Generation-time LoRA configuration
             const rendered = renderDockerfile({
                 modelServer: 'vllm',
                 enableLora: true,
-                maxLoras: 30,
-                maxLoraRank: 64
+                maxLoras: 4,
+                maxLoraRank: 16
             });
             assert.ok(
                 rendered.includes('# LoRA adapter serving configuration'),

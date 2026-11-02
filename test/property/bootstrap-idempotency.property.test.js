@@ -176,61 +176,7 @@ describe('Feature: bootstrap-shared-infra, Property 6: Idempotency messaging cor
         ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
-    /**
-     * Validates: Requirements 15.4
-     *
-     * S3 bucket setup: when bucket exists, output contains "reused";
-     * when bucket does not exist, output contains "created".
-     */
-    it('S3 bucket setup displays "reused" when bucket exists and "created" when it does not', async function () {
-        this.timeout(PROPERTY_CONFIG.timeout);
-
-        await fc.assert(fc.asyncProperty(
-            fc.boolean(),
-            async (exists) => {
-                const handler = createMockHandler();
-
-                // Mock _resourceExists to return the generated boolean
-                handler._resourceExists = () => exists;
-
-                // Mock _execAws to return appropriate data
-                handler._execAws = () => ({});
-
-                // Mock _buildResourceTags to return valid tags
-                handler._buildResourceTags = () => [
-                    { Key: 'mlcc:managed-by', Value: 'ml-container-creator' },
-                    { Key: 'mlcc:created-by', Value: 'bootstrap' },
-                    { Key: 'mlcc:version', Value: '1.0.0' }
-                ];
-
-                const bucketName = 'ml-container-creator-async-us-east-1-123456789012';
-
-                const logs = await captureConsoleLog(async () => {
-                    await handler._createS3Bucket(bucketName, handler._buildResourceTags());
-                });
-
-                const output = logs.join('\n').toLowerCase();
-
-                if (exists) {
-                    assert.ok(
-                        output.includes('reused'),
-                        `When S3 bucket exists=true, output should contain "reused" but got: ${logs.join('\n')}`
-                    );
-                    assert.ok(
-                        !output.includes('— created'),
-                        `When S3 bucket exists=true, output should NOT contain "— created" but got: ${logs.join('\n')}`
-                    );
-                } else {
-                    assert.ok(
-                        output.includes('created'),
-                        `When S3 bucket exists=false, output should contain "created" but got: ${logs.join('\n')}`
-                    );
-                    assert.ok(
-                        !output.includes('reused'),
-                        `When S3 bucket exists=false, output should NOT contain "reused" but got: ${logs.join('\n')}`
-                    );
-                }
-            }
-        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
-    });
+    // (The S3 bucket "reused/created" property was removed with _createS3Bucket —
+    // bucket consolidation R1.6: bootstrap no longer creates buckets imperatively;
+    // every MLCC bucket is a CloudFormation resource declared in its stack.)
 });

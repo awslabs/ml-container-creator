@@ -43,7 +43,8 @@ const SERVERS_DIR = join(ROOT, 'servers');
 // Paths are relative to the repo root. Keep this list minimal and justified —
 // the meta-guard test cross-checks it so it can't drift.
 export const NETWORK_DEPENDENT = [
-    'servers/model-picker/test.js'
+    'servers/model-picker/test.js',
+    'servers/instance-sizer/test/hf-discovery.network.test.js'
 ];
 
 /**

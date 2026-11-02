@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "e2e-status": { "command": "node", "args": ["servers/e2e-status/index.js"] },
+    "agent-knowledge": { "command": "node", "args": ["servers/agent-knowledge/index.js"] }
+  }
+}

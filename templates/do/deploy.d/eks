@@ -47,6 +47,7 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/lib/profile.sh"
 source "${SCRIPT_DIR}/lib/aws-preflight.sh"
+source "${SCRIPT_DIR}/lib/eks-contract.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
 export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
@@ -161,6 +162,19 @@ if ! kubectl cluster-info &> /dev/null; then
 fi
 echo "✅ Connected to cluster"
 
+# ── Cluster-contract preflight (BL156, ADR-012) ───────────────────────────────
+# Detect + validate + fail-fast on the CLUSTER-PROVIDED capabilities this deploy
+# needs (pod identity for an S3-staged model; the CSI driver + PV/StorageClass
+# backing when EKS_MODEL_MOUNT selects a mount), BEFORE the ServiceAccount block
+# and the manifest apply. Runs after the UNCONDITIONAL connectivity verify so
+# kubectl is confirmed working for BOTH a kubeconfig-updated cluster and a BYO
+# ambient-context deploy. Read-only (describe/get/list); the ONE write — the
+# inference ServiceAccount below — stays in this driver, not the lib. The gate
+# uses STAGED_MODEL_PATH (available now from do/config) as the S3 signal;
+# HP_MODEL_SOURCE is resolved later and is NOT a gate signal.
+export EKS_INFERENCE_SA="mlcc-eks-inference-sa"
+_eks_contract_preflight
+
 # ── Ensure namespace + HuggingFace token secret ───────────────────────────────
 echo "📁 Ensuring namespace exists: ${HP_NAMESPACE}"
 if ! kubectl create namespace "${HP_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - 2>&1; then
@@ -188,17 +202,19 @@ fi
 # weights with its own role and the pod never calls S3 — a plain-EKS pod must
 # download the model itself and therefore needs its OWN IRSA role.
 #
-# This driver creates the inference ServiceAccount `mlcc-eks-inference-sa`, and
-# the Deployment runs under it (serviceAccountName). The pod assumes an IRSA role
-# with S3 read on the mlcc-core models bucket, resolved in this order:
+# This driver creates the inference ServiceAccount `mlcc-eks-inference-sa` — the
+# ONE write a plain-EKS deploy performs (consume-don't-provision, ADR-012: MLCC
+# owns its own namespaced SA, nothing else) — and the Deployment runs under it
+# (serviceAccountName). The pod assumes an IRSA role with S3 read on the
+# mlcc-core models bucket, resolved in this order:
 #   1. EKS_INFERENCE_ROLE_ARN  — explicit, set in do/config, OR
 #   2. _PROFILE_eksInferenceRoleArn — denormalized from the active bootstrap
-#      profile once a dedicated `eks` bootstrap module provisions the role (v1.10;
-#      see .kiro/specs). Until then, create the role yourself (e.g. `eksctl create
-#      iamserviceaccount` or the console) with a trust policy for this cluster's
-#      OIDC provider + SA `mlcc-eks-inference-sa`, and set EKS_INFERENCE_ROLE_ARN.
-# A HuggingFace-source deploy needs no role; only an S3-staged model (do/stage)
-# requires it.
+#      profile once the `eks` bootstrap module provisions the role.
+# The cluster-contract preflight above already VALIDATED (and failed fast on) the
+# identity requirement for an S3-staged model — a resolvable role AND IRSA/Pod
+# Identity — so reaching here means either an HF-source deploy (no role needed)
+# or a validated role. This block only WIRES the SA (create + IRSA annotation),
+# it no longer re-checks or warns about identity (that moved into the gate).
 EKS_INFERENCE_SA="mlcc-eks-inference-sa"
 EKS_INFERENCE_ROLE_ARN="${EKS_INFERENCE_ROLE_ARN:-${_PROFILE_eksInferenceRoleArn:-}}"
 export EKS_INFERENCE_SA
@@ -212,6 +228,8 @@ fi
 
 if [ -n "${EKS_INFERENCE_ROLE_ARN}" ]; then
     # Annotate for IRSA. --overwrite so a re-deploy updates a changed role ARN.
+    # (Harmless for a Pod Identity cluster, where the association — not the
+    # annotation — grants the identity; the annotation is simply unused there.)
     if kubectl annotate serviceaccount "${EKS_INFERENCE_SA}" \
         --namespace "${HP_NAMESPACE}" \
         "eks.amazonaws.com/role-arn=${EKS_INFERENCE_ROLE_ARN}" \
@@ -221,22 +239,7 @@ if [ -n "${EKS_INFERENCE_ROLE_ARN}" ]; then
         echo "⚠️  Warning: could not annotate ServiceAccount with the IRSA role"
     fi
 else
-    # No role ARN resolved — the pod will run without AWS credentials. That is
-    # FINE for a HuggingFace-source deploy, but an S3-staged model will fail to
-    # download. Warn clearly rather than fail now (HF deploys are valid).
-    if [ "${HP_MODEL_SOURCE:-}" = "s3" ] || [ -n "${STAGED_MODEL_PATH:-}" ]; then
-        echo "⚠️  No EKS inference IRSA role set — but this deploy uses an S3-staged model."
-        echo "    The pod will fail to download it ('Unable to locate credentials')."
-        echo "    Create an IRSA role (trust: this cluster's OIDC + SA 'mlcc-eks-inference-sa';"
-        echo "    permissions: s3:GetObject/ListBucket on the mlcc-core models bucket), e.g.:"
-        echo "      eksctl create iamserviceaccount --cluster <eks-cluster> --namespace ${HP_NAMESPACE} \\"
-        echo "        --name mlcc-eks-inference-sa --attach-policy-arn <s3-read-policy> --approve"
-        echo "    then set EKS_INFERENCE_ROLE_ARN in do/config (or re-run once the v1.10 eks"
-        echo "    bootstrap module provisions it automatically) and redeploy."
-    else
-        echo "ℹ️  No EKS inference IRSA role set — fine for this HuggingFace-source deploy"
-        echo "    (the pod pulls the model from HuggingFace, no AWS credentials needed)."
-    fi
+    echo "ℹ️  No EKS inference IRSA role set — HuggingFace-source deploy (no AWS credentials needed)."
 fi
 
 # ── Auto-resolve GPU count / CPU / memory from the instance type ──────────────
@@ -312,6 +315,14 @@ echo "   Instance type: ${HP_INSTANCE_TYPE:-<unset>}"
 echo "   GPU count (auto-detected): ${HP_GPU_COUNT}"
 echo "   CPU request: ${HP_CPU_REQUEST}  Memory request: ${HP_MEM_REQUEST}"
 
+# ── Ephemeral-storage capacity fail-fast (BL155, emptyDir path) ───────────────
+# Runs AFTER HP_GPU_COUNT is resolved from the instance type (so the model-size
+# proxy is accurate) and BEFORE the render/apply. Only the emptyDir path draws
+# from the node root volume; on the hostPath/CSI-mount path this is a no-op. Hard
+# fails (exit 4) only when the LARGEST GPU node cannot fit the model; an
+# indeterminate node list warns and proceeds (OQ-3, fail-open).
+_eks_storage_capacity_preflight
+
 # ── Resolve model source env ──────────────────────────────────────────────────
 # The BYOC entrypoint (code/serve) reads MODEL_SOURCE + engine env. For a plain
 # EKS deployment there is NO operator to pre-download/mount weights (unlike
@@ -360,12 +371,54 @@ _EKS_CAP_MAP="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" capability_
 # did not set (e.g. SGLang needs max_lora_rank + lora_target_modules for a
 # no-initial-adapters start); vLLM requires no companions and stays bare. Users
 # override any companion via Tier-2 SGLANG_*/VLLM_* pass-through.
+# ── LoRA sizing (Wave 6.1 R2, BL188) ───────────────────────────────────────────
+# derive-dont-hardcode: the LoRA sizing defaults (e.g. vLLM lora_max=4,
+# lora_max_rank=16) are each capability's `default` in serve.d/<engine>/
+# manifest.json — the single source the generator, Dockerfile and schema also
+# derive from (drift-tested). max_lora_rank is then DERIVED by the shared
+# right_sizing.effective_lora_rank: snap_up(max(recorded tune adapters'
+# adapter_config.json r / rank_pattern, TUNE_LORA_RANK_*, manifest default),
+# the engine's allowed set). Tuning techniques drive the rank; an explicit
+# <engine>_MAX_LORA_RANK wins (with a warning when below what recorded adapters
+# need). The LoRA buffer must fit 10% of the post-weights GPU memory; an
+# auto-raise over that cap refuses the deploy naming the adapters (never a
+# silent cap). vLLM's own defaults are max_loras=1 / max_lora_rank=16.
+_EKS_CAP_DEFAULTS="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" capability_defaults "${_EKS_ENGINE}" 2>/dev/null || echo '{}')"
+_EKS_EFFECTIVE_RANK=""
+if [ "${HP_LORA_ENABLED:-false}" = "true" ]; then
+    _EKS_RANK_RC=0
+    # Wave 8: the do/deploy preflight already ran `right_sizing.py check` and
+    # printed every finding (incl. these), so ask only for the rank VALUE
+    # (--quiet) instead of re-reporting. A block is still honored here (a
+    # driver sourced without the preflight), and --ignore-sizing (OQ-8.7,
+    # MLCC_IGNORE_SIZING=1 from do/deploy) overrides it like every sizing block.
+    _EKS_RANK_QUIET=""
+    [ "${MLCC_SIZING_PREFLIGHT_DONE:-0}" = "1" ] && _EKS_RANK_QUIET="--quiet"
+    _EKS_RANK_JSON="$(python3 "${SCRIPT_DIR}/lib/python/right_sizing.py" effective-lora-rank ${_EKS_RANK_QUIET})" || _EKS_RANK_RC=$?
+    if [ "${_EKS_RANK_RC}" -eq 2 ]; then
+        if [ "${MLCC_IGNORE_SIZING:-0}" = "1" ]; then
+            echo "⚠️  --ignore-sizing: proceeding despite the LoRA right-sizing block." >&2
+        else
+            echo "❌ LoRA right-sizing refused this deploy (see the finding above)." >&2
+            echo "   Nothing was applied; the running deployment is unchanged." >&2
+            echo "   Override (at your own risk): ./do/deploy --target eks --ignore-sizing" >&2
+            exit 1
+        fi
+    fi
+    _EKS_EFFECTIVE_RANK="$(printf '%s' "${_EKS_RANK_JSON}" | python3 -c 'import json,sys; r=json.load(sys.stdin).get("rank"); print("" if r is None else r)' 2>/dev/null || echo "")"
+    if [ -n "${_EKS_EFFECTIVE_RANK}" ]; then
+        echo "   LoRA max_lora_rank: ${_EKS_EFFECTIVE_RANK} (derived from recorded tune adapters + engine default; explicit override wins)"
+    else
+        echo "   ⚠️  Could not derive max_lora_rank (right_sizing.py unavailable); using the engine manifest default." >&2
+    fi
+fi
 _EKS_TIER1_VALUES=$(
     MODEL_ID="${HP_MODEL_ID:-${MODEL_NAME:-}}" \
     TP_DEGREE="${VLLM_TENSOR_PARALLEL_SIZE:-${HP_GPU_COUNT}}" \
     QUANT="${VLLM_QUANTIZATION:-}" \
     LORA_ON="$([ "${HP_LORA_ENABLED:-false}" = "true" ] && echo true || echo false)" \
-    LORA_MAX_RANK="${VLLM_MAX_LORA_RANK:-}" \
+    LORA_MAX_RANK="${_EKS_EFFECTIVE_RANK:-${VLLM_MAX_LORA_RANK:-}}" \
+    CAP_DEFAULTS="${_EKS_CAP_DEFAULTS}" \
     LORA_MAX="${VLLM_MAX_LORAS:-}" \
     LORA_TARGET_MODULES="${VLLM_LORA_TARGET_MODULES:-}" \
     CAP_MAP="${_EKS_CAP_MAP}" \
@@ -389,29 +442,28 @@ if os.environ.get("LORA_ON") == "true":
     for k, val in user.items():
         if val:
             v[k] = val
-    # MLCC pure-dynamic LoRA defaults, keyed by CAPABILITY (not engine name).
-    # lora_max=4 / lora_max_rank=16 are memory-safe sizing defaults: vLLM's own
-    # defaults (max_loras=30, max_lora_rank=64) pre-allocate a large LoRA buffer
-    # that OOMs big models on tight VRAM (validated remediation in the capability
-    # matrix: "reduce max_loras 30→4, max_lora_rank 64→16"). 4 covers 2–3 adapters
-    # plus hot-swap headroom; override via VLLM_MAX_LORAS / VLLM_MAX_LORA_RANK.
-    MLCC_LORA_DEFAULTS = {"lora_max": "4", "lora_max_rank": "16", "lora_target_modules": "all"}
+    # LoRA sizing/companion defaults, keyed by CAPABILITY (not engine name) and
+    # READ from the active engine's manifest (capability_map `default`, passed in
+    # as CAP_DEFAULTS) — never a literal here. max_lora_rank arrives already
+    # derived (LORA_MAX_RANK = right_sizing.effective_lora_rank). Fill a default
+    # for every capability the ACTIVE engine DECLARES (not only ones gated as
+    # "required"): vLLM gets lora_max; SGLang (no lora_max) gets its
+    # lora_target_modules companion. Explicit user values (above) always win.
     try:
         caps = json.loads(os.environ.get("CAP_MAP") or "{}")
-    except Exception:
+    except ValueError:
         caps = {}
+    try:
+        cap_defaults = json.loads(os.environ.get("CAP_DEFAULTS") or "{}")
+    except ValueError:
+        cap_defaults = {}
     lora_decl = caps.get("lora_enable") or {}
-    # Fill a default for every sizing/companion capability the ACTIVE engine
-    # DECLARES in its capability_map (not only ones gated as "required"): a plugin
-    # that declares lora_max gets the memory-safe count; one that doesn't (e.g.
-    # SGLang) silently skips it. Each manifest maps the capability to its own env
-    # suffix (vLLM lora_max→MAX_LORAS), so this is the per-engine translation.
     declared = set(k for k in caps.keys())
     for group in (lora_decl.get("requiresAnyOf") or [lora_decl.get("requires") or []]):
         declared.update(group)
-    for comp, default in MLCC_LORA_DEFAULTS.items():
+    for comp, default in cap_defaults.items():
         if comp in declared and not v.get(comp):
-            v[comp] = default
+            v[comp] = str(default)
 print(json.dumps(v))
 _PYEOF
 )

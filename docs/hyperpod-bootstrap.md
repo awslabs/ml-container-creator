@@ -1,17 +1,41 @@
 # HyperPod Bootstrap Module
 
-The `hyperpod-cluster` bootstrap module provisions a complete SageMaker HyperPod EKS
-environment as three CDK stacks deployed in sequence.
+!!! danger "DEPRECATED (v2.0.0) — HyperPod cluster provisioning is parked pending a dedicated spike"
+    The `hyperpod` bootstrap module (HyperPod **cluster provisioning**) is **deprecated** and
+    can no longer be freshly provisioned (`bootstrap add-module hyperpod` refuses; it is hidden
+    from the interactive module picker). A live sim-account rehearsal established that MLCC's
+    cluster-creation path does **not** enable inference at `CreateCluster` time — the resulting
+    cluster has no inference capability, so the inference operator can register but never creates
+    a SageMaker endpoint, and model deploys never complete. The root cause lives in AWS's
+    compiled provisioning Lambda and cannot be reliably reconstructed by MLCC's hand-assembled
+    install. Full forensic record: [EKS/HyperPod migration findings](architecture/eks-hyperpod-migration.md).
+
+    **What this means for you:**
+
+    - **Provision a HyperPod cluster via the AWS SageMaker console** ("Create HyperPod cluster"
+      → Quick Install, which enables inference correctly) **or the published CloudFormation
+      templates** (`aws-sagemaker-hyperpod-cluster-setup-<region>-prod`). Do not use
+      `bootstrap add-module hyperpod` to create the cluster.
+    - **The `hyperpod-eks` DEPLOY target still works.** Once you have a correctly-provisioned
+      cluster, `do/deploy --target hyperpod-eks` (and `do/benchmark`, `do/optimize`, the
+      cluster picker, etc.) are unaffected and fully supported.
+    - **Existing provisioned installs** keep working and can still be torn down with
+      `remove-module hyperpod`.
+    - A dedicated spike (BL153) will decide the HP-native provisioning path (self-provisioning
+      module vs. documented console/CFT route). The sections below are retained as reference.
+
+The `hyperpod` bootstrap module is layered on the separate `eks` module (it depends on
+`eks`). The EKS cluster (VPC, control plane, IAM roles, add-ons) is the `eks` module's
+`eks-cluster` stack; the `hyperpod` module itself deploys two CDK stacks in sequence. (The
+pre-v2 combined module was named `hyperpod-cluster` and deployed all three.)
 
 ## Overview
 
-When you run `bootstrap add-module hyperpod`, the module deploys:
-
-| Stack | CDK Stack Name | What it provisions |
-|-------|---------------|-------------------|
-| 1. EKS Cluster | `mlcc-<profile>-eks-cluster` | VPC, EKS control plane, IAM roles, dependency add-ons |
-| 2. HyperPod Cluster | `mlcc-<profile>-hyperpod-cluster` | SageMaker HyperPod cluster (0-instance) |
-| 3. Inference Operator | `mlcc-<profile>-inference-operator` | `amazon-sagemaker-hyperpod-inference` EKS add-on + TLS bucket |
+| Stack | Module | CDK Stack Name | What it provisions |
+|-------|--------|---------------|-------------------|
+| EKS Cluster | `eks` | `mlcc-<profile>-eks-cluster` | VPC, EKS control plane, IAM roles, dependency add-ons |
+| HyperPod Cluster | `hyperpod` | `mlcc-<profile>-hyperpod-cluster` | SageMaker HyperPod cluster with the 2 × `ml.c5.4xlarge` `default-worker` floor |
+| Inference Operator | `hyperpod` | `mlcc-<profile>-inference-operator` | `amazon-sagemaker-hyperpod-inference` EKS add-on (CDK-owned) + TLS bucket |
 
 **Estimated creation time:** ~20–35 minutes (EKS cluster ~10 min + HyperPod ~10–20 min)
 
@@ -28,34 +52,41 @@ When you run `bootstrap add-module hyperpod`, the module deploys:
 
 ## Quick Start
 
+!!! danger "`add-module hyperpod` is deprecated"
+    The provisioning command below no longer works (the module is deprecated — see the banner
+    at the top of this page). Provision your HyperPod cluster via the AWS SageMaker console or
+    the published CFT, then skip straight to generate + deploy against it. The deploy half of
+    this flow is unchanged.
+
 ```bash
-# Add the HyperPod module to an existing bootstrap profile
-ml-container-creator bootstrap add-module hyperpod-cluster
+# ⚠️ DEPRECATED — provisioning via MLCC is parked (BL153). Create the cluster via the
+#    AWS SageMaker console (Quick Install) or the published CloudFormation templates instead.
+#    ml-container-creator bootstrap add-module hyperpod      # <-- refuses; deprecated
 
 # Check status
 ml-container-creator bootstrap status
 
-# Generate a project targeting HyperPod
-ml-container-creator generate --deployment-target hyperpod-eks
+# Generate a project (the hyperpod-eks deploy target is NOT deprecated; it is chosen at deploy time)
+ml-container-creator my-project --deployment-config=transformers-vllm --model-name=<hf-id> --skip-prompts
 
-# Deploy (after build + push)
-do/build && do/push && do/deploy
+# Deploy (after build + push) against a correctly-provisioned cluster
+./do/build && ./do/push && ./do/deploy --target hyperpod-eks --cluster-name <cluster> --namespace <ns>
 ```
 
 ## Cost
 
 | Component | Monthly Cost |
 |-----------|-------------|
-| EKS control plane | ~$73 |
-| NAT gateway | ~$32 |
-| Compute (GPU nodes) | Billed per node-hour when scaled up |
-| HyperPod cluster (0-instance) | $0 at rest |
+| EKS control plane (`eks` module) | ~$73 |
+| NAT gateway (`eks` module) | ~$32 |
+| HyperPod `default-worker` floor (2 × `ml.c5.4xlarge`, billed 24/7) | ~$1,300 (the module manifest's estimate; confirm current rates on the SageMaker pricing page) |
+| GPU serving instance groups | Billed per node-hour only while attached |
 
-**Total at rest:** ~$105/mo (no compute until you scale up)
+**Total at rest:** roughly $1,400/mo while the module is provisioned. Remove the module when idle.
 
 ## What Gets Provisioned
 
-### Stack 1: EKS Cluster (`MlccEksClusterStack`)
+### Stack 1: EKS Cluster (`MlccEksClusterStack`, `eks` module)
 
 - **VPC**: 2 AZs, public + private subnets, NAT gateway, S3 endpoint
 - **EKS Cluster**: K8s 1.31, `API_AND_CONFIG_MAP` auth mode, OIDC provider
@@ -123,14 +154,18 @@ far cheaper than keeping a GPU instance running to host control-plane pods.
 ### Stack 2: HyperPod Cluster (`MlccHyperPodClusterStack`)
 
 - **SageMaker HyperPod Cluster**: Real cluster via `AWS::SageMaker::Cluster`
-  - 0-instance (no compute cost)
+  - `default-worker` floor of 2 × `ml.c5.4xlarge` (CPU; see "Compute" below)
   - Orchestrator: EKS
   - NodeRecovery: Automatic
   - Scalable via `aws sagemaker update-cluster`
 
 ### Stack 3: Inference Operator (`MlccInferenceOperatorStack`)
 
-- **TLS S3 Bucket**: `hyperpod-tls-<profile>-<region>` (RETAIN)
+- **TLS S3 Bucket**: `mlcc-hyperpod-tls-<profile>` (RETAIN). Note the name does NOT
+  start with `hyperpod-tls`, so `AmazonSageMakerHyperPodInferenceAccess` (whose S3 grant
+  only covers `hyperpod-tls*` buckets) does not cover it — the inference role gets an
+  explicit `HyperPodInferenceTlsBucketAccess` statement for this bucket (see
+  [Bootstrap IAM Roles](dev/bootstrap-iam-roles.md)).
 - **Inference Operator EKS Add-on**: `amazon-sagemaker-hyperpod-inference`
 
 #### Post-Install Patches
@@ -145,18 +180,19 @@ two patches to make the operator functional on this cluster topology:
    on HyperPod EC2 nodes (not Fargate). This is required because the gateway controller uses
    `hostPath` volumes that Fargate cannot mount.
 
-!!! important "Inference operator needs an active worker node"
-    The inference operator requires **at least 1 active HyperPod worker node** so the CSI driver
-    can register before the controller manager can start. A `g5.2xlarge` (or similar GPU
-    instance) is recommended — CPU-only nodes like `m5` do **not** satisfy the NVIDIA device
-    plugin check, so the operator will not come up on them. Scale up at least one GPU node
-    before expecting the operator to reach a healthy state.
+!!! important "Inference operator needs active worker nodes — but NOT GPU nodes"
+    The inference operator requires active HyperPod worker nodes (a floor of 2) so its
+    control-plane pods can schedule and the cluster can finish setup. These are **CPU**
+    workloads — `ml.c5.4xlarge` is the AWS-documented minimum and what the module
+    provisions by default. GPU nodes are **not** required for the operator; they are only
+    needed by the model-serving pods you deploy later. (The module's `default-worker`
+    floor is CPU; attach GPU instance groups on demand — see "Compute" below.)
 
 ## Removal Behavior
 
-### Normal removal (`remove-module hyperpod-cluster`)
+### Normal removal (`remove-module hyperpod`)
 
-Destroys VPC, EKS cluster, and Inference Operator add-on. The following are **retained**:
+Tears down the HyperPod layer (the Inference Operator add-on and the HyperPod stacks) and keeps the `eks` module; `remove-module eks` destroys the VPC and EKS cluster (and the dependent `hyperpod` layer). The following are **retained**:
 
 | Resource | Reason |
 |----------|--------|
@@ -164,36 +200,67 @@ Destroys VPC, EKS cluster, and Inference Operator add-on. The following are **re
 | HyperPod cluster | Slow to create; may have running workloads |
 | TLS S3 bucket | Data loss risk; globally unique name |
 
-### Force removal (`remove-module hyperpod-cluster --force-delete`)
+### Force removal (`remove-module hyperpod --force-delete`)
 
 Also destroys retained resources. Requires typing the cluster name to confirm.
 
-## Scaling Up
+## Compute: a CPU control-plane floor + on-demand GPU serving groups
 
-The HyperPod cluster starts at 0 instances. To add compute:
+The module provisions a **permanent `default-worker` floor of 2 × `ml.c5.4xlarge`
+(CPU)**. This floor exists to run the **Inference Operator's control-plane pods**
+(gateway controller, controller-manager, ALB, KEDA — ~13 pods, per the AWS
+operator-install minimum of `ml.c5.4xlarge`). These are orchestration workloads —
+**they do not need a GPU.** The floor of 2 is a HyperPod *setup* requirement (an
+EKS-orchestrated cluster will not finish setup with fewer), not a capacity one.
+
+!!! info "The operator does not require GPU nodes"
+    A common misconception is that the inference operator needs a GPU instance. It does
+    not — its pods are CPU control-plane components. GPUs are only needed by the
+    **model-serving pods** you deploy later (via `InferenceEndpointConfig`). Keeping the
+    always-on floor on cheap CPU (`ml.c5.4xlarge`) instead of GPU cuts the idle cost
+    substantially and avoids holding scarce GPU capacity just to keep the operator alive.
+
+### Adding GPU compute for model serving
+
+GPU compute is attached **on demand** as a SEPARATE instance group, not by changing
+the CPU floor. `update-cluster` is a declarative replace, so send the FULL set —
+the existing CPU `default-worker` **plus** your new GPU group:
 
 ```bash
 aws sagemaker update-cluster \
   --cluster-name mlcc-<profile>-hyperpod \
-  --instance-groups '[{
-    "InstanceGroupName": "default-worker",
-    "InstanceType": "ml.g5.2xlarge",
-    "InstanceCount": 1,
-    "ExecutionRole": "<HyperPodInstanceRoleArn>",
-    "LifeCycleConfig": {
-      "SourceS3Uri": "s3://mlcc-core-<account>-<region>/hyperpod-lifecycle/",
-      "OnCreate": "on_create.sh"
+  --instance-groups '[
+    {
+      "InstanceGroupName": "default-worker",
+      "InstanceType": "ml.c5.4xlarge",
+      "InstanceCount": 2,
+      "ExecutionRole": "<HyperPodInstanceRoleArn>",
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://mlcc-core-<account>-<region>/hyperpod-lifecycle/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "gpu-workers",
+      "InstanceType": "ml.g5.2xlarge",
+      "InstanceCount": 1,
+      "ExecutionRole": "<HyperPodInstanceRoleArn>",
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://mlcc-core-<account>-<region>/hyperpod-lifecycle/",
+        "OnCreate": "on_create.sh"
+      }
     }
-  }]'
+  ]'
 ```
 
-`ExecutionRole` must be the HyperPod instance role ARN (the five-policy role described above),
-`LifeCycleConfig` is required, and the lifecycle S3 URI is
-`s3://mlcc-core-<account>-<region>/hyperpod-lifecycle/`.
+`ExecutionRole` must be the HyperPod instance role ARN, `LifeCycleConfig` is required,
+and the lifecycle S3 URI is `s3://mlcc-core-<account>-<region>/hyperpod-lifecycle/`.
 
-!!! tip "Use a GPU instance"
-    Choose a GPU instance type such as `ml.g5.2xlarge` — the inference operator's NVIDIA device
-    plugin check requires GPU nodes, and CPU-only types like `m5` will not satisfy it.
+!!! warning "GPU capacity is often constrained"
+    GPU instance groups retry until capacity is available in the region. The CPU floor
+    comes up reliably regardless, so the operator stays healthy while a GPU group waits
+    for capacity. Do NOT drop the `default-worker` floor below 2 — the cluster will not
+    provision.
 
 ## `do/config` Variables
 
@@ -242,6 +309,7 @@ unblocks `do/benchmark`.
 - `do/optimize` **is** supported for HyperPod EKS targets (see the optimize docs);
   applying a recommendation writes `OPTIMIZE_MODEL_PACKAGE_ARN` to `do/config` and
   redeploys the `InferenceEndpointConfig`
-- `do/adapter`, `do/register` not yet supported on the HyperPod path
-- Multi-GPU TP/PP configuration is handled by a separate spec (e8-h2)
-- Cluster capacity reporting is handled by e8-h3
+- `do/adapter` (vLLM hot-load), `do/add-pod` (full fine-tunes), `do/draft`, `do/metrics` and
+  `do/register` are supported on `hyperpod-eks`
+- `do/deploy` checks each node for free GPUs and free pod slots before applying (see
+  [Deployments — HyperPod EKS](deployments.md#sagemaker-ai-hyperpod-eks-hyperpod-eks))

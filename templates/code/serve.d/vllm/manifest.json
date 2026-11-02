@@ -18,19 +18,35 @@
     "port": 8080,
     "format": "prometheus"
   },
+  "metric_signals": {
+    "kv_cache_util": { "type": "gauge", "name": "vllm:kv_cache_usage_perc" },
+    "queue_depth_running": { "type": "gauge", "name": "vllm:num_requests_running" },
+    "queue_depth_waiting": { "type": "gauge", "name": "vllm:num_requests_waiting" },
+    "prefix_cache_hit_rate": { "type": "ratio", "num": "vllm:prefix_cache_hits_total", "den": "vllm:prefix_cache_queries_total" },
+    "spec_decode_acceptance_rate": { "type": "ratio", "num": "vllm:spec_decode_num_accepted_tokens_total", "den": "vllm:spec_decode_num_draft_tokens_total" },
+    "ttft_seconds": { "type": "histogram", "name": "vllm:time_to_first_token_seconds" },
+    "e2e_seconds": { "type": "histogram", "name": "vllm:e2e_request_latency_seconds" }
+  },
   "dimension_map": {
     "quantization": "QUANTIZATION",
     "tensor_parallel_degree": "TENSOR_PARALLEL_SIZE",
     "max_model_len": "MAX_MODEL_LEN",
     "kv_cache_dtype": "KV_CACHE_DTYPE"
   },
+  "sizing_map": {
+    "gpu_memory_utilization": { "suffix": "GPU_MEMORY_UTILIZATION", "default": 0.92, "description": "vLLM v0.31 (MLCC's pinned image) logs --gpu-memory-utilization=0.92 when unset; older releases used 0.9" },
+    "max_num_seqs": { "suffix": "MAX_NUM_SEQS", "description": "no default: vLLM picks it by release and GPU" },
+    "max_num_batched_tokens": { "suffix": "MAX_NUM_BATCHED_TOKENS", "default": 2048, "default_by_gpu_memory_gib": { "70": 8192, "160": 16384 }, "in_flight_batches": 2, "description": "vLLM v0.31 OpenAI-server defaults (engine/arg_utils.py): 2048 below 70 GiB per GPU, 8192 from 70 GiB (vLLM keeps 2048 on A100; 8192 there over-reserves, the conservative side), 16384 from 160 GiB. Async scheduling keeps 2 batches in flight, so a sliding-window layer holds window + 2 x this per request (kv_cache_interface.py SlidingWindowSpec); the live gemma-4-E4B pod confirms 2048 x 2" },
+    "dtype": { "suffix": "DTYPE", "default": "auto" },
+    "tensor_parallel_degree": { "suffix": "TENSOR_PARALLEL_SIZE", "default": 1 }
+  },
   "capability_map": {
     "model": { "suffix": "MODEL", "value_type": "valued" },
     "tensor_parallel_degree": { "suffix": "TENSOR_PARALLEL_SIZE", "value_type": "valued" },
     "quantization": { "suffix": "QUANTIZATION", "value_type": "valued" },
     "lora_enable": { "suffix": "ENABLE_LORA", "value_type": "boolean", "requires": [] },
-    "lora_max": { "suffix": "MAX_LORAS", "value_type": "valued" },
-    "lora_max_rank": { "suffix": "MAX_LORA_RANK", "value_type": "valued" }
+    "lora_max": { "suffix": "MAX_LORAS", "value_type": "valued", "default": 4 },
+    "lora_max_rank": { "suffix": "MAX_LORA_RANK", "value_type": "valued", "default": 16, "allowed": [1, 8, 16, 32, 64, 128, 256, 320, 512] }
   },
   "min_version": "0.6.0",
   "version_features": [

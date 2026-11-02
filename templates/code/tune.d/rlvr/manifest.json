@@ -1,0 +1,327 @@
+{
+  "technique": "rlvr",
+  "reward_source": "rule",
+  "variants": {
+    "lora": {
+      "peft": "lora",
+      "artifact_kind": "lora_adapter",
+      "dataset_contract": {
+        "format": "parquet",
+        "schema": "verl-5field",
+        "prompt_shape": "message-list",
+        "reward_model_style": "rule",
+        "verified": true
+      },
+      "hyperparameters": {
+        "clip_ratio": {
+          "type": "number",
+          "required": true,
+          "default": 0.2,
+          "min": 0.1,
+          "max": 1.5,
+          "step": 0.1,
+          "control": "number_input",
+          "tier": "primary",
+          "display_name": "Clip ratio",
+          "description": "Limits how much the model policy changes in a single update. Values that are too high cause instability, and values that are too low slow learning.",
+          "hint": "Must be a value between 0.1 and 1.5"
+        },
+        "clip_ratio_high": {
+          "type": "number",
+          "required": true,
+          "default": 0.2,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "control": "number_input",
+          "tier": "primary",
+          "display_name": "Clip ratio upper bound",
+          "description": "Sets the maximum allowed increase in token probability per update for positive-advantage tokens. Higher values allow more aggressive policy changes but may reduce output diversity.",
+          "hint": "Must be a value between 0.0 and 0.5"
+        },
+        "clip_ratio_low": {
+          "type": "number",
+          "required": true,
+          "default": 0.2,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "control": "number_input",
+          "tier": "primary",
+          "display_name": "Clip ratio lower bound",
+          "description": "Sets the maximum allowed decrease in token probability per update for negative-advantage tokens. Lower values promote exploration and help prevent the model from converging too quickly.",
+          "hint": "Must be a value between 0.0 and 0.5"
+        },
+        "global_batch_size": {
+          "type": "integer",
+          "required": true,
+          "default": 128,
+          "enum": [
+            128,
+            256,
+            512,
+            1024
+          ],
+          "control": "dropdown",
+          "tier": "primary",
+          "display_name": "Batch size",
+          "description": "Total number of training samples processed per optimizer step. Larger values improve training stability but use more memory.",
+          "hint": "Choose from the available batch size options"
+        },
+        "kl_loss_coef": {
+          "type": "number",
+          "required": true,
+          "default": 0.001,
+          "min": 0,
+          "max": 0.1,
+          "step": 0.01,
+          "control": "number_input",
+          "tier": "primary",
+          "display_name": "KL loss coefficient",
+          "description": "Controls how closely the model stays to its original behavior during training. Higher values constrain changes more, and lower values allow the model to drift further.",
+          "hint": "Must be a value between 0 and 0.1"
+        },
+        "learning_rate": {
+          "type": "number",
+          "required": true,
+          "default": 0.00001,
+          "min": 1e-7,
+          "max": 0.001,
+          "step": 0.0001,
+          "control": "number_input",
+          "tier": "primary",
+          "display_name": "Learning rate",
+          "description": "Step size for weight updates during optimization. Controls how much model weights change per gradient step. Set lower for RL (e.g., 1e-5) to avoid policy collapse; higher for SFT/DPO (e.g., 1e-4).",
+          "hint": "Must be a value between 1e-07 and 0.001"
+        },
+        "lora_alpha": {
+          "type": "integer",
+          "required": true,
+          "default": 64,
+          "enum": [
+            16,
+            32,
+            64,
+            128,
+            256
+          ],
+          "control": "dropdown",
+          "tier": "advanced",
+          "display_name": "Alpha value",
+          "description": "LoRA scaling factor. The effective learning rate for LoRA adapters scales as alpha/rank. Typically set to 2x the LoRA rank.",
+          "hint": "Select from available alpha values"
+        },
+        "lora_rank": {
+          "type": "integer",
+          "required": true,
+          "default": 32,
+          "enum": [
+            8,
+            16,
+            32,
+            64,
+            128
+          ],
+          "control": "dropdown",
+          "tier": "advanced",
+          "display_name": "LoRA rank",
+          "description": "Number of trainable dimensions in the LoRA adapter. Higher values increase model capacity but use more memory.",
+          "hint": "Select from available rank values"
+        },
+        "lr_warmup_steps_ratio": {
+          "type": "number",
+          "required": true,
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "step": 0.1,
+          "control": "number_input",
+          "tier": "advanced",
+          "display_name": "LR warmup ratio",
+          "description": "Fraction of total training steps spent gradually increasing the learning rate from zero. Helps stabilize early training.",
+          "hint": "Must be a value between 0 and 1"
+        },
+        "max_epochs": {
+          "type": "integer",
+          "required": true,
+          "default": 2,
+          "min": 1,
+          "max": 100,
+          "step": 1,
+          "control": "number_input",
+          "tier": "primary",
+          "display_name": "Number of epochs",
+          "description": "Number of complete passes through the entire training dataset. More epochs allow the model to learn patterns more thoroughly but increase training time and risk of overfitting.",
+          "hint": "Must be a value between 1 and 100"
+        },
+        "max_prompt_length": {
+          "type": "integer",
+          "required": true,
+          "default": 512,
+          "min": 512,
+          "max": 24576,
+          "step": 1,
+          "control": "number_input",
+          "tier": "advanced",
+          "display_name": "Max Prompt Length",
+          "description": "Maximum number of tokens reserved for the prompt/input portion of each sequence. Cannot exceed the recipe's baked-in maximum."
+        },
+        "max_response_length": {
+          "type": "integer",
+          "required": true,
+          "default": 1024,
+          "min": 100,
+          "max": 24576,
+          "step": 1,
+          "control": "number_input",
+          "tier": "advanced",
+          "display_name": "Maximum response length",
+          "description": "Maximum number of tokens allowed for the generated response portion. Cannot exceed the recipe's baked-in maximum.",
+          "hint": "Must be a value between 100 and 200000"
+        },
+        "min_lr": {
+          "type": "number",
+          "required": true,
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "control": "number_input",
+          "tier": "advanced",
+          "display_name": "Minimum learning rate",
+          "description": "Lowest learning rate the scheduler decays to during training. Prevents the learning rate from dropping to zero in later steps.",
+          "hint": "Must be a value between 0.0 and 1.0"
+        },
+        "preset_reward_function": {
+          "type": "string",
+          "required": true,
+          "default": "",
+          "enum": [
+            "",
+            "gsm8k",
+            "prime_code",
+            "prime_math"
+          ],
+          "control": "dropdown",
+          "tier": "primary",
+          "display_name": "Preset Reward Function",
+          "description": "Preset reward function for RLVR",
+          "hint": "Select from available reward functions"
+        },
+        "rollout_n": {
+          "type": "integer",
+          "required": true,
+          "default": 8,
+          "enum": [
+            1,
+            2,
+            4,
+            8,
+            16,
+            32
+          ],
+          "control": "dropdown",
+          "tier": "primary",
+          "display_name": "Rollout samples per prompt",
+          "description": "Number of candidate responses generated per prompt during training. More samples improve training quality but increase compute time."
+        },
+        "rollout_temperature": {
+          "type": "number",
+          "required": true,
+          "default": 1,
+          "min": 0.01,
+          "max": 2,
+          "step": 0.1,
+          "control": "number_input",
+          "tier": "advanced",
+          "display_name": "Rollout temperature",
+          "description": "Controls the diversity of generated responses during training rollouts. Higher values produce more varied outputs.",
+          "hint": "Must be a value between 0.01 and 2.0"
+        },
+        "temperature": {
+          "type": "number",
+          "required": true,
+          "default": 0,
+          "min": 0,
+          "max": 2,
+          "step": 0.1,
+          "control": "number_input",
+          "tier": "advanced",
+          "display_name": "Temperature",
+          "description": "Sampling temperature for evaluation and generation. Higher values increase output randomness/diversity; lower values make outputs more deterministic.",
+          "hint": "Must be a value between 0.0 and 2.0"
+        },
+        "train_val_split_ratio": {
+          "type": "number",
+          "required": false,
+          "default": 0.9,
+          "min": 0,
+          "max": 1,
+          "step": 0.1,
+          "control": "number_input",
+          "tier": "primary",
+          "display_name": "Train Val Split Ratio",
+          "description": "Fraction of the dataset allocated to training versus validation. For example, 0.9 means 90% training and 10% validation.",
+          "hint": "Must be a value between 0.0 and 1.0"
+        },
+        "use_kl_loss": {
+          "type": "boolean",
+          "required": true,
+          "default": true,
+          "control": "dropdown",
+          "tier": "primary",
+          "display_name": "KL divergence loss",
+          "description": "Adds a penalty that keeps the training policy close to the reference policy. Disable to rely onclipping alone for training stability."
+        },
+        "warmup_steps": {
+          "type": "integer",
+          "required": true,
+          "default": -1,
+          "min": -1,
+          "max": 100,
+          "step": 1,
+          "control": "number_input",
+          "tier": "advanced",
+          "display_name": "Warmup steps",
+          "description": "Absolute number of training steps over which the learning rate linearly warms up from 0 to the target value.",
+          "hint": "Must be a value between -1 and 100"
+        },
+        "weight_decay": {
+          "type": "number",
+          "required": true,
+          "default": 0.01,
+          "min": 0,
+          "max": 1,
+          "step": 0.1,
+          "control": "number_input",
+          "tier": "tertiary",
+          "description": "L2 regularization coefficient applied to model weights during optimization. Helps prevent overfitting by penalizing large weights."
+        }
+      },
+      "_synced": {
+        "smtj": {
+          "from": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-7b-instruct-lora_override_params_sm_jobs_v2.2.6.json",
+          "version": "2.2.6"
+        },
+        "hp-eks": {
+          "from": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-7b-instruct-lora_override_params_k8s_v2.2.6.json",
+          "version": "2.2.6",
+          "workload_kind": "RayJob"
+        }
+      }
+    },
+    "full": {
+      "peft": "none",
+      "artifact_kind": "full_model",
+      "dataset_contract": {
+        "format": "parquet",
+        "schema": "verl-5field",
+        "prompt_shape": "message-list",
+        "reward_model_style": "rule",
+        "verified": true
+      },
+      "hyperparameters": {},
+      "_synced": {}
+    }
+  }
+}

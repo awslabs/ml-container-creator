@@ -105,6 +105,40 @@ def _inject_eval_metrics(metadata, args):
     return metadata
 
 
+def _build_inference_spec(args):
+    """Build a SageMaker InferenceSpecification for a FULL model from the project
+    serving config (BL164 OQ-3), so the bridge's Model Package is deployable.
+
+    Only valid for a full_model: the container image + model S3 artifact +
+    instance type are the model's OWN deploy target. Adapters log NO spec (a
+    hot-loaded adapter has no standalone serving target). Returns None when the
+    container image / model data are not both resolvable (register without a
+    spec rather than a malformed one). Shape = the sagemaker_mlflow
+    InferenceSpecification TypedDict (probe-confirmed keys).
+    """
+    container_image = (getattr(args, "container_image", "") or "").strip()
+    model_data_url = (getattr(args, "model_data_url", "") or "").rstrip("/")
+    instance_type = (getattr(args, "instance_type", "") or "").strip()
+    if not container_image or not model_data_url:
+        return None
+    container = {"Image": container_image}
+    container["ModelDataSource"] = {
+        "S3DataSource": {
+            "S3Uri": model_data_url + "/",
+            "S3DataType": "S3Prefix",
+            "CompressionType": "None",
+        }
+    }
+    spec = {
+        "Containers": [container],
+        "SupportedContentTypes": ["application/json"],
+        "SupportedResponseMIMETypes": ["application/json"],
+    }
+    if instance_type:
+        spec["SupportedRealtimeInferenceInstanceTypes"] = [instance_type]
+    return spec
+
+
 def _build_metadata(args):
     """Build customer_metadata_properties dict from CLI args."""
     props = {
@@ -174,6 +208,8 @@ def _get_account_id():
         import boto3
         sts = boto3.client("sts")
         return sts.get_caller_identity()["Account"]
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
     except Exception:
         return "unknown"
 
@@ -230,6 +266,8 @@ def cmd_create_mpg(args):
                 mpg = ModelPackageGroup.get(model_package_group_name=project_name)
                 mpg_arn = mpg.model_package_group_arn
                 _output({"mpg_arn": mpg_arn, "created": False})
+            except (NameError, AttributeError):
+                raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
             except Exception:
                 account_id = _get_account_id()
                 mpg_arn = f"arn:aws:sagemaker:{region}:{account_id}:model-package-group/{project_name}"
@@ -271,68 +309,60 @@ def cmd_register_model(args):
             try:
                 mpg = ModelPackageGroup.get(model_package_group_name=project_name)
                 mpg_arn = mpg.model_package_group_arn
+            except (NameError, AttributeError):
+                raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
             except Exception:
                 account_id = _get_account_id()
                 mpg_arn = f"arn:aws:sagemaker:{region}:{account_id}:model-package-group/{project_name}"
         else:
             _error_exit(f"Failed to create Model Package Group: {e}", code="MPG_CREATE_FAILED")
 
-    # Step 2: Build metadata
+    # Step 2: Build metadata (carried as MLflow version tags/params via the bridge).
     metadata = _build_metadata(args)
-
-    # Step 3: Build inference specification
-    container_image = args.container_image or ""
     model_data_url = (args.model_data_url or "").rstrip("/")
 
-    # Step 4: Create Model Package version
-    # Base model description: name the model + how it is served. Keep it concise
-    # and human-readable (serving details also live in CustomerMetadataProperties).
-    _desc_parts = [f"Base model {args.model_name}" if args.model_name else "Base model"]
-    if args.deployment_config:
-        _desc_parts.append(args.deployment_config)
-    if args.instance_type:
-        _desc_parts.append(f"on {args.instance_type}")
-    description = " · ".join(_desc_parts)
-
-    print(f"Registering model version in {project_name}...", file=sys.stderr)
+    # Step 3 (BL164): register the FULL model THROUGH the MLflow bridge so
+    # SageMaker auto-creates the Model Package (no hand-rolled create_model_package).
+    # A full model carries an inference spec built from the project serving config
+    # (OQ-3) → the bridge's package is directly deployable. The group the bridge
+    # creates is <registered-model-name>-<hash>; we register under the project
+    # name so a project's full models share one bridge group.
+    print(f"Registering model version via the MLflow bridge ({project_name})...", file=sys.stderr)
     try:
-        import boto3
-        sm_client = boto3.client("sagemaker", region_name=region)
-
-        create_params = {
-            "ModelPackageGroupName": project_name,
-            "ModelPackageDescription": description,
-            "ModelApprovalStatus": "Approved",
-        }
-        if container_image and ".dkr.ecr." in container_image:
-            create_params["InferenceSpecification"] = {
-                "Containers": [{"Image": container_image}],
-                "SupportedContentTypes": ["application/json"],
-                "SupportedResponseMIMETypes": ["application/json"],
-            }
-            if model_data_url:
-                create_params["InferenceSpecification"]["Containers"][0]["ModelDataUrl"] = model_data_url
-        if model_data_url:
-            if "InferenceSpecification" not in create_params:
-                if not metadata:
-                    metadata = {}
-                metadata["modelDataUrl"] = model_data_url[:1024]
-        if metadata:
-            create_params["CustomerMetadataProperties"] = metadata
-
-        response = sm_client.create_model_package(**create_params)
-        model_package_arn = response["ModelPackageArn"]
-
-        version = _extract_version_from_arn(model_package_arn)
-
-        print(f"Registered model version {version}: {model_package_arn}", file=sys.stderr)
+        import mlcc_mlflow
+        if not mlcc_mlflow._mlflow_configured():
+            _error_exit(
+                "MLflow is not configured; model registration now flows through the "
+                "MLflow bridge (BL164). Configure a tracking App via the profile "
+                "(mlflowAppArn) and retry.",
+                code="MLFLOW_NOT_CONFIGURED",
+            )
+        # Verb-intent default: register-model ⇒ full_model (OQ-2); --artifact-kind overrides.
+        _kind = getattr(args, "artifact_kind", None) or "full_model"
+        # Only a full model carries a deployable inference spec.
+        inference_spec = _build_inference_spec(args) if _kind == "full_model" else None
+        result = mlcc_mlflow.register_via_bridge(
+            registered_model_name=project_name,
+            model_data_url=model_data_url,
+            artifact_kind=_kind,
+            tags={k: v for k, v in (metadata or {}).items()},
+            inference_spec=inference_spec,
+        )
+        model_package_arn = result.get("sagemaker_model_package_arn") or ""
+        version = result.get("version")
+        print(f"Registered full model (MLflow v{version}) → {model_package_arn}", file=sys.stderr)
         _output({
+            # mpg_arn: the bridge owns the group; expose the base MPG arn when the
+            # package ARN is known (callers use model_package_arn as parent-arn).
             "mpg_arn": mpg_arn,
             "model_package_arn": model_package_arn,
             "version": version,
+            "mlflow_registered_model": result.get("registered_model_name"),
         })
+    except mlcc_mlflow.MlflowUnavailableError as e:
+        _error_exit(f"MLflow unavailable for registration: {e}", code="MLFLOW_UNAVAILABLE")
     except Exception as e:
-        _error_exit(f"Failed to register model package: {e}", code="MODEL_REGISTER_FAILED")
+        _error_exit(f"Failed to register model package via the bridge: {e}", code="MODEL_REGISTER_FAILED")
 
 
 # ── Subcommand: register-adapter ─────────────────────────────────────────────
@@ -468,14 +498,13 @@ def cmd_register_adapter(args):
             try:
                 mpg = ModelPackageGroup.get(model_package_group_name=project_name)
                 mpg_arn = mpg.model_package_group_arn
+            except (NameError, AttributeError):
+                raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
             except Exception:
                 account_id = _get_account_id()
                 mpg_arn = f"arn:aws:sagemaker:{region}:{account_id}:model-package-group/{project_name}"
         else:
             _error_exit(f"Failed to create Model Package Group: {e}", code="MPG_CREATE_FAILED")
-
-    # Step 2: Build adapter metadata
-    metadata = _build_adapter_metadata(args)
 
     # Step 2.1: BL056 — register the adapter as a family sub-model in MLflow.
     # Resolve the base source_run_id FIRST (Req 3), then register with family
@@ -518,12 +547,19 @@ def cmd_register_adapter(args):
                                 dataset_name=adapter_name,
                             )
                         else:
-                            mlflow.set_experiment("Default")
+                            # BL163: group the lineage run under the per-project
+                            # experiment (sanitized project name) rather than the
+                            # shared "Default", so model lineage runs no longer
+                            # collide across projects. set_experiment creates it
+                            # on first use (idempotent).
+                            mlflow.set_experiment(_mm._project_experiment_name(project_name))
                             with mlflow.start_run(run_name=f"lineage-{adapter_name}"):
                                 _mm.log_training_dataset_lineage(
                                     dataset_s3_uri=_dataset_s3_uri,
                                     dataset_name=adapter_name,
                                 )
+                except (NameError, AttributeError):
+                    raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
                 except Exception as lineage_err:  # noqa: BLE001 — lineage is best-effort
                     print(f"\u26a0\ufe0f  dataset\u2192model lineage edge skipped (non-fatal: "
                           f"{lineage_err}).", file=sys.stderr)
@@ -561,74 +597,77 @@ def cmd_register_adapter(args):
                     "parent_version_arn": parent_version_arn,
                     "deduplicated": True,
                 })
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
     except Exception as dedup_err:
         print(f"Dedup check failed (non-fatal): {dedup_err}", file=sys.stderr)
 
-    # Step 3: Build inference specification
-    container_image = args.container_image or ""
+    # Step 3 (BL164): register the ADAPTER THROUGH the MLflow bridge as a
+    # lora_adapter — NO inference spec (a hot-loaded adapter has no standalone
+    # serving target; this is the native fix for the old "adapter inherits the
+    # base's serving config" bug, R4). The adapter's genuine lineage/identity
+    # (base family, parent arn, technique, dataset) travels as version tags; the
+    # base serving-config fields (deploymentConfig/baseImage/instanceType/…) are
+    # DROPPED from the adapter version.
     model_data_url = (args.model_data_url or "").rstrip("/")
+    base_id = getattr(args, "base_id", "") or ""
 
-    # Step 4: Create adapter Model Package version
-    technique = args.tune_technique or "unknown"
-    # Adapter description: technique + the base model + parent VERSION (not the
-    # full ARN — the parent ARN already lives in parentModelVersionArn metadata).
-    _parent_ver = (parent_version_arn or "").rstrip("/").rsplit("/", 1)[-1]
-    _parent_ref = f"base v{_parent_ver}" if _parent_ver.isdigit() else "base model"
-    _model_ref = f" of {args.model_name}" if args.model_name else ""
-    description = f"{technique.upper()} adapter{_model_ref} ({_parent_ref})"
+    # Adapter lineage/identity tags ONLY (no base serving config). artifact_kind
+    # is added by register_via_bridge.
+    adapter_tags = {
+        "isAdapter": "true",
+        "parentModelVersionArn": args.parent_version_arn or "",
+        "tuneTechnique": args.tune_technique or "",
+        "datasetS3Uri": args.dataset_s3_uri or "",
+        "mlcc.base_model_id": base_id,
+    }
+    _dsv = getattr(args, "dataset_version", "") or ""
+    if _dsv:
+        adapter_tags["datasetVersion"] = _dsv
+    # eval metrics stay as tags (model-card parity comes later via the native path)
+    adapter_tags = _inject_eval_metrics(adapter_tags, args)
+    adapter_tags = _truncate_metadata(adapter_tags)
 
-    print(f"Registering adapter version in {project_name}...", file=sys.stderr)
+    print(f"Registering adapter via the MLflow bridge ({project_name})...", file=sys.stderr)
     try:
-        import boto3
-        sm_client = boto3.client("sagemaker", region_name=region)
-
-        create_params = {
-            "ModelPackageGroupName": project_name,
-            "ModelPackageDescription": description,
-            "ModelApprovalStatus": "Approved",
-        }
-        if container_image and ".dkr.ecr." in container_image:
-            create_params["InferenceSpecification"] = {
-                "Containers": [{"Image": container_image}],
-                "SupportedContentTypes": ["application/json"],
-                "SupportedResponseMIMETypes": ["application/json"],
-            }
-            if model_data_url and model_data_url.endswith(".tar.gz"):
-                create_params["InferenceSpecification"]["Containers"][0]["ModelDataUrl"] = model_data_url
-
-        if model_data_url:
-            if not metadata:
-                metadata = {}
-            metadata["modelDataUrl"] = model_data_url[:1024]
-
-        metadata = _inject_eval_metrics(metadata, args)
-
-        if metadata:
-            create_params["CustomerMetadataProperties"] = metadata
-
-        response = sm_client.create_model_package(**create_params)
-        model_package_arn = response["ModelPackageArn"]
-
-        version = _extract_version_from_arn(model_package_arn)
-
-        print(f"Registered adapter version {version}: {model_package_arn}", file=sys.stderr)
+        import mlcc_mlflow
+        if not mlcc_mlflow._mlflow_configured():
+            _error_exit(
+                "MLflow is not configured; adapter registration now flows through "
+                "the MLflow bridge (BL164). Configure a tracking App via the profile "
+                "(mlflowAppArn) and retry.",
+                code="MLFLOW_NOT_CONFIGURED",
+            )
+        # Verb-intent default: register-adapter ⇒ lora_adapter (OQ-2); --artifact-kind overrides.
+        _kind = getattr(args, "artifact_kind", None) or "lora_adapter"
+        result = mlcc_mlflow.register_via_bridge(
+            registered_model_name=project_name,
+            model_data_url=model_data_url,
+            artifact_kind=_kind,
+            tags=adapter_tags,
+            # Only a full model carries a standalone serving spec; an adapter never does.
+            inference_spec=(_build_inference_spec(args) if _kind == "full_model" else None),
+            base_model_name=base_id or None,
+        )
+        model_package_arn = result.get("sagemaker_model_package_arn") or ""
+        version = result.get("version")
+        print(f"Registered adapter (MLflow v{version}) → {model_package_arn}", file=sys.stderr)
 
         # BL123 (Req 6.2): draw the base→derivative lineage edge in SageMaker ML
-        # Lineage, driven by the family linkage we already have (parent_version_arn
-        # is the base model package; model_package_arn is this adapter). The user
-        # never calls AddAssociation — MLCC turns the family relationship into a
-        # native DerivedFrom edge. Non-fatal + idempotent: a lineage failure must
-        # not break the adapter registration the user asked for.
-        try:
-            import mlcc_mlflow
-            mlcc_mlflow.add_derived_from_edge(
-                base_source_uri=parent_version_arn,
-                derivative_source_uri=model_package_arn,
-                region=region,
-            )
-        except Exception as lineage_err:  # noqa: BLE001 — lineage is best-effort
-            print(f"\u26a0\ufe0f  base\u2192derivative lineage edge skipped (non-fatal: {lineage_err}).",
-                  file=sys.stderr)
+        # Lineage (parent_version_arn = base package; model_package_arn = this
+        # adapter). Non-fatal + idempotent.
+        if model_package_arn:
+            try:
+                mlcc_mlflow.add_derived_from_edge(
+                    base_source_uri=parent_version_arn,
+                    derivative_source_uri=model_package_arn,
+                    region=region,
+                )
+            except (NameError, AttributeError):
+                raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
+            except Exception as lineage_err:  # noqa: BLE001 — lineage is best-effort
+                print(f"\u26a0\ufe0f  base\u2192derivative lineage edge skipped (non-fatal: "
+                      f"{lineage_err}).", file=sys.stderr)
 
         _output({
             "mpg_arn": mpg_arn,
@@ -636,5 +675,7 @@ def cmd_register_adapter(args):
             "version": version,
             "parent_version_arn": parent_version_arn,
         })
+    except mlcc_mlflow.MlflowUnavailableError as e:
+        _error_exit(f"MLflow unavailable for adapter registration: {e}", code="MLFLOW_UNAVAILABLE")
     except Exception as e:
-        _error_exit(f"Failed to register adapter package: {e}", code="ADAPTER_REGISTER_FAILED")
+        _error_exit(f"Failed to register adapter via the bridge: {e}", code="ADAPTER_REGISTER_FAILED")

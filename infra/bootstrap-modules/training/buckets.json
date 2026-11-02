@@ -1,0 +1,32 @@
+{
+  "$comment": "Single declared source for the S3 buckets the training stack owns (ADR-008 derive-dont-hardcode, bucket consolidation R1.2). training/stack.ts, module-runner.cjs (adopt flags + implicit import) and every derived consumer read this file. Placeholders: {account} {region} {profile}. test/unit/no-literal-bucket-names.test.js allows each name ONLY here. ArtifactsBucket keeps the physical name of the pre-existing MLflow artifact store (owner decision D7); it is called 'artifacts' everywhere except here.",
+  "stack": "training",
+  "buckets": {
+    "ArtifactsBucket": {
+      "name": "mlcc-tune-{account}-{region}",
+      "adoptContext": "adoptExistingArtifactsBucket",
+      "output": "ArtifactsBucketOutput",
+      "profileKey": "artifactsS3Bucket",
+      "envVar": "ARTIFACTS_S3_BUCKET",
+      "purpose": "Per-project raw job artifacts (<project>/tune|train|optimize/...) and the MLflow App artifact store"
+    },
+    "TrainingBucket": {
+      "name": "mlcc-training-{account}-{region}",
+      "adoptContext": "adoptExistingBuckets",
+      "output": "TrainingBucketOutput",
+      "profileKey": "trainingS3Bucket",
+      "envVar": "S3_BUCKET",
+      "legacy": true,
+      "purpose": "Legacy (frozen): reward-evaluator code backups and pre-consolidation training data"
+    },
+    "AdaptersBucket": {
+      "name": "mlcc-training-adapters-{account}-{region}",
+      "adoptContext": "adoptExistingAdaptersBucket",
+      "output": "AdaptersBucketOutput",
+      "profileKey": "adapterS3Bucket",
+      "envVar": "ADAPTER_S3_BUCKET",
+      "legacy": true,
+      "purpose": "Legacy (frozen in Wave 6.1): do/adapter staging for SageMaker inference components"
+    }
+  }
+}

@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Status
 
-Accepted — in progress (Wave 5)
+Accepted — in progress
 
 ## Context
 
@@ -118,7 +118,7 @@ engine and contributes Findings to the one report.
 
 ### 3. Adapters preserve the three legacy result shapes
 
-Callers are migrated over several waves, not at once. Until every caller reads
+Callers are migrated incrementally, not at once. Until every caller reads
 Findings directly, **adapters** translate a `ValidationReport` (or a subset of
 Findings) back into each legacy shape, so no caller breaks:
 
@@ -147,7 +147,7 @@ that:
 `cpu` stays the trivial always-compatible strategy. Merging is limited to the two
 that are provably identical; distinct behavior is preserved distinctly.
 
-**Follow-up (post-Wave 5):** the major-match/minor-`>=` *comparison rule* that
+**Follow-up:** the major-match/minor-`>=` *comparison rule* that
 `cuda` had inlined was extracted to `src/lib/accelerator-version.js`
 (`parseAcceleratorVersion` / `isMajorMinorCompatible` / `compatibleVersions`) so
 `cuda` and `SemverAcceleratorValidator` share the one copy of that logic. `cuda`
@@ -192,7 +192,7 @@ and tests assert.
   ad-hoc validator is discoverable as "a validator registered on the engine."
 - **Cost:** the accelerator and ad-hoc validators are rewritten as `BaseValidator`
   subclasses; adapters are added to keep call sites and their tests green while
-  migration proceeds across Wave 5 tasks.
+  migration proceeds incrementally.
 - **Risk:** medium. Behavior must be preserved exactly through the adapters —
   covered by keeping the existing accelerator, config-manager, parameter-schema,
   catalog, e2e, generation, and validate-runner tests green, plus a new test
@@ -201,7 +201,7 @@ and tests assert.
   adapters); T3 migrates accelerator validators and merges neuron/rocm; T4 makes
   the unified vocabulary real at the seams (see Implementation note).
 
-## Implementation note (Wave 5, option A)
+## Implementation note (option A)
 
 The original T4 plan called for physically absorbing `ValidationEngine` into
 `SchemaValidationEngine` and rehosting every ad-hoc validator on the unified
@@ -225,7 +225,7 @@ ADR-005 warns against):
   (the parent of `SemverAcceleratorValidator`, `CudaValidator`, `CpuValidator`);
   retiring it would only mean re-parenting for its own sake.
 
-What Wave 5 **did** deliver is the substance of the unification: one `Finding`
+What this change **did** deliver is the substance of the unification: one `Finding`
 shape, one `ValidationReport`, one `BaseValidator` contract, one adapter boundary
 (`validation-adapters.js`) as the sole place legacy shapes are constructed, and
 the neuron/rocm duplication collapsed. Physically collapsing the accelerator

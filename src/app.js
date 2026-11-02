@@ -19,6 +19,7 @@ import { resolvePrefixedEnvVars } from './lib/engine-prefix-resolver.js';
 import { isMarketplaceConfig, isMarketplaceModelName, refuseMarketplaceAndExit } from './lib/marketplace-refusal.js';
 import { readEnvVarPrefix, resolveEngineFeatureVars } from './lib/serve-manifest-reader.js';
 import { isLlm as tritonIsLlm, isKnownBackend as isTritonBackend } from './lib/triton-backend-reader.js';
+import { warnUnimplementedTechniques } from './lib/unimplemented-technique-warning.js';
 import {
     listPredictorFrameworks,
     pipDependencies as predictorPipDependencies,
@@ -182,7 +183,9 @@ export async function run(projectName, options) {
                 'http': 'ml.m5.large'
             };
             answers.instanceType = HEURISTIC_DEFAULTS[architecture] || 'ml.g5.xlarge';
-            console.log(`   • Instance type auto-sized: ${answers.instanceType} (from architecture: ${architecture || 'default'})`);
+            // This is an architecture heuristic, NOT a VRAM sizing of the model —
+            // say so, so a large model does not silently land on a small GPU.
+            console.log(`   • Instance type defaulted: ${answers.instanceType} (architecture heuristic for ${architecture || 'default'}, not sized to the model — pass --instance-type to choose)`);
         }
 
         // Infer modelSource from model name prefix if not set
@@ -318,6 +321,11 @@ export async function run(projectName, options) {
 
     console.log('\n✅ Project generated successfully!');
     console.log(`   📁 ${destDir}`);
+
+    // BL144 (Req 6): non-blocking note if the selected model advertises a managed
+    // technique MLCC recognizes but cannot yet drive (e.g. mtrl). Never alters the model
+    // id or exit status; generation has already completed.
+    warnUnimplementedTechniques(answers);
 }
 
 /**
@@ -427,11 +435,19 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     orderedEnvVars.push(..._dedupedEnvVars);
 
     // Prepare template variables
+    // Wave 8 (BL160): raw --server-env key -> the engine-prefixed do/config var it
+    // renders as, so do/config can record the key list (MLCC_SERVER_ENV_KEYS) that
+    // do/export reads back at runtime into the canonical `serverEnv` parameter.
+    const serverEnvKeyMap = {};
+    Object.keys(serverEnvVars).forEach((key) => {
+        serverEnvKeyMap[key] = Object.keys(resolvePrefixedEnvVars(engine, { [key]: '' }))[0];
+    });
     const templateVars = {
         ...answers,
         comments,
         orderedEnvVars,
-        serverEnvVars: prefixedServerEnvVars
+        serverEnvVars: prefixedServerEnvVars,
+        serverEnvKeyMap
     };
 
     // BL107: inject the active engine's env-var prefix from its serve-layer
@@ -814,6 +830,16 @@ export async function postGenerate(destDir, answers, tritonBackends = {}) {
         (architecture === 'triton' && !tritonBackends[answers.backend]?.supportsSampleModel);
 
     if (answers.includeSampleModel && !skipSampleTraining) {
+        // MLCC_SKIP_SAMPLE_TRAINING=1 generates the sample_model/ files but skips
+        // the pip install + dataset download + training run. The test suites set
+        // it (test/setup-env.js) so generation stays hermetic: on CI runners pip
+        // really installs the stack and fetches the UCI dataset, which under
+        // parallel load exceeds the generator timeout.
+        if (process.env.MLCC_SKIP_SAMPLE_TRAINING === '1') {
+            console.log('\n⏭️  Skipping sample model training (MLCC_SKIP_SAMPLE_TRAINING=1)');
+            console.log('   Train it later with: python sample_model/train_abalone.py');
+            return;
+        }
         await _runSampleModelTraining(destDir);
     }
 }
@@ -823,7 +849,8 @@ export async function postGenerate(destDir, answers, tritonBackends = {}) {
 /**
  * Keys that contain sensitive values and should be redacted in generation params.
  */
-const REDACT_KEYS = new Set(['hfToken', 'ngcToken']);
+// ngcApiKey is the answer key --ngc-token and the secret prompts populate.
+const REDACT_KEYS = new Set(['hfToken', 'ngcToken', 'ngcApiKey']);
 
 /**
  * Write .mlcc-generation-params.json to the project root.
@@ -882,6 +909,31 @@ function _writeGenerationParams(destDir, answers) {
         const draftCatalogDest = path.join(destDir, '.mlcc', 'draft-models.json');
         if (fs.existsSync(draftCatalogSrc)) {
             fs.copyFileSync(draftCatalogSrc, draftCatalogDest);
+        }
+
+        // Copy the model-architecture support floor (architecture -> minimum
+        // engine version) so the right-sizing arch-engine-version check
+        // (do/lib/python/right_sizing.py) can run without the MLCC source tree.
+        const archSupportSrc = path.join(GENERATOR_ROOT, 'servers', 'lib', 'catalogs', 'model-arch-support.json');
+        if (fs.existsSync(archSupportSrc)) {
+            fs.copyFileSync(archSupportSrc, path.join(mlccDir, 'model-arch-support.json'));
+        }
+        // Wave 9 (R7.2, R9.1): the API-generated pricing snapshot (resolver
+        // fallback after cache + live Pricing API) and the live-verified
+        // Bedrock-equivalents catalog, read by do/lib/python/pricing.py.
+        for (const catalogName of ['pricing-snapshot.json', 'bedrock-equivalents.json']) {
+            const catalogSrc = path.join(GENERATOR_ROOT, 'servers', 'lib', 'catalogs', catalogName);
+            if (fs.existsSync(catalogSrc)) {
+                fs.copyFileSync(catalogSrc, path.join(mlccDir, catalogName));
+            }
+        }
+
+        // Copy the AWS InferenceAmiVersion <-> instance-family table (BL209) so
+        // do/lib/python/inference_ami.py (called by do/lib/endpoint-config.sh)
+        // can validate INFERENCE_AMI_VERSION / pools without the MLCC source tree.
+        const fleetDriversSrc = path.join(GENERATOR_ROOT, 'servers', 'lib', 'catalogs', 'fleet-drivers.json');
+        if (fs.existsSync(fleetDriversSrc)) {
+            fs.copyFileSync(fleetDriversSrc, path.join(mlccDir, 'fleet-drivers.json'));
         }
 
         // Copy serve-engine plugin manifests to .mlcc/serve.d/ so do/draft and
@@ -1171,11 +1223,18 @@ function _setExecutablePermissions(destDir) {
         'do/optimize',
         'do/status',
         'do/add-ic',
+        // Wave 11 (BL149): full fine-tune as its own IEC on hyperpod-eks.
+        'do/add-pod',
         'do/adapter',
         'do/tune',
         'do/train',
         'do/stage',
-        'do/validate'
+        'do/validate',
+        // Wave 8: do/export was never made executable (`./do/export` failed with
+        // "Permission denied" in every generated project).
+        'do/export',
+        // Wave 9 (OQ-9.9): serving-metrics readout verb.
+        'do/metrics'
     ];
 
     const shellScripts = defaultScripts;

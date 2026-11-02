@@ -2,74 +2,112 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# do/validate — Schema-driven validation for generated deploy payloads.
+# do/validate — Target-aware pre-deploy validation (Wave 8 R5).
 #
 # @mlcc-script
 # type: model-centric
 # guard: none
 # lifecycle: pre-deploy
 # targets: all
-
-# Schema-driven validation for generated deploy payloads.
-# Validates configuration against AWS service models before deployment.
+# A dispatcher: sources do/config, then do/lib/python/validate_report.py runs
+# every check that applies to the configured DEPLOYMENT_TARGET and prints one
+# merged report. Which checks apply is derived from targets.d/<target>/manifest.json:
+#   • right-sizing (always) — the same module do/deploy runs in preflight
+#   • config consistency (always) — the descriptor's required vars, do/ic/*.conf
+#   • cluster contract (targets whose descriptor declares cluster_contract:
+#     hyperpod-eks, eks) — the existing read-only BL156 / Wave 6.1 helpers
+#   • SageMaker service-model payloads (serving_config_source sagemaker-ic, and
+#     only when the schema registry exists) — the Node validate-runner
 #
 # Usage:
-#   ./do/validate [--format json] [--smart] [--no-stale-warning]
+#   ./do/validate [--format json|text] [--smart] [--offline] [--no-stale-warning]
 #
 # Exit codes:
 #   0 - Validation passed (no errors)
-#   1 - Validation failed (errors found)
-#   2 - Validation could not run (registry missing)
-
+#   1 - Validation failed (errors found, incl. a right-sizing block)
+#   2 - Validation could not run (no do/config target / no descriptor)
 set -e
 set -u
 set -o pipefail
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/script-contract.sh"
 _require_python_env
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Parse flags
+_validate_usage() {
+    echo "Usage: ./do/validate [--format json|text] [--smart] [--offline] [--no-stale-warning]"
+    echo ""
+    echo "Validate that the project configuration fits and is deployable on the configured"
+    echo "DEPLOYMENT_TARGET, before do/deploy. Checks (derived from targets.d/<target>):"
+    echo "  • Right-sizing (every target): KV cache + weights (+ LoRA buffer, draft) vs GPU"
+    echo "    memory, context limit, TP vs GPUs/heads, dtype vs GPU architecture, LoRA rank,"
+    echo "    IC packing, disk, Service Quota — the same checks do/deploy runs in preflight."
+    echo "    See docs/architecture/right-sizing.md."
+    echo "  • Config consistency (every target): required do/config settings, do/ic/*.conf."
+    echo "  • Cluster contract (hyperpod-eks, eks): the read-only cluster checks the deploy"
+    echo "    driver runs (CSI driver, pod identity, storage backing); needs kubectl access."
+    echo "  • SageMaker service-model payloads (realtime, async, batch): CreateEndpointConfig /"
+    echo "    CreateInferenceComponent / CreateModel / CreateTransformJob shapes against the"
+    echo "    AWS service models. Skipped (not an error) until you run"
+    echo "    'ml-container-creator bootstrap sync-schemas'."
+    echo ""
+    echo "Options:"
+    echo "  --format json|text  Report format (also --format=json). JSON is for CI."
+    echo "  --smart             Smart-mode payload validators that query live AWS resources"
+    echo "                      (e.g. ECR image exists). Requires AWS credentials."
+    echo "  --offline           Skip network-only checks (Service Quota lookup)"
+    echo "  --no-stale-warning  Suppress the schema registry staleness warning"
+    echo ""
+    echo "Exit codes:"
+    echo "  0 — Validation passed (safe to proceed to do/deploy)"
+    echo "  1 — Validation failed (errors found, including a right-sizing block)"
+    echo "  2 — Validation could not run (no DEPLOYMENT_TARGET / unknown target)"
+    echo ""
+    echo "Typical workflow:"
+    echo "  ./do/validate                    # Quick check before deploying"
+    echo "  ./do/validate --smart            # Full check including live AWS resources"
+    echo "  ./do/validate --format json      # CI pipeline integration"
+}
+
+# Parse flags (both --format json and --format=json are accepted).
 FORMAT="text"
 SMART=""
+OFFLINE=""
 ARG_NO_STALE_WARNING=false
-for arg in "$@"; do
-    case "$arg" in
-        --format=json|--format=JSON) FORMAT="json" ;;
-        --smart) SMART="--smart" ;;
-        --no-stale-warning) ARG_NO_STALE_WARNING=true ;;
-        --help|-h)
-            echo "Usage: ./do/validate [--format json] [--smart] [--no-stale-warning]"
-            echo ""
-            echo "Validate that the current project configuration is consistent and deployable."
-            echo "Checks do/config, do/ic/*.conf, do/adapters/*.conf, and the deployment schema"
-            echo "against the current model + deployment target. Run before do/deploy to catch"
-            echo "misconfiguration early."
-            echo ""
-            echo "Options:"
-            echo "  --format=json       Output validation report as JSON (for CI integration)"
-            echo "  --smart             Enable smart-mode validators that query live AWS resources"
-            echo "                      (e.g. verify ECR image exists, check endpoint status)."
-            echo "                      Requires MCP config and AWS credentials."
-            echo "  --no-stale-warning  Suppress the schema registry staleness warning"
-            echo ""
-            echo "Exit codes:"
-            echo "  0 — Validation passed (safe to proceed to do/deploy)"
-            echo "  1 — Validation failed (errors found — review output before deploying)"
-            echo "  2 — Validation could not run (missing config, bad environment)"
-            echo ""
-            echo "Typical workflow:"
-            echo "  ./do/validate                    # Quick check before deploying"
-            echo "  ./do/validate --smart            # Full check including live AWS resources"
-            echo "  ./do/validate --format=json      # CI pipeline integration"
-            exit 0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --format=json|--format=JSON) FORMAT="json"; shift ;;
+        --format=text|--format=TEXT) FORMAT="text"; shift ;;
+        --format)
+            shift
+            case "${1:-}" in
+                json|JSON) FORMAT="json" ;;
+                text|TEXT) FORMAT="text" ;;
+                *) echo "❌ --format requires json or text" >&2; exit 2 ;;
+            esac
+            shift
             ;;
+        --smart) SMART="--smart"; shift ;;
+        --offline) OFFLINE="--offline"; shift ;;
+        --no-stale-warning) ARG_NO_STALE_WARNING=true; shift ;;
+        --help|-h) _validate_usage; exit 0 ;;
+        *) echo "❌ Unknown option: $1 (see ./do/validate --help)" >&2; exit 2 ;;
     esac
 done
 
+# do/config may reference unset vars in ${VAR:-} defaults; source it without -u.
+if [ ! -f "${SCRIPT_DIR}/config" ]; then
+    echo "❌ do/config not found — cannot validate" >&2
+    exit 2
+fi
+set +u
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/config" >/dev/null
+set -u
+
 # ── _check_schema_registry_staleness() ────────────────────────────────────────
-# Warn if the schema registry manifest's lastSynced timestamp is older than threshold.
+# Warn (stderr, so --format json stays parseable) if the schema registry
+# manifest's lastSynced timestamp is older than the threshold.
 # Configurable via MCC_CATALOG_STALENESS_DAYS (default: 90).
 # Suppressed by --no-stale-warning flag or MCC_NO_STALE_WARNING=true env var.
 _check_schema_registry_staleness() {
@@ -82,36 +120,34 @@ _check_schema_registry_staleness() {
         return 0
     fi
     local last_synced
-    last_synced=$(python3 -c "
-import json, sys
+    last_synced=$(MANIFEST_FILE="${manifest_file}" THRESHOLD="${threshold}" python3 -c "
+import json, os, sys
 from datetime import datetime, timezone
 try:
-    with open('${manifest_file}') as f:
+    with open(os.environ['MANIFEST_FILE']) as f:
         manifest = json.load(f)
     ls = manifest.get('lastSynced', '')
     if not ls:
         sys.exit(0)
     synced = datetime.fromisoformat(ls.replace('Z', '+00:00'))
     days = (datetime.now(timezone.utc) - synced).days
-    if days > int('${threshold}'):
+    if days > int(os.environ['THRESHOLD']):
         print(days)
-except:
+except (OSError, ValueError, TypeError, AttributeError):
     pass
-" 2>/dev/null)
+" 2>/dev/null) || last_synced=""
     if [ -n "${last_synced}" ]; then
-        echo "⚠️  Schema registry is ${last_synced} days old. Run 'ml-container-creator bootstrap sync-schemas' to update."
+        echo "⚠  Schema registry is ${last_synced} days old. Run 'ml-container-creator bootstrap sync-schemas' to update." >&2
     fi
 }
-
 _check_schema_registry_staleness
 
-echo "🔍 Running schema validation..."
-
-# Resolve the validate-runner from the installed mcc package.
-# Tries: (1) npm global install, (2) local node_modules (npm link), (3) dev repo.
+# Resolve the Node validate-runner (SageMaker payload checks) from the installed
+# mcc package. Tries: (1) npm global install, (2) local node_modules (npm link),
+# (3) dev repo. Absent → that section is reported as skipped, not a failure.
 _find_validate_runner() {
     local npm_root
-    npm_root=$(npm root -g 2>/dev/null)
+    npm_root=$(npm root -g 2>/dev/null || true)
     if [ -n "${npm_root}" ] && [ -f "${npm_root}/@aws/ml-container-creator/src/lib/validate-runner.js" ]; then
         echo "${npm_root}/@aws/ml-container-creator/src/lib/validate-runner.js"
         return 0
@@ -126,15 +162,13 @@ _find_validate_runner() {
     fi
     return 1
 }
-
-RUNNER_PATH=$(_find_validate_runner)
-if [ -z "${RUNNER_PATH}" ]; then
-    echo "❌ Cannot find validate-runner — is ml-container-creator installed? Run: npm install -g @aws/ml-container-creator" >&2
-    exit 2
+RUNNER_PATH=""
+if command -v node >/dev/null 2>&1; then
+    RUNNER_PATH=$(_find_validate_runner || true)
 fi
 
-# Invoke the Node.js validation runner
-exec node --input-type=module -e "
-import { run } from '${RUNNER_PATH}';
-run({ configDir: '${SCRIPT_DIR}', format: '${FORMAT}', smart: ${SMART:+true}${SMART:-false} });
-"
+[ "${FORMAT}" = "text" ] && echo "🔍 Running validation..."
+_RC=0
+python3 "${SCRIPT_DIR}/lib/python/validate_report.py" --do-dir "${SCRIPT_DIR}" --format "${FORMAT}" \
+    --runner "${RUNNER_PATH}" ${SMART} ${OFFLINE} || _RC=$?
+exit "${_RC}"

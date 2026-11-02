@@ -324,3 +324,38 @@ class TestMainFlow:
             with pytest.raises(SystemExit) as exc_info:
                 ic_update.main()
             assert exc_info.value.code == 1
+
+
+class TestFromWeightsFlag:
+    """Wave 6 (ADR-013 R2): --from-weights is canonical; --model-data is a deprecated alias."""
+
+    BASE = ["ic_update.py", "--ic-name", "proj-default-111", "--region", "us-east-1"]
+
+    def test_from_weights_sets_model_data(self, capsys):
+        with patch("sys.argv", self.BASE + ["--from-weights", "s3://bucket/m.tar.gz"]):
+            args = ic_update.parse_args()
+        assert args.model_data == "s3://bucket/m.tar.gz"
+        assert "deprecated" not in capsys.readouterr().err
+
+    def test_model_data_alias_resolves_identically_and_warns(self, capsys):
+        with patch("sys.argv", self.BASE + ["--model-data", "s3://bucket/m.tar.gz"]):
+            args = ic_update.parse_args()
+        assert args.model_data == "s3://bucket/m.tar.gz"
+        err = capsys.readouterr().err
+        assert "--model-data is deprecated; use --from-weights" in err
+
+    @patch("ic_update.boto3")
+    def test_main_updates_artifact_via_from_weights(self, mock_boto3, capsys):
+        mock_client = MagicMock()
+        mock_boto3.client.return_value = mock_client
+        mock_client.describe_inference_component.side_effect = [
+            {"InferenceComponentName": "proj-default-111", "InferenceComponentStatus": "InService",
+             "Specification": {"Container": {"Image": "img:latest"}}},
+            {"InferenceComponentStatus": "InService"},
+        ]
+        with patch("sys.argv", self.BASE + ["--from-weights", "s3://bucket/new.tar.gz"]):
+            ic_update.main()
+        output = json.loads(capsys.readouterr().out.strip())
+        assert "ModelDataUrl" in output["updated_fields"]
+        spec = mock_client.update_inference_component.call_args.kwargs["Specification"]
+        assert spec["Container"]["ArtifactUrl"] == "s3://bucket/new.tar.gz"

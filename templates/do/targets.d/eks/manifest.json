@@ -13,19 +13,37 @@
     "HP_GPU_COUNT": "auto",
     "HP_NAMESPACE": "default",
     "HP_REPLICAS": "1",
-    "HP_QUEUE": ""
+    "HP_QUEUE": "",
+    "EKS_INFERENCE_ROLE_ARN": ""
   },
   "runtime_owned_vars": [
-    "DEPLOYMENT_TARGET_EKS_STATUS"
+    "DEPLOYMENT_TARGET_EKS_STATUS",
+    "HP_CLUSTER_NAME",
+    "HP_NAMESPACE",
+    "HP_INSTANCE_TYPE",
+    "HP_GPU_COUNT",
+    "HP_CPU_REQUEST",
+    "HP_MEM_REQUEST",
+    "KUBECONFIG",
+    "EKS_INFERENCE_ROLE_ARN",
+    "HP_BENCHMARK_METRICS_ENABLED"
   ],
   "serving_config_source": "kubernetes",
+  "cluster_contract": { "script": "lib/eks-contract.sh", "entry": "_eks_contract_preflight" },
+  "adapter_delivery": { "strategy": "model-prefix", "mount_path": "/opt/ml/model", "subdir": ".mlcc-adapters" },
+  "pricing": { "service": "AmazonEC2", "instance_count": { "basis": "replicas", "replicas_var": "HP_REPLICAS", "gpus_per_replica_var": "HP_GPU_COUNT" } },
+  "compute_backends": ["smtj"],
+  "scale_to_zero": { "support": "requires-cluster-addon", "mechanism": "keda-byo", "wake_signal": null, "requests_at_zero": "unknown", "idle_billing": "nodes-still-billed", "enabled": false, "reason": "plain EKS needs a cluster-owned KEDA (plus node autoscaling) to scale to zero; MLCC installs nothing on a bring-your-own cluster (ADR-012, ADR-014)" },
   "verbs": {
     "optimize": false,
     "add-ic": false,
+    "add-pod": false,
     "ci": false,
     "adapter": true,
-    "draft": false
+    "draft": false,
+    "metrics": false
   },
+  "observability": { "store": "none", "fallback": "engine-scrape" },
   "answer_params": [
     { "answerKey": "target", "configVar": "DEPLOYMENT_TARGET", "flag": "--target", "roles": ["flag-input", "prompt-core"] },
     { "answerKey": "instance_type", "configVar": "INSTANCE_TYPE", "flag": "--instance-type", "roles": ["flag-input", "prompt-core"] },
@@ -33,6 +51,7 @@
     { "answerKey": "namespace", "configVar": "HP_NAMESPACE", "flag": "--namespace", "roles": ["flag-input"] },
     { "answerKey": "replicas", "configVar": "HP_REPLICAS", "flag": "--replicas", "roles": ["flag-input"] },
     { "answerKey": "queue", "configVar": "HP_QUEUE", "flag": "--queue", "roles": ["flag-input"] },
-    { "answerKey": "hp_gpu_count", "configVar": "HP_GPU_COUNT", "roles": ["internal"] }
+    { "answerKey": "hp_gpu_count", "configVar": "HP_GPU_COUNT", "roles": ["internal"] },
+    { "answerKey": "hp_instance_type", "configVar": "HP_INSTANCE_TYPE", "roles": ["builder-output"] }
   ]
 }

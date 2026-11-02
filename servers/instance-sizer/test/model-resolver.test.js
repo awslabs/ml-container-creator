@@ -11,13 +11,17 @@
 import assert from 'node:assert';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import {
     resolveModelMetadata,
     globMatch,
     loadCatalog,
     catalogLookup,
     estimateParamsFromConfig,
-    extractFromHuggingFaceConfig
+    extractFromHuggingFaceConfig,
+    dominantSafetensorsDtype,
+    hasUsableSize
 } from '../lib/model-resolver.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -150,13 +154,32 @@ async function run() {
 
     console.log('\nmodel-resolver: parameter estimation from config\n');
 
-    test('estimates params from hidden_size × num_hidden_layers × 12', () => {
+    // The previous formula (hidden × layers × 12) dropped a factor of hidden
+    // and sized an 8B Llama at ~1.5M params. The dense-transformer estimate is
+    // layers × 12 × hidden² + embeddings.
+    test('estimates a Llama-3-8B-shaped dense config within 15% of its published size', () => {
         const config = {
             hidden_size: 4096,
-            num_hidden_layers: 32
+            num_hidden_layers: 32,
+            vocab_size: 128256,
+            tie_word_embeddings: false
         };
         const estimated = estimateParamsFromConfig(config);
-        assert.strictEqual(estimated, 4096 * 32 * 12);
+        const published = 8_030_261_248; // safetensors total of meta-llama/Llama-3.1-8B
+        assert.ok(Math.abs(estimated - published) / published < 0.15,
+            `estimate ${estimated} should be within 15% of ${published}`);
+    });
+
+    test('reads dimensions from a nested text_config (multimodal configs)', () => {
+        const flat = estimateParamsFromConfig({ hidden_size: 2560, num_hidden_layers: 32, vocab_size: 1000 });
+        const nested = estimateParamsFromConfig({ text_config: { hidden_size: 2560, num_hidden_layers: 32, vocab_size: 1000 } });
+        assert.ok(flat > 0);
+        assert.strictEqual(nested, flat);
+    });
+
+    test('refuses to estimate mixture-of-experts configs (dense formula does not apply)', () => {
+        assert.strictEqual(estimateParamsFromConfig({ hidden_size: 4096, num_hidden_layers: 32, num_local_experts: 8 }), null);
+        assert.strictEqual(estimateParamsFromConfig({ text_config: { hidden_size: 4096, num_hidden_layers: 32, num_experts: 64 } }), null);
     });
 
     test('returns null when hidden_size is missing', () => {
@@ -204,18 +227,163 @@ async function run() {
             max_position_embeddings: 4096
         };
         const result = extractFromHuggingFaceConfig(config);
-        assert.strictEqual(result.parameterCount, 4096 * 32 * 12);
+        assert.strictEqual(result.parameterCount, estimateParamsFromConfig(config));
+        assert.strictEqual(result.parameterCountSource, 'config-dimension-estimate');
     });
 
-    test('uses defaults for missing optional fields', () => {
+    test('uses defaults for missing optional fields, but never fabricates a context length', () => {
         const config = {
             num_parameters: 7_000_000_000
         };
         const result = extractFromHuggingFaceConfig(config);
         assert.strictEqual(result.dtype, 'float16');
         assert.strictEqual(result.architecture, 'unknown');
-        assert.strictEqual(result.maxPositionEmbeddings, 4096);
+        assert.strictEqual(result.maxPositionEmbeddings, null);
     });
+
+    test('size unknown -> parameterCount null (never 0)', () => {
+        const result = extractFromHuggingFaceConfig({ architectures: ['X'] });
+        assert.strictEqual(result.parameterCount, null);
+        assert.strictEqual(hasUsableSize(result), false);
+    });
+
+    // ── Multimodal (nested text_config) — real published config ─────────────
+
+    console.log('\nmodel-resolver: multimodal config (Qwen3.5-4B fixture)\n');
+
+    const QWEN35_CONFIG = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'hf', 'Qwen__Qwen3.5-4B.config.json'), 'utf8'));
+    const QWEN35_HUB = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'hf', 'Qwen__Qwen3.5-4B.hub.json'), 'utf8'));
+
+    test('reads context/dtype/heads from text_config, not a 4096 default', () => {
+        const result = extractFromHuggingFaceConfig(QWEN35_CONFIG, QWEN35_HUB);
+        const tc = QWEN35_CONFIG.text_config;
+        assert.strictEqual(result.maxPositionEmbeddings, tc.max_position_embeddings);
+        assert.ok(result.maxPositionEmbeddings > 4096, 'Qwen3.5 publishes a long context');
+        assert.strictEqual(result.dtype, 'bfloat16');
+        assert.strictEqual(result.numLayers, tc.num_hidden_layers);
+        assert.strictEqual(result.numKvHeads, tc.num_key_value_heads);
+        assert.strictEqual(result.headDim, tc.head_dim);
+        assert.strictEqual(result.architecture, QWEN35_CONFIG.architectures[0]);
+    });
+
+    test('parameter count comes from the Hub safetensors metadata when present', () => {
+        const result = extractFromHuggingFaceConfig(QWEN35_CONFIG, QWEN35_HUB);
+        assert.strictEqual(result.parameterCount, QWEN35_HUB.safetensors.total);
+        assert.strictEqual(result.parameterCountSource, 'huggingface-safetensors-metadata');
+    });
+
+    test('without Hub metadata a multimodal config still yields a positive estimate', () => {
+        const result = extractFromHuggingFaceConfig(QWEN35_CONFIG);
+        assert.ok(hasUsableSize(result), 'nested text_config must not yield a null/zero size');
+        assert.strictEqual(result.parameterCountSource, 'config-dimension-estimate');
+    });
+
+    test('dominantSafetensorsDtype picks the majority weight dtype', () => {
+        assert.strictEqual(dominantSafetensorsDtype({ parameters: { BF16: 100, F32: 3 } }), 'bfloat16');
+        assert.strictEqual(dominantSafetensorsDtype({ parameters: { F16: 10 } }), 'float16');
+        assert.strictEqual(dominantSafetensorsDtype(null), null);
+    });
+
+    // ── Hub discovery (stubbed fetch — deterministic, offline) ──────────────
+
+    console.log('\nmodel-resolver: HuggingFace Hub discovery (stubbed)\n');
+
+    const stubFetch = (routes) => async (url) => {
+        for (const [suffix, body] of Object.entries(routes)) {
+            if (url.endsWith(suffix)) {
+                if (body === 401) return { ok: false, status: 401, json: async () => ({}) };
+                return { ok: true, status: 200, json: async () => body };
+            }
+        }
+        return { ok: false, status: 404, json: async () => ({}) };
+    };
+    const QWEN35_ROUTES = {
+        '/api/models/Qwen/Qwen3.5-4B': QWEN35_HUB,
+        '/Qwen/Qwen3.5-4B/resolve/main/config.json': QWEN35_CONFIG
+    };
+
+    await test('uncatalogued multimodal model resolves to a usable size via the Hub', async () => {
+        const result = await resolveModelMetadata('Qwen/Qwen3.5-4B', {
+            catalogPath: CATALOG_PATH,
+            fetchImpl: stubFetch(QWEN35_ROUTES)
+        });
+        assert.ok(hasUsableSize(result));
+        assert.strictEqual(result.parameterCount, QWEN35_HUB.safetensors.total);
+        assert.strictEqual(result.maxPositionEmbeddings, QWEN35_CONFIG.text_config.max_position_embeddings);
+    });
+
+    await test('gated repo (config.json 401) still gets a size from the public Hub API', async () => {
+        const result = await resolveModelMetadata('gated-org/gated-model', {
+            catalogPath: CATALOG_PATH,
+            fetchImpl: stubFetch({
+                '/api/models/gated-org/gated-model': { safetensors: { parameters: { BF16: 4_000_000_000 }, total: 4_000_000_000 } },
+                '/gated-org/gated-model/resolve/main/config.json': 401
+            })
+        });
+        assert.ok(hasUsableSize(result));
+        assert.strictEqual(result.dtype, 'bfloat16');
+        assert.strictEqual(result.maxPositionEmbeddings, null);
+    });
+
+    await test('Hub unreachable -> null (caller reports "cannot size")', async () => {
+        const result = await resolveModelMetadata('unknown-org/unknown-model', {
+            catalogPath: CATALOG_PATH,
+            fetchImpl: async () => { throw new Error('ENOTFOUND'); }
+        });
+        assert.strictEqual(result, null);
+    });
+
+    // ── Incomplete project-local entries must not shadow discovery ──────────
+
+    console.log('\nmodel-resolver: incomplete local catalog entries\n');
+
+    const tmp = mkdtempSync(join(tmpdir(), 'sizer-local-'));
+    const localPath = join(tmp, 'model-sizes.json');
+    // Shape written by older do/stage registrations for multimodal configs:
+    // no parameterCount, and a defaulted 4096 context.
+    writeFileSync(localPath, JSON.stringify({
+        catalogVersion: 'local',
+        models: { 'Qwen/Qwen3.5-4B*': { architecture: 'Qwen3_5ForConditionalGeneration', defaultDtype: 'float16', maxPositionEmbeddings: 4096 } }
+    }));
+
+    await test('local entry without parameterCount falls through to Hub discovery', async () => {
+        const result = await resolveModelMetadata('Qwen/Qwen3.5-4B', {
+            catalogPath: CATALOG_PATH,
+            localCatalogPath: localPath,
+            fetchImpl: stubFetch(QWEN35_ROUTES)
+        });
+        assert.ok(hasUsableSize(result));
+        assert.strictEqual(result.source, 'huggingface_api');
+    });
+
+    await test('local entry without parameterCount + no Hub -> partial result without a usable size', async () => {
+        const result = await resolveModelMetadata('Qwen/Qwen3.5-4B', {
+            catalogPath: CATALOG_PATH,
+            localCatalogPath: localPath,
+            discover: false
+        });
+        assert.ok(result !== null);
+        assert.strictEqual(result.source, 'local-catalog');
+        assert.strictEqual(hasUsableSize(result), false);
+    });
+
+    await test('complete local entry still wins over discovery', async () => {
+        const completePath = join(tmp, 'complete.json');
+        writeFileSync(completePath, JSON.stringify({
+            models: { 'Qwen/Qwen3.5-4B*': { parameterCount: 123, parameterCountSource: 'huggingface-safetensors-metadata', defaultDtype: 'bfloat16' } }
+        }));
+        const result = await resolveModelMetadata('Qwen/Qwen3.5-4B', {
+            catalogPath: CATALOG_PATH,
+            localCatalogPath: completePath,
+            fetchImpl: async () => { throw new Error('must not be called'); }
+        });
+        assert.strictEqual(result.source, 'local-catalog');
+        assert.strictEqual(result.parameterCount, 123);
+        assert.strictEqual(result.parameterCountSource, 'huggingface-safetensors-metadata', 'recorded source is carried through');
+        assert.strictEqual(result.maxPositionEmbeddings, null, 'unknown context stays unknown, not 4096');
+    });
+
+    rmSync(tmp, { recursive: true, force: true });
 
     // ── Full Resolution (catalog path) ───────────────────────────────────────
 

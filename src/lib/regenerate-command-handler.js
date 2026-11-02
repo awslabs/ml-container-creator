@@ -17,7 +17,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, cpSync } from 'node
 import { spawn } from 'node:child_process';
 import { parseDoConfig, shellVarsToAnswers } from './do-config.js';
 import { runtimeOwnedVarsUnion } from './target-manifest-reader.js';
-import { serveEngineRuntimeVarsUnion } from './serve-manifest-reader.js';
+import { serveEngineRuntimeVarsUnion, serveEnginePrefixes } from './serve-manifest-reader.js';
 import BaseCommandHandler, { GENERATOR_ROOT, TEMPLATE_DIR } from './base-command-handler.js';
 
 /**
@@ -89,6 +89,10 @@ const SHARED_RUNTIME_VARS = [
     // MLflow tracking — preserved so _mlflow_configured() doesn't need a profile lookup
     'MLFLOW_TRACKING_SERVER_ARN',
     'MLFLOW_TRACKING_URI',
+    // BL163: MLFLOW_APP_ARN is deliberately NOT preserved here. It is re-derived
+    // from the active profile's mlflowAppArn by do/lib/profile.sh on every run
+    // (like ROLE_ARN / S3_BUCKET), so preserving it across regenerate would
+    // freeze a stale value when the profile changes.
     // Endpoint name is written at runtime by realtime/async deploys; shared
     // because it is not a status var and both endpoint families reuse it.
     'ENDPOINT_NAME'
@@ -104,6 +108,29 @@ export const RUNTIME_OWNED_VARS = new Set([
     // dimension_map), across all engines (ADR-008 / BL105).
     ...serveEngineRuntimeVarsUnion()
 ]);
+
+// BL158: the set of serve-engine env-var PREFIXES (e.g. ['SGLANG_', 'VLLM_']),
+// derived from the serve manifests. The eks deploy forwards ANY `<prefix>*` engine
+// var into the pod (unbounded Tier-2 pass-through), but RUNTIME_OWNED_VARS only
+// enumerates the dimension_map/capability_map suffixes — so an arbitrary advanced
+// knob (e.g. VLLM_SCHEDULER_DELAY) was silently dropped on regenerate. Preserve any
+// prefix-matched var too, mirroring the deploy's exclusion of the speculative-decoding
+// components (which are reassembled from their own vars, not plain pass-through).
+const ENGINE_PREFIXES = serveEnginePrefixes();
+
+/**
+ * True when a do/config var is an engine Tier-2 pass-through var that regenerate
+ * must preserve: it starts with a serve-engine prefix and is NOT a speculative-
+ * decoding component. Mirrors the eks deploy's `k.startsWith(prefix)` +
+ * `"SPECULATIVE" in k` exclusion (templates/do/deploy.d/eks). HP_SPECULATIVE_* are
+ * still preserved via SHARED_RUNTIME_VARS, so speculative config is not lost.
+ * @param {string} name
+ * @returns {boolean}
+ */
+function _isEnginePrefixVar(name) {
+    if (name.includes('SPECULATIVE')) return false;
+    return ENGINE_PREFIXES.some((prefix) => name.startsWith(prefix));
+}
 
 // parseDoConfig + shellVarsToAnswers now come from the shared ./do-config.js
 // module (single source of truth). The canonical SHELL_VAR_TO_ANSWER mapping
@@ -127,14 +154,17 @@ function getInstalledVersion() {
 /**
  * Capture the current values of runtime-owned vars from do/config.
  * Returns a map of varName → value for vars that have a non-empty value.
+ *
+ * Exported for the BL158 drift test, which asserts an arbitrary engine-prefixed
+ * Tier-2 var survives capture while a `*SPECULATIVE*` var is excluded.
  */
-function _captureRuntimeVars(configPath) {
+export function _captureRuntimeVars(configPath) {
     if (!existsSync(configPath)) return {};
     const captured = {};
     const content = readFileSync(configPath, 'utf8');
     for (const line of content.split('\n')) {
         const match = line.match(/^\s*export\s+([A-Z_][A-Z0-9_]*)=["']?([^"']*)["']?\s*$/);
-        if (match && RUNTIME_OWNED_VARS.has(match[1]) && match[2].trim()) {
+        if (match && (RUNTIME_OWNED_VARS.has(match[1]) || _isEnginePrefixVar(match[1])) && match[2].trim()) {
             captured[match[1]] = match[2].trim();
         }
     }

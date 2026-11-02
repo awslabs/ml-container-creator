@@ -1,0 +1,429 @@
+---
+# Source: sagemaker-training/templates/training-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: training-config-{{name}}
+data:
+  config.yaml: |-
+      example-name-19orl_hydra.yaml: |
+      display_name: Gemma 4 E4B IT SFT LoRA Fine-Tuning (Text)
+      instance_types:
+      - ml.p5.48xlarge
+      - ml.p4de.24xlarge
+      - ml.p4d.24xlarge
+      run:
+        model_type: verl
+        name: '{{name}}'
+        results_dir: '{{results_directory}}'
+      trainer:
+        devices: 8
+        num_nodes: 1
+      training_config:
+        checkpoint:
+          _target_: verl.trainer.config.CheckpointConfig
+          load_contents:
+          - model
+          - optimizer
+          - extra
+          - hf_model
+          save_contents:
+          - model
+          - optimizer
+          - extra
+          - hf_model
+          save_only_adapter_if_lora: true
+        data:
+          apply_chat_template_kwargs:
+            enable_thinking: false
+          custom_cls:
+            name: null
+            path: null
+          ignore_input_ids_mismatch: true
+          max_length: {{dataset_max_len}}
+          max_token_len_per_gpu: 32768
+          messages_key: messages
+          micro_batch_size_per_gpu: 1
+          pad_mode: no_padding
+          train_batch_size: {{global_batch_size}}
+          train_files: '{{data_path}}'
+          train_val_split_ratio: {{train_val_split_ratio}}
+          truncation: left
+          use_dynamic_bsz: true
+          val_files: '{{validation_data_path}}'
+        engine:
+          _target_: verl.workers.config.FSDPEngineConfig
+          dtype: bfloat16
+          entropy_checkpointing: false
+          entropy_from_logits_with_chunking: false
+          forward_only: false
+          forward_prefetch: false
+          fsdp_size: -1
+          full_determinism: false
+          model_dtype: bfloat16
+          offload_policy: false
+          optimizer_offload: false
+          param_offload: false
+          reshard_after_forward: true
+          seed: 42
+          strategy: fsdp2
+          ulysses_sequence_parallel_size: 1
+          use_orig_params: false
+          use_torch_compile: true
+          wrap_policy:
+            min_num_params: 0
+        mlflow:
+          run_id: '{{mlflow_run_id}}'
+          tracking_uri: '{{mlflow_tracking_uri}}'
+        model:
+          _target_: verl.workers.config.HFModelConfig
+          custom_chat_template: null
+          enable_activation_offload: false
+          enable_gradient_checkpointing: true
+          exclude_modules: .*vision_tower.*|.*embed_vision.*|.*embed_audio.*|.*audio_tower.*|.*router.*|.*experts.*
+          external_lib: null
+          fused_kernel_options:
+            impl_backend: torch
+          hf_config_path: null
+          lora_adapter_path: null
+          lora_alpha: {{lora_alpha}}
+          lora_rank: {{lora_rank}}
+          override_config:
+            attn_implementation: flash_attention_2
+          path: '{{model_name_or_path}}'
+          target_modules: .*q_proj.*|.*k_proj.*|.*v_proj.*|.*o_proj.*|.*gate_proj.*|.*up_proj.*|.*down_proj.*
+          tiled_mlp:
+            enabled: false
+            num_shards: 4
+          tokenizer_path: null
+          trust_remote_code: true
+          use_fused_kernels: true
+          use_liger: false
+          use_remove_padding: true
+          use_shm: false
+        optim:
+          _target_: verl.workers.config.FSDPOptimizerConfig
+          betas:
+          - 0.9
+          - 0.999
+          clip_grad: 1.0
+          lr: {{learning_rate}}
+          lr_scheduler_type: '{{lr_scheduler}}'
+          lr_warmup_steps: {{warmup_steps}}
+          lr_warmup_steps_ratio: {{lr_warmup_steps_ratio}}
+          min_lr_ratio: {{min_lr}}
+          num_cycles: 0.5
+          optimizer: AdamW
+          optimizer_impl: torch.optim
+          override_optimizer_config: null
+          total_training_steps: -1
+          warmup_style: null
+          weight_decay: {{weight_decay}}
+        profiler:
+          _target_: verl.utils.profiler.ProfilerConfig
+          all_ranks: false
+          enable: false
+          ranks: []
+          save_path: outputs/profile
+          tool: torch
+          tool_config:
+            npu:
+              _target_: verl.utils.profiler.config.NPUToolConfig
+              analysis: true
+              contents: []
+              discrete: false
+              level: level0
+              name: npu
+            nsys:
+              _target_: verl.utils.profiler.config.NsightToolConfig
+              discrete: null
+              name: nsight
+            torch:
+              _target_: verl.utils.profiler.config.TorchProfilerToolConfig
+              manual_save: true
+              name: torch
+              step_end: null
+              step_start: 0
+            torch_memory:
+              _target_: verl.utils.profiler.config.TorchMemoryToolConfig
+              name: torch_memory
+              stack_depth: 32
+              trace_alloc_max_entries: 100000
+        trainer:
+          default_hdfs_dir: null
+          default_local_dir: '{{output_path}}'
+          device: cuda
+          experiment_name: gemma-4-e4b-it-sft-lora
+          logger:
+          - console
+          - mlflow
+          - tensorboard
+          max_ckpt_to_keep: null
+          merge_lora_on_final_save: true
+          n_gpus_per_node: 8
+          nnodes: 1
+          profile_interval:
+          - -1
+          - -1
+          project_name: gemma4-sft
+          resume_from_path: '{{resume_from_path}}'
+          resume_mode: auto
+          save_freq: after_each_epoch
+          test_freq: 5
+          total_epochs: {{max_epochs}}
+          total_training_steps: null
+        trainer_callbacks:
+        - _target_: metering_callback.MeteringCallback
+          output_path: /opt/ml/metering
+      version: 2.0.9
+  verl_config.yaml: |-
+    checkpoint:
+      _target_: verl.trainer.config.CheckpointConfig
+      load_contents:
+      - model
+      - optimizer
+      - extra
+      - hf_model
+      save_contents:
+      - model
+      - optimizer
+      - extra
+      - hf_model
+      save_only_adapter_if_lora: true
+    data:
+      apply_chat_template_kwargs:
+        enable_thinking: false
+      custom_cls:
+        name: null
+        path: null
+      ignore_input_ids_mismatch: true
+      max_length: {{dataset_max_len}}
+      max_token_len_per_gpu: 32768
+      messages_key: messages
+      micro_batch_size_per_gpu: 1
+      pad_mode: no_padding
+      train_batch_size: {{global_batch_size}}
+      train_files: '{{data_path}}'
+      train_val_split_ratio: {{train_val_split_ratio}}
+      truncation: left
+      use_dynamic_bsz: true
+      val_files: '{{validation_data_path}}'
+    engine:
+      _target_: verl.workers.config.FSDPEngineConfig
+      dtype: bfloat16
+      entropy_checkpointing: false
+      entropy_from_logits_with_chunking: false
+      forward_only: false
+      forward_prefetch: false
+      fsdp_size: -1
+      full_determinism: false
+      model_dtype: bfloat16
+      offload_policy: false
+      optimizer_offload: false
+      param_offload: false
+      reshard_after_forward: true
+      seed: 42
+      strategy: fsdp2
+      ulysses_sequence_parallel_size: 1
+      use_orig_params: false
+      use_torch_compile: true
+      wrap_policy:
+        min_num_params: 0
+    mlflow:
+      run_id: '{{mlflow_run_id}}'
+      tracking_uri: '{{mlflow_tracking_uri}}'
+    model:
+      _target_: verl.workers.config.HFModelConfig
+      custom_chat_template: null
+      enable_activation_offload: false
+      enable_gradient_checkpointing: true
+      exclude_modules: .*vision_tower.*|.*embed_vision.*|.*embed_audio.*|.*audio_tower.*|.*router.*|.*experts.*
+      external_lib: null
+      fused_kernel_options:
+        impl_backend: torch
+      hf_config_path: null
+      lora_adapter_path: null
+      lora_alpha: {{lora_alpha}}
+      lora_rank: {{lora_rank}}
+      override_config:
+        attn_implementation: flash_attention_2
+      path: '{{model_name_or_path}}'
+      target_modules: .*q_proj.*|.*k_proj.*|.*v_proj.*|.*o_proj.*|.*gate_proj.*|.*up_proj.*|.*down_proj.*
+      tiled_mlp:
+        enabled: false
+        num_shards: 4
+      tokenizer_path: null
+      trust_remote_code: true
+      use_fused_kernels: true
+      use_liger: false
+      use_remove_padding: true
+      use_shm: false
+    optim:
+      _target_: verl.workers.config.FSDPOptimizerConfig
+      betas:
+      - 0.9
+      - 0.999
+      clip_grad: 1.0
+      lr: {{learning_rate}}
+      lr_scheduler_type: '{{lr_scheduler}}'
+      lr_warmup_steps: {{warmup_steps}}
+      lr_warmup_steps_ratio: {{lr_warmup_steps_ratio}}
+      min_lr_ratio: {{min_lr}}
+      num_cycles: 0.5
+      optimizer: AdamW
+      optimizer_impl: torch.optim
+      override_optimizer_config: null
+      total_training_steps: -1
+      warmup_style: null
+      weight_decay: {{weight_decay}}
+    profiler:
+      _target_: verl.utils.profiler.ProfilerConfig
+      all_ranks: false
+      enable: false
+      ranks: []
+      save_path: outputs/profile
+      tool: torch
+      tool_config:
+        npu:
+          _target_: verl.utils.profiler.config.NPUToolConfig
+          analysis: true
+          contents: []
+          discrete: false
+          level: level0
+          name: npu
+        nsys:
+          _target_: verl.utils.profiler.config.NsightToolConfig
+          discrete: null
+          name: nsight
+        torch:
+          _target_: verl.utils.profiler.config.TorchProfilerToolConfig
+          manual_save: true
+          name: torch
+          step_end: null
+          step_start: 0
+        torch_memory:
+          _target_: verl.utils.profiler.config.TorchMemoryToolConfig
+          name: torch_memory
+          stack_depth: 32
+          trace_alloc_max_entries: 100000
+    trainer:
+      default_hdfs_dir: null
+      default_local_dir: '{{output_path}}'
+      device: cuda
+      experiment_name: gemma-4-e4b-it-sft-lora
+      logger:
+      - console
+      - mlflow
+      - tensorboard
+      max_ckpt_to_keep: null
+      merge_lora_on_final_save: true
+      n_gpus_per_node: 8
+      nnodes: 1
+      profile_interval:
+      - -1
+      - -1
+      project_name: gemma4-sft
+      resume_from_path: '{{resume_from_path}}'
+      resume_mode: auto
+      save_freq: after_each_epoch
+      test_freq: 5
+      total_epochs: {{max_epochs}}
+      total_training_steps: null
+    trainer_callbacks:
+    - _target_: metering_callback.MeteringCallback
+      output_path: /opt/ml/metering
+---
+# Source: sagemaker-training/templates/training.yaml
+apiVersion: sagemaker.amazonaws.com/v1
+kind: HyperPodPyTorchJob
+metadata:
+  name: {{name}}
+  namespace: {{namespace}}
+  labels:
+    app: {{name}}
+spec:
+  nprocPerNode: "8"
+  replicaSpecs:
+    - name: '1-nodes'
+      replicas: 1
+      template:
+        spec:
+          nodeSelector:
+            beta.kubernetes.io/instance-type: {{instance_type}}
+          containers:
+          - name: pytorch
+            image: 920498770698.dkr.ecr.us-west-2.amazonaws.com/hyperpod-recipes-verl-0-7-0:verl-v1.1.6-smtj-tf58
+            env:
+              - name: CUDA_VISIBLE_DEVICES
+                value: "0,1,2,3,4,5,6,7"
+              - name: INSTANCE_TYPE
+                value: "{{instance_type}}"
+              - name: NCCL_DEBUG
+                value: "WARN"
+              - name: SLURM_NTASKS_PER_NODE
+                value: "8"
+              # New environmental variables for the script
+              - name: GIT_REPO_URL
+                value: ""
+              - name: GIT_BRANCH
+                value: ""
+              - name: GIT_COMMIT
+                value: ""
+              - name: GIT_UPDATE_ADAPTER
+                value: ""
+              - name: NODES
+                value: "1"
+              - name: NTASKS_PER_NODE
+                value: "8"
+              - name: JOB_NAME
+                value: "example-name-19orl"
+              - name: SCRIPT_PATH
+                value: "/app/src/train_hp.py"
+              - name: SCRIPT_ARGS
+                value: "--config-path=/config --config-name=verl_config"
+              - name: PRE_SCRIPT_COMMANDS
+                value: ""
+              - name: POST_SCRIPT_COMMANDS
+                value: ""
+              - name: USE_HYPERPODRUN
+                value: "true"
+            command:
+            - /bin/bash
+            - -c
+            - "/opt/bin/scripts/train-script-gpu.sh 2>&1 | tee /data/training.log"
+            imagePullPolicy: Always
+            securityContext:
+              privileged: true
+            resources:
+              requests:
+                nvidia.com/gpu: 8
+                vpc.amazonaws.com/efa: 32
+              limits:
+                nvidia.com/gpu: 8
+                vpc.amazonaws.com/efa: 32
+            volumeMounts:
+            - mountPath: /data
+              name: fsx-claim-volume
+            - mountPath: /config
+              name: training-config
+            - mountPath: /dev/shm
+              name: shm
+            - mountPath: /var/log/aws/clusters
+              name: aws-clusters-logs
+              readOnly: true
+
+          volumes:
+          - name: fsx-claim-volume
+            persistentVolumeClaim:
+              claimName: fsx-claim
+          - configMap:
+              name: training-config-{{name}}
+            name: training-config
+          - name: shm
+            hostPath:
+              path: /dev/shm
+              type: Directory
+          - name: aws-clusters-logs
+            hostPath:
+              path: /var/log/aws/clusters
+              type: DirectoryOrCreate

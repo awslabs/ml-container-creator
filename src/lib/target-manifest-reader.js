@@ -106,10 +106,79 @@ export function answerKey(target, targetsDir = TARGETS_D) {
     return d ? d.answer_key : '';
 }
 
+/**
+ * The target's training compute backends (Wave 11 R1.1), in preference order;
+ * the first entry is the default. Node twin of target_manifest.compute_backends().
+ * A descriptor that predates the field reads as ['smtj'].
+ * @returns {string[]}
+ */
+export function computeBackends(target, targetsDir = TARGETS_D) {
+    const d = getDescriptor(target, targetsDir);
+    return d && Array.isArray(d.compute_backends) && d.compute_backends.length > 0
+        ? d.compute_backends.slice()
+        : ['smtj'];
+}
+
 /** The target's verb-applicability map (verb -> boolean). */
 export function verbs(target, targetsDir = TARGETS_D) {
     const d = getDescriptor(target, targetsDir);
     return d && d.verbs ? d.verbs : {};
+}
+
+/**
+ * The target's adapter_delivery declaration (Wave 6.1 R1.1): how LoRA adapters
+ * reach the serving pod ({strategy, mount_path, subdir}), or {} when none.
+ * @returns {{strategy?: string, mount_path?: string, subdir?: string}}
+ */
+export function adapterDelivery(target, targetsDir = TARGETS_D) {
+    const d = getDescriptor(target, targetsDir);
+    return d && d.adapter_delivery ? d.adapter_delivery : {};
+}
+/**
+ * The target's pricing declaration (Wave 9 R7.1/R8.2): the Price List service,
+ * the AmazonSageMaker component, and the billed instance-count basis, or {}.
+ * Node twin of target_manifest.pricing(), used by the conformance test.
+ * @returns {{service?: string, component?: string, instance_count?: Object}}
+ */
+export function pricing(target, targetsDir = TARGETS_D) {
+    const d = getDescriptor(target, targetsDir);
+    return d && d.pricing ? d.pricing : {};
+}
+
+/**
+ * The target's observability declaration (Wave 9 R1/R6/R12): where its serving
+ * metrics live ({store, histogram_form, selector, gpu_selector, fallback,
+ * dashboard, amp_discovery, copy_concurrency}). Node twin of
+ * target_manifest.observability(); a target without the block reads as
+ * {store: 'none'}.
+ * @returns {{store: string, histogram_form?: string, selector?: Object<string,string>, dashboard?: string}}
+ */
+export function observability(target, targetsDir = TARGETS_D) {
+    const d = getDescriptor(target, targetsDir);
+    const obs = d && d.observability ? { ...d.observability } : {};
+    if (!obs.store) obs.store = 'none';
+    return obs;
+}
+/**
+ * The target's scale_to_zero declaration (Wave 10, ADR-014 R1): whether the
+ * platform can scale it to zero ({support, mechanism, wake_signal,
+ * requests_at_zero, idle_billing}) and whether MLCC wires it ({enabled, reason}).
+ * Node twin of target_manifest.scale_to_zero(); a target without the block reads
+ * as not-applicable and disabled.
+ * @returns {{support: string, mechanism: ?string, wake_signal: ?string, requests_at_zero: string, idle_billing: string, enabled: boolean, reason?: string}}
+ */
+export function scaleToZero(target, targetsDir = TARGETS_D) {
+    const d = getDescriptor(target, targetsDir);
+    if (d && d.scale_to_zero) return { ...d.scale_to_zero };
+    return {
+        support: 'not-applicable',
+        mechanism: null,
+        wake_signal: null,
+        requests_at_zero: 'n/a',
+        idle_billing: 'n/a',
+        enabled: false,
+        reason: 'this target declares no scale_to_zero capability'
+    };
 }
 
 /**

@@ -48,6 +48,8 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/lib/profile.sh"
 source "${SCRIPT_DIR}/lib/aws-preflight.sh"
+# _check_inference_ami (InferenceAmiVersion vs AWS instance-family table, BL209)
+source "${SCRIPT_DIR}/lib/endpoint-config.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
 ROLE_ARN="${ROLE_ARN:-${_PROFILE_roleArn:-}}"
@@ -55,7 +57,12 @@ ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-con
 export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
 
 # Async-specific derived variables
-_ASYNC_BUCKET="${_PROFILE_asyncS3Bucket:-${_PROFILE_coreS3Bucket:-${_PROFILE_modelsS3Bucket:-mlcc-core-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}}}}"
+# Default I/O bucket = the profile's core bucket (CORE_S3_BUCKET via
+# do/lib/profile.sh). No convention-built fallback name (bucket consolidation R2.1).
+_ASYNC_BUCKET="${CORE_S3_BUCKET:-}"
+if [ -z "${_ASYNC_BUCKET}" ] && { [ -z "${ASYNC_S3_OUTPUT_PATH:-}" ]; }; then
+    _require_bucket CORE_S3_BUCKET || exit 1
+fi
 ASYNC_S3_OUTPUT_PATH="${ASYNC_S3_OUTPUT_PATH:-s3://${_ASYNC_BUCKET}/async-output/${PROJECT_NAME}/}"
 ASYNC_SNS_SUCCESS_TOPIC="${ASYNC_SNS_SUCCESS_TOPIC:-arn:aws:sns:${_PROFILE_awsRegion:-us-east-1}:${_PROFILE_accountId:-unknown}:ml-container-creator-${PROJECT_NAME}-async-success}"
 ASYNC_SNS_ERROR_TOPIC="${ASYNC_SNS_ERROR_TOPIC:-arn:aws:sns:${_PROFILE_awsRegion:-us-east-1}:${_PROFILE_accountId:-unknown}:ml-container-creator-${PROJECT_NAME}-async-error}"
@@ -393,7 +400,10 @@ if [ -z "${SKIP_TO}" ]; then
     # Build production variant JSON (classic: includes ModelName, no execution-role-arn on endpoint config)
     VARIANT_JSON="[{\"VariantName\":\"AllTraffic\",\"ModelName\":\"${MODEL_NAME_SM}\",\"InstanceType\":\"${INSTANCE_TYPE}\",\"InitialInstanceCount\":1"
 
-    # Append InferenceAmiVersion if configured
+    # Append InferenceAmiVersion if configured (warn when AWS does not list it for the family, BL209)
+    if [ -n "${INFERENCE_AMI_VERSION:-}" ] && [ -n "${INSTANCE_TYPE:-}" ]; then
+        _check_inference_ami "${INSTANCE_TYPE}"
+    fi
     if [ -n "${INFERENCE_AMI_VERSION:-}" ]; then
         VARIANT_JSON="${VARIANT_JSON},\"InferenceAmiVersion\":\"${INFERENCE_AMI_VERSION}\""
         echo "   AMI version: ${INFERENCE_AMI_VERSION}"

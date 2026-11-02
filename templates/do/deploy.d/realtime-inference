@@ -311,6 +311,22 @@ source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/wait.sh"
 source "${SCRIPT_DIR}/lib/endpoint-config.sh"
 source "${SCRIPT_DIR}/lib/inference-component.sh"
+source "${SCRIPT_DIR}/lib/scale-to-zero.sh"
+
+# ── Scale-to-zero (Wave 10, ADR-014) ──────────────────────────────────────────
+# Opt-in only: STZ_ACTIVE is true when SCALE_TO_ZERO=true AND this target's
+# descriptor enables it (the target name is this script's own file name). Off by
+# default, in which case nothing below changes the deploy.
+_STZ_TARGET="$(basename "${BASH_SOURCE[0]}")"
+STZ_ACTIVE=false
+_STZ_RC=0
+if stz_active "${_STZ_TARGET}"; then
+    STZ_ACTIVE=true
+    stz_refuse_unsupported_config "${_STZ_TARGET}"
+    if [ -z "${IC_TARGET}" ]; then
+        stz_warning "${_STZ_TARGET}"
+    fi
+fi
 
 # Validate execution role ARN
 if [ -z "${ROLE_ARN:-}" ]; then
@@ -948,6 +964,26 @@ elif [ "${SKIP_TO}" = "wait_ic" ]; then
     echo "✅ Inference component is InService: ${IC_DEPLOYED_NAME}"
 fi
 
+# ── Scale-to-zero setup (Wave 10, ADR-014 R3.2 / R4.1) ─────────────────────────
+# After every IC is InService: register each with MinCapacity 0 and create its
+# policies and wake alarm. A failure is NOT a deploy failure: what was created is
+# rolled back, the endpoint keeps serving at its fixed floor, and the deploy
+# exits 5 at the end. An IC deployed on its own (--ic, do/add-ic) is not
+# registered in v2 (R3.3): print the notice instead.
+if [ "${STZ_ACTIVE}" = "true" ]; then
+    if [ -n "${IC_TARGET}" ]; then
+        [ -n "${MLCC_STZ_ADD_IC_NOTICE:-}" ] || stz_add_ic_notice
+    else
+        if [ -d "${SCRIPT_DIR}/ic" ]; then
+            _STZ_ICS=$(_stz_deployed_ics | tr '\n' ' ')
+        else
+            _STZ_ICS="${IC_DEPLOYED_NAME:-${INFERENCE_COMPONENT_NAME:-}}"
+        fi
+        # ${_STZ_ICS}: space-separated IC names, unquoted on purpose.
+        stz_setup "${_STZ_TARGET}" ${_STZ_ICS} || _STZ_RC=$?
+    fi
+fi
+
 # ── Resolve and persist actual instance type (for heterogeneous pools) ─────────
 # On pool-based endpoints, INSTANCE_TYPE in do/config may be empty or reflect
 # only the generation-time default. Query the live endpoint to determine what
@@ -1022,7 +1058,7 @@ echo "   • Test your endpoint:         ./do/test"
 echo "   • Benchmark performance:      ./do/benchmark"
 <% } %>
 <% if (typeof enableLora !== 'undefined' && enableLora) { %>
-echo "   • Add a LoRA adapter:         ./do/adapter add <name> --weights s3://..."
+echo "   • Add a LoRA adapter:         ./do/adapter add <name> --from-weights s3://..."
 <% } %>
 echo "   • View endpoint status:       ./do/status"
 echo "   • Register this deployment:   ./do/register"
@@ -1030,3 +1066,13 @@ echo "   • View logs:                  ./do/logs"
 <% if (!(typeof existingEndpointName !== 'undefined' && existingEndpointName)) { %>
 echo "   • Clean up when done:         ./do/clean endpoint"
 <% } %>
+
+# Scale-to-zero setup failed after a successful deploy (R4.1): exit 5, distinct
+# from 4 (deploy failure), so callers know the endpoint is up.
+if [ "${_STZ_RC}" -ne 0 ]; then
+    echo ""
+    echo "⚠️  Deployed, but scale-to-zero was not set up (exit 5). The endpoint is up and"
+    echo "   serving at a fixed floor of 1 copy; SCALE_TO_ZERO_STATUS=failed in do/config."
+    _update_config DEPLOYMENT_TARGET "${DEPLOYMENT_TARGET}"
+    exit 5
+fi

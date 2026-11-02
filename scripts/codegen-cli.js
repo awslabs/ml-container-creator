@@ -47,7 +47,9 @@ for (const param of Object.values(schema.parameters)) {
 
     const entry = { flag, description: param.description };
 
-    if (param.validation?.enum) entry.choices = param.validation.enum;
+    // Commander compares choices against the raw (string) argv token, so a
+    // numeric enum (e.g. maxLoraRank's allowed set) is emitted as strings.
+    if (param.validation?.enum) entry.choices = param.validation.enum.map((e) => (typeof e === 'number' ? String(e) : e));
     if (param.deprecated) entry.hidden = true;
     if (param.repeatable) entry.repeatable = true;
     if (param.default !== null && param.default !== undefined && !param.repeatable) {

@@ -39,6 +39,7 @@ an ADR. Wave 8 stitches these into a navigable Developer Guide.
 - [MCP picker servers](mcp-servers.md) — *Wave 2*
 - [Serve-engine plugins](serve-engine-plugins.md) — *Wave 3* — LLM/transformer serving engines
     - [Authoring guide](serve-engine-plugin-authoring.md) — extend/version/add engine plugins
+- [Per-technique tune descriptor](tune-descriptor.md) — *v2.0 Wave 3* — the managed-customization technique source of truth (`tune.d/`): structural + synced layers, the sync, and the managed-RL dataset contract (Producer + Gate)
 - [Predictor-framework plugins](predictor-framework-plugins.md) — classical-ML (sklearn/xgboost/tensorflow) HTTP predictors (descriptor + handler)
 - [Command handlers & do/config](command-handlers.md) — *Wave 4*
 - [Validation framework](validation.md) — *Wave 5*
@@ -67,3 +68,14 @@ See the ADR log:
   contract enforcement (Wave 6).
 - [ADR-008](../adr/ADR-008-deployment-target-descriptor.md) — deployment-target
   descriptor / single source of truth (Wave 8).
+- [ADR-009](../adr/ADR-009-serve-engine-capability-versioning.md) — serve-engine
+  capability versioning.
+- [ADR-010](../adr/ADR-010-k8s-engine-config-injection.md) — k8s engine-config
+  injection.
+- [ADR-011](../adr/ADR-011-tune-technique-descriptor.md) — per-technique tune
+  descriptor / single source of truth (v2.0 Wave 3, BL129).
+- [ADR-012](../adr/ADR-012-consume-dont-provision-clusters.md) — consume-don't-provision
+  for EKS / HyperPod clusters (v2.0 Wave 4; the BYO-cluster contract posture).
+- [ADR-013](../adr/ADR-013-additive-deploy-artifact-kind-contract.md) — additive-deploy is
+  artifact-kind-driven and target-uniform (source resolves uniformly, artifact_kind gates the verb,
+  target selects the load mechanism).

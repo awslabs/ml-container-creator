@@ -31,11 +31,20 @@ How it works
 
 The same checks run for ``aws secretsmanager <op>`` (BL212: the deploy and the
 serving container both call Secrets Manager), against botocore's bundled
-Secrets Manager model.
+Secrets Manager model, and (Wave 10, ADR-014 R8.4) for ``aws application-autoscaling``
+and ``aws cloudwatch``, which the realtime scale-to-zero mechanism calls. The
+service -> model map is ``SERVICES``; each service lists the operations the guard
+must find (``REQUIRED_OPS``) so a broken extractor cannot pass vacuously.
+
+Beyond op and flag names, the scale-to-zero calls captured by the stubbed-``aws``
+sandbox (conftest ``stz_sandbox``) have their VALUES checked against the botocore
+input shapes, enums included (``ExactCapacity``, the IC scalable dimension,
+``ManagedInstanceScaling.Status``): see ``validate_call``.
 botocore is pinned in ``.github/workflows/ci.yml``. If MLCC adopts a SageMaker
 API newer than the pinned model, this test fails with "unknown operation" or
 "unknown flag"; bump the pin rather than allow-listing the flag.
 """
+import json
 import os
 import re
 from pathlib import Path
@@ -71,7 +80,20 @@ REQUIRED_SECRETSMANAGER_OPERATIONS = {
     "get-secret-value",
     "describe-secret",
 }
-SERVICES = ("sagemaker", "secretsmanager")
+# Per-service required operations (the service -> model map is SERVICES).
+REQUIRED_OPS = {
+    "sagemaker": REQUIRED_OPERATIONS,
+    "secretsmanager": REQUIRED_SECRETSMANAGER_OPERATIONS,
+    # Wave 10 scale-to-zero: create (deploy), delete (clean / rollback), describe (status).
+    "application-autoscaling": {
+        "register-scalable-target", "put-scaling-policy", "delete-scaling-policy",
+        "deregister-scalable-target", "describe-scalable-targets",
+    },
+    "cloudwatch": {"put-metric-alarm", "delete-alarms"},
+}
+SERVICES = tuple(REQUIRED_OPS)
+# Shell functions that wrap ``aws`` and take the same arguments.
+AWS_WRAPPERS = ("_stz_aws",)
 
 # AWS CLI v2 global options (``aws help``, GLOBAL OPTIONS).
 GLOBAL_OPTIONS = {
@@ -86,7 +108,8 @@ OPERATION_OPTIONS = {"--cli-input-json", "--cli-input-yaml", "--generate-cli-ske
 PAGINATION_OPTIONS = {"--starting-token", "--page-size", "--max-items"}
 
 FLAG_RE = re.compile(r"^--[a-z0-9][a-z0-9-]*$")
-AWS_SM_RE = re.compile(r"\baws[ \t]+(sagemaker|secretsmanager)[ \t]+")
+AWS_SM_RE = re.compile(r"(?<![A-Za-z0-9_])(?:" + "|".join(re.escape(w) for w in ("aws",) + AWS_WRAPPERS)
+                       + r")[ \t]+(" + "|".join(re.escape(s) for s in SERVICES) + r")[ \t]+")
 ARRAY_RE = re.compile(
     r"^[ \t]*(?:local[ \t]+(?:-a[ \t]+)?)?([A-Za-z_][A-Za-z0-9_]*)(\+?)=\(", re.M
 )
@@ -95,7 +118,8 @@ PY_LIST_RE = re.compile(
     r"""\[\s*["']aws["']\s*,\s*["']sagemaker["']\s*,\s*["']([a-z][a-z0-9-]*)["']([^\]]*)\]"""
 )
 PY_STR_RE = re.compile(r"""["'](--[a-z0-9][a-z0-9-]*)["']""")
-JS_TEMPLATE_RE = re.compile(r"`(?:aws[ \t]+)?(sagemaker|secretsmanager)[ \t]+([a-z][a-z0-9-]*)([^`]*)`")
+JS_TEMPLATE_RE = re.compile(r"`(?:aws[ \t]+)?(" + "|".join(re.escape(s) for s in SERVICES)
+                            + r")[ \t]+([a-z][a-z0-9-]*)([^`]*)`")
 JS_FLAG_RE = re.compile(r"(?:^|\s)(--[a-z0-9][a-z0-9-]*)")
 EJS_OUTPUT_RE = re.compile(r"<%[=-].*?%>", re.S)
 EJS_CONTROL_RE = re.compile(r"<%.*?%>", re.S)
@@ -618,12 +642,10 @@ def test_validator_rejects_the_v170_container_metrics_flag(cli):
 # ── the repo guard ───────────────────────────────────────────────────────────
 
 def test_extractor_covers_required_operations(repo_invocations):
-    ops = {inv["op"] for inv in repo_invocations if inv["service"] == "sagemaker"}
-    missing = REQUIRED_OPERATIONS - ops
-    assert not missing, "extractor found no invocation of: {}".format(sorted(missing))
-    sm_ops = {inv["op"] for inv in repo_invocations if inv["service"] == "secretsmanager"}
-    missing = REQUIRED_SECRETSMANAGER_OPERATIONS - sm_ops
-    assert not missing, "extractor found no secretsmanager invocation of: {}".format(sorted(missing))
+    for service, required in REQUIRED_OPS.items():
+        ops = {inv["op"] for inv in repo_invocations if inv["service"] == service}
+        missing = required - ops
+        assert not missing, "extractor found no {} invocation of: {}".format(service, sorted(missing))
 
 
 def test_validator_rejects_unknown_secretsmanager_flag(clis):
@@ -639,3 +661,231 @@ def test_every_sagemaker_cli_flag_exists_in_service_model(clis, repo_invocations
     assert not problems, (
         "AWS CLI would reject these SageMaker options (botocore {}):\n  ".format(
             botocore.__version__) + "\n  ".join(sorted(set(problems))))
+
+
+# ── Wave 11: the cluster contract's eks / iam / sagemaker calls ──────────────
+
+def test_hyperpod_contract_aws_argv_exists_in_service_models():
+    """hyperpod_ops.contract builds its `aws` argv as Python lists that the static
+    extractor above does not see (``_aws(["eks", ...])``), so check the RECORDED
+    argv from a stubbed run through every element, plus the printed
+    create-pod-identity-association command, against botocore's eks / iam /
+    sagemaker models (Wave 11 R13.2)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "test_hyperpod_contract", str(REPO / "test" / "unit" / "test_hyperpod_contract.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    checkers = {}
+    problems, seen = [], set()
+    for argv in mod.recorded_contract_argv():
+        if argv[0] != "aws":
+            continue
+        service, op = argv[1], argv[2]
+        seen.add((service, op))
+        checker = checkers.setdefault(service, ServiceCli(service))
+        flags = [a for a in argv[3:] if FLAG_RE.match(a)]
+        inv = {"op": op, "flags": flags, "file": "hyperpod_ops.contract", "line": 0, "kind": "recorded"}
+        problems.extend(checker.problems(inv))
+    assert {("eks", "list-pod-identity-associations"), ("eks", "describe-pod-identity-association"),
+            ("eks", "create-pod-identity-association"), ("iam", "simulate-principal-policy"),
+            ("sagemaker", "describe-cluster")} <= seen
+    assert not problems, "\n".join(problems)
+
+
+# ── Wave 10 (R8.4): values of the scale-to-zero calls vs. the input shapes ────
+
+def _shorthand_struct(raw):
+    """AWS CLI shorthand ``A=x,B=y`` -> {"A": "x", "B": "y"} (flat only)."""
+    out = {}
+    for part in raw.split(","):
+        key, _, value = part.partition("=")
+        out[key.strip()] = value
+    return out
+
+
+def _cli_value(shape, raw):
+    """Parse one CLI argument the way the AWS CLI would (JSON or shorthand)."""
+    kind = shape.type_name
+    text = raw.strip()
+    if kind in ("structure", "map"):
+        return json.loads(text) if text.startswith("{") else _shorthand_struct(text)
+    if kind == "list":
+        if text.startswith("["):
+            return json.loads(text)
+        member = shape.member
+        return [_shorthand_struct(text) if member.type_name == "structure" else raw]
+    return raw  # scalars are coerced in _check_value
+
+
+def _check_value(shape, value, path, problems):
+    kind = shape.type_name
+    if kind == "structure":
+        if not isinstance(value, dict):
+            problems.append(f"{path}: expected an object, got {value!r}")
+            return
+        for key in value:
+            if key not in shape.members:
+                problems.append(f"{path}: unknown member {key!r} ({shape.name})")
+        for req in shape.required_members:
+            if req not in value:
+                problems.append(f"{path}: missing required member {req!r} ({shape.name})")
+        for key, member in shape.members.items():
+            if key in value:
+                _check_value(member, value[key], f"{path}.{key}", problems)
+    elif kind == "list":
+        if not isinstance(value, list):
+            problems.append(f"{path}: expected a list, got {value!r}")
+            return
+        for i, item in enumerate(value):
+            _check_value(shape.member, item, f"{path}[{i}]", problems)
+    elif kind == "map":
+        if not isinstance(value, dict):
+            problems.append(f"{path}: expected a map, got {value!r}")
+    elif kind == "string":
+        if not isinstance(value, str):
+            problems.append(f"{path}: expected a string, got {value!r}")
+        elif shape.enum and value not in shape.enum:
+            problems.append(f"{path}: {value!r} is not one of {shape.enum} ({shape.name})")
+    elif kind in ("integer", "long"):
+        try:
+            number = int(value) if not isinstance(value, bool) else None
+        except (TypeError, ValueError):
+            number = None
+        if number is None or (isinstance(value, float) and not value.is_integer()):
+            problems.append(f"{path}: expected an integer, got {value!r}")
+            return
+        lo, hi = shape.metadata.get("min"), shape.metadata.get("max")
+        if lo is not None and number < lo:
+            problems.append(f"{path}: {number} < min {lo}")
+        if hi is not None and number > hi:
+            problems.append(f"{path}: {number} > max {hi}")
+    elif kind in ("double", "float"):
+        try:
+            float(value)
+        except (TypeError, ValueError):
+            problems.append(f"{path}: expected a number, got {value!r}")
+    elif kind == "boolean":
+        if not isinstance(value, bool) and value not in ("true", "false"):
+            problems.append(f"{path}: expected a boolean, got {value!r}")
+
+
+def validate_call(clis, argv):
+    """Validate one captured ``aws <service> <op> --flag value ...`` argv against
+    the botocore input shape: op, flags, required members and every value
+    (enums, nested JSON, shorthand). Returns a list of problems."""
+    service, op, rest = argv[0], argv[1], argv[2:]
+    if service not in clis or op == "wait":
+        return []
+    cli = clis[service]
+    if op not in cli.ops:
+        return [f"unknown operation 'aws {service} {op}'"]
+    op_model = cli.model.operation_model(cli.ops[op])
+    shape = op_model.input_shape
+    kebab = {xform_name(m, "-"): m for m in shape.members}
+    allowed = cli.allowed_flags(cli.ops[op])
+    problems, given = [], {}
+    i = 0
+    while i < len(rest):
+        flag = rest[i]
+        if flag not in allowed:
+            problems.append(f"{service} {op}: unknown option {flag}")
+        member = kebab.get(flag[2:])
+        value = rest[i + 1] if i + 1 < len(rest) and not rest[i + 1].startswith("--") else None
+        if member is not None and value is not None:
+            try:
+                given[member] = _cli_value(shape.members[member], value)
+            except ValueError as exc:
+                problems.append(f"{service} {op} {flag}: not valid JSON ({exc})")
+        i += 2 if value is not None else 1
+    for req in shape.required_members:
+        if req not in given:
+            problems.append(f"{service} {op}: missing required {req}")
+    for member, value in given.items():
+        _check_value(shape.members[member], value, f"{service} {op} {member}", problems)
+    return problems
+
+
+def test_validate_call_rejects_bad_enums_and_members(clis):
+    base = ["application-autoscaling", "put-scaling-policy", "--policy-name", "p",
+            "--service-namespace", "sagemaker", "--resource-id", "inference-component/x",
+            "--scalable-dimension", "sagemaker:inference-component:DesiredCopyCount",
+            "--policy-type", "StepScaling"]
+    good = '{"AdjustmentType":"ExactCapacity","StepAdjustments":[{"MetricIntervalLowerBound":0,"ScalingAdjustment":1}]}'
+    assert validate_call(clis, base + ["--step-scaling-policy-configuration", good]) == []
+    bad_enum = good.replace("ExactCapacity", "ExactCapacityX")
+    assert any("ExactCapacityX" in p for p in validate_call(clis, base + ["--step-scaling-policy-configuration", bad_enum]))
+    bad_dim = [v.replace("DesiredCopyCount", "DesiredCopies") for v in base]
+    assert any("DesiredCopies" in p for p in validate_call(clis, bad_dim + ["--step-scaling-policy-configuration", good]))
+    bad_member = good.replace('"AdjustmentType"', '"Adjustment"')
+    assert any("unknown member 'Adjustment'" in p
+               for p in validate_call(clis, base + ["--step-scaling-policy-configuration", bad_member]))
+    mis = '[{"VariantName":"AllTraffic","InstanceType":"ml.g5.xlarge","InitialInstanceCount":1,' \
+          '"ManagedInstanceScaling":{"Status":"ON","MinInstanceCount":0,"MaxInstanceCount":1}}]'
+    probs = validate_call(clis, ["sagemaker", "create-endpoint-config", "--endpoint-config-name", "c",
+                                 "--production-variants", mis])
+    assert any("'ON' is not one of" in p for p in probs), probs
+
+
+def _scale_to_zero_calls(sb):
+    """Drive every scale-to-zero code path in the sandbox; return the captured argv."""
+    ic = "stz-default-1700000000"
+    arn = "arn:aws:autoscaling:us-east-1:111122223333:scalingPolicy:x"
+    base_rules = [
+        {"match": ["sts", "Account"], "stdout": "111122223333\n"},
+        {"match": ["put-scaling-policy", "StepScaling"], "stdout": arn + "\n"},
+        {"match": ["list-inference-components"], "stdout": ic + "\n"},
+        {"match": ["describe-inference-component", "InferenceComponentStatus"], "stdout": "InService\n"},
+        {"match": ["describe-scalable-targets"], "stdout": "0\t2\n"},
+    ]
+    live = "\n".join([
+        'export PROJECT_NAME="stz"', 'export SMAI_ENDPOINT_NAME="stz-endpoint-1"',
+        'export SMAI_INSTANCE_TYPE="ml.g5.xlarge"', 'export ENDPOINT_CONFIG_NAME="stz-epc-old"',
+        f'export INFERENCE_COMPONENT_NAME="{ic}"', 'export ROLE_ARN="arn:aws:iam::111122223333:role/r"',
+        'export SCALE_MAX_CAPACITY="2"', ''])
+    calls = []
+    scenarios = [
+        # deploy: setup on a fresh IC, the status describe, clean / rollback deletes
+        ('SCALE_MAX_CAPACITY=2\nstz_setup realtime-inference ' + ic, [], live),
+        ('stz_status_line 0 >/dev/null', [], live),
+        ('stz_teardown realtime-inference ' + ic, [], live),
+        # in-place reconfigure: on (new endpoint config with ManagedInstanceScaling), off (restore + drop it)
+        ('SCALE_TO_ZERO=true\nstz_reconfigure_live realtime-inference',
+         [{"match": ["describe-endpoint-config"], "stdout": "None\n"}], live),
+        ('SCALE_TO_ZERO=false\nstz_reconfigure_live realtime-inference',
+         [{"match": ["describe-endpoint-config"], "stdout": "0\n"},
+          {"match": ["describe-inference-component", "DesiredCopyCount"], "stdout": "0\n"}], live),
+    ]
+    for body, extra, config in scenarios:
+        sb.reset_logs()
+        sb.write("do/config", config)
+        sb.rules(extra + base_rules)
+        rc, out, err = sb.run('stz_load realtime-inference\n' + body)
+        assert rc == 0, body + "\n" + out + err
+        calls.extend(sb.calls())
+    return calls
+
+
+def test_scale_to_zero_captured_calls_match_the_service_models(clis, stz_sandbox):
+    calls = _scale_to_zero_calls(stz_sandbox)
+    seen = {(c[0], c[1]) for c in calls}
+    for service in ("application-autoscaling", "cloudwatch"):
+        for op in REQUIRED_OPS[service]:
+            assert (service, op) in seen, f"scenario never exercised aws {service} {op}"
+    assert ("sagemaker", "create-endpoint-config") in seen
+    assert ("sagemaker", "update-endpoint") in seen
+    assert ("sagemaker", "update-inference-component-runtime-config") in seen
+    problems = [p for c in calls for p in validate_call(clis, c)]
+    assert not problems, "botocore {} rejects:\n  ".format(botocore.__version__) + "\n  ".join(problems)
+    # The enum values the mechanism depends on, checked explicitly.
+    step = next(c for c in calls if c[1] == "put-scaling-policy" and "StepScaling" in c)
+    cfg = json.loads(step[step.index("--step-scaling-policy-configuration") + 1])
+    aas = clis["application-autoscaling"].model
+    assert cfg["AdjustmentType"] in aas.shape_for("AdjustmentType").enum
+    assert step[step.index("--scalable-dimension") + 1] in aas.shape_for("ScalableDimension").enum
+    epc = next(c for c in calls if c[1] == "create-endpoint-config"
+               and "ManagedInstanceScaling" in c[c.index("--production-variants") + 1])
+    mis = json.loads(epc[epc.index("--production-variants") + 1])[0]["ManagedInstanceScaling"]
+    sm = clis["sagemaker"].model
+    assert mis["Status"] in sm.shape_for("ManagedInstanceScalingStatus").enum
+    assert mis["MinInstanceCount"] == 0

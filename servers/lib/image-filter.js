@@ -19,6 +19,9 @@
  *   - filterImages(images, options) → { images, metadata }
  *   - parseInstanceFamily(instanceType) → string
  *   - compareVersions(a, b) → number (-1, 0, 1)
+ *   - resolveInferenceAmi(options) → { ami, source, warnings, error, ... } (BL209;
+ *     the deploy-time shell twin is templates/do/lib/python/inference_ami.py,
+ *     kept in agreement by test/unit/deploy-config-builder-ami.test.js)
  */
 
 import { readFileSync } from 'node:fs';
@@ -53,12 +56,14 @@ function loadModelArchSupport() {
 
 /**
  * Parse instance family from SageMaker instance type.
- * E.g., "ml.g5.24xlarge" → "g5", "ml.p5e.48xlarge" → "p5e"
+ * E.g., "ml.g5.24xlarge" → "g5", "ml.p5e.48xlarge" → "p5e",
+ * "ml.p6-b200.48xlarge" → "p6-b200" (hyphenated families are valid SageMaker
+ * family names; BL203).
  */
 export function parseInstanceFamily(instanceType) {
     if (!instanceType) return null;
     // Pattern: ml.<family>.<size>
-    const match = instanceType.match(/^ml\.([a-z0-9]+)\./i);
+    const match = instanceType.match(/^ml\.([a-z0-9][a-z0-9-]*)\./i);
     return match ? match[1] : null;
 }
 
@@ -123,6 +128,137 @@ export function resolveFleetDriver(options = {}) {
     }
 
     return { driver: null, source: 'none' };
+}
+
+// ── Inference AMI resolution (BL209) ─────────────────────────────────────────
+
+function normalizeAmi(ami) {
+    return ami ? String(ami).trim().toLowerCase().replace(/_/g, '-') : '';
+}
+
+/**
+ * The AWS-documented InferenceAmiVersion allow-list for one instance family,
+ * derived from fleet-drivers.json ami_versions[*].default_families and
+ * override_families (copied from the AWS inference-gpu-drivers table).
+ *
+ * kind:
+ *   'gpu'     — an NVIDIA family AWS lists (amis = every AMI it may use)
+ *   'non-gpu' — a known family with no NVIDIA driver (instance_families null:
+ *               Trainium / Inferentia); no InferenceAmiVersion GPU AMI applies
+ *   'unknown' — not in fleet-drivers.json at all (CPU families, typos, families
+ *               AWS does not list); nothing can be validated
+ *
+ * @param {string|null} family - e.g. "g7", "p6-b200"
+ * @returns {{ family: string|null, kind: string, amis: string[], defaultAmi: string|null }}
+ */
+export function inferenceAmiAllowList(family) {
+    const catalog = loadFleetDrivers();
+    const families = catalog.instance_families || {};
+    const amis = Object.entries(catalog.ami_versions || {})
+        .filter(([name, entry]) => !name.startsWith('_') && entry && typeof entry === 'object')
+        .filter(([, entry]) => [...(entry.default_families || []), ...(entry.override_families || [])].includes(family))
+        .map(([name]) => name);
+    const familyEntry = family ? families[family] : undefined;
+    let kind = 'unknown';
+    if (familyEntry === null) kind = 'non-gpu';
+    else if (familyEntry || amis.length > 0) kind = 'gpu';
+    return {
+        family: family || null,
+        kind,
+        amis,
+        defaultAmi: (familyEntry && familyEntry.inference_ami_version) || null
+    };
+}
+
+/**
+ * Resolve the InferenceAmiVersion to send for a SageMaker endpoint variant.
+ *
+ * The AMI is a function of the instance family (AWS allow-list in
+ * fleet-drivers.json) and the image's default AMI (model-servers.json
+ * defaults.inferenceAmiVersion). Precedence:
+ *   1. userAmi (INFERENCE_AMI_VERSION already in do/config) — kept, but checked
+ *      against the allow-list; a warning is returned when AWS does not list it
+ *      for a family.
+ *   2. imageAmi, when every family allows it.
+ *   3. The family's inference_ami_version (fleet-drivers.json), in pool order,
+ *      when every family allows it.
+ *   4. null — omit the field so SageMaker applies the family default.
+ *
+ * Pools (instanceTypes with more than one entry) need ONE AMI that every pool
+ * family allows (the intersection of the allow-lists). An empty intersection,
+ * or a GPU family mixed with a non-GPU family, is returned as `error`.
+ * Unknown families are skipped (callers decide whether to warn).
+ *
+ * @param {object} options
+ * @param {string} [options.instanceType] - single instance type
+ * @param {string[]} [options.instanceTypes] - pool types (wins over instanceType)
+ * @param {string} [options.userAmi] - INFERENCE_AMI_VERSION set by the user / do/config
+ * @param {string} [options.imageAmi] - the model-server image default AMI
+ * @returns {{ ami: string|null, source: string, warnings: string[], error: string|null,
+ *            allowed: string[], families: object[] }}
+ */
+export function resolveInferenceAmi(options = {}) {
+    const { instanceType, instanceTypes, userAmi, imageAmi } = options;
+    const types = (Array.isArray(instanceTypes) && instanceTypes.length > 0 ? instanceTypes : [instanceType])
+        .map(t => (t ? String(t).trim() : ''))
+        .filter(Boolean);
+    const families = types.map(type => ({ type, ...inferenceAmiAllowList(parseInstanceFamily(type)) }));
+    const gpu = families.filter(f => f.kind === 'gpu');
+    const nonGpu = families.filter(f => f.kind === 'non-gpu');
+    const user = normalizeAmi(userAmi);
+    const result = { ami: null, source: 'none', warnings: [], error: null, allowed: [], families };
+
+    if (gpu.length > 0 && nonGpu.length > 0) {
+        result.error = `Cannot mix ${gpu[0].type} (NVIDIA GPU) and ${nonGpu[0].type} (no NVIDIA driver) ` +
+            'in same pool — different CUDA/AMI requirements';
+        return result;
+    }
+    if (gpu.length === 0) {
+        // Nothing AWS documents for these families: keep a user value as-is.
+        if (user) Object.assign(result, { ami: user, source: 'user' });
+        return result;
+    }
+
+    // Intersection of the allow-lists, in catalog order.
+    let allowed = gpu[0].amis;
+    for (const f of gpu.slice(1)) {
+        const next = allowed.filter(a => f.amis.includes(a));
+        if (next.length === 0) {
+            result.error = `Cannot mix ${gpu[0].type} and ${f.type} in same pool — different CUDA/AMI ` +
+                'requirements: AWS lists no InferenceAmiVersion that every pool family supports';
+            return result;
+        }
+        allowed = next;
+    }
+    result.allowed = allowed;
+
+    const candidates = [normalizeAmi(imageAmi), ...gpu.map(f => f.defaultAmi)].filter(Boolean);
+    const pick = candidates.find(c => allowed.includes(c)) || null;
+
+    if (user) {
+        result.ami = user;
+        result.source = 'user';
+        const unlisted = gpu.filter(f => !f.amis.includes(user));
+        if (unlisted.length > 0) {
+            const names = [...new Set(unlisted.map(f => f.family))].join(', ');
+            const fix = pick
+                ? `set INFERENCE_AMI_VERSION="${pick}"`
+                : 'clear INFERENCE_AMI_VERSION (SageMaker then applies the family default)';
+            result.warnings.push(
+                `INFERENCE_AMI_VERSION=${user} is not listed by AWS for ${names} ` +
+                `(AWS lists: ${allowed.join(', ') || 'none'}). The endpoint will likely fail to start. ` +
+                `Fix: ${fix} in do/config, or run ./do/deploy --reconfigure. ` +
+                'See https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html'
+            );
+        }
+        return result;
+    }
+
+    if (pick) {
+        result.ami = pick;
+        result.source = pick === normalizeAmi(imageAmi) ? 'image' : 'family';
+    }
+    return result;
 }
 
 /**

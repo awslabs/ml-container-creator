@@ -481,7 +481,7 @@ cells.append(make_markdown_cell([
     "To add another adapter, duplicate this section with a different `ADAPTER_NAME` and\n",
     "`ADAPTER_WEIGHTS_URI`. Each adapter shares the base IC's GPU resources.\n",
     "\n",
-    "The CLI equivalent is: `./do/adapter add <name> --weights <s3-uri>`\n"
+    "The CLI equivalent is: `./do/adapter add <name> --from-weights <s3-uri>`\n"
 ]))
 <% } %>
 <% if (tuneSupported) { %>
@@ -501,7 +501,22 @@ cells.append(make_code_cell([
     'TECHNIQUE = "sft"  # Options: sft, dpo, rlaif, rlvr\n',
     'TRAINING_TYPE = "lora"  # Options: lora, full-rank\n',
     'DATASET_S3_URI = "s3://your-bucket/datasets/train.jsonl"  # ← Replace with your dataset\n',
-    f'TUNE_OUTPUT_BUCKET = "{env("TUNE_S3_BUCKET")}"'
+    '\n',
+    '# Output (artifacts) bucket: read at RUN time from the environment or the active\n',
+    '# MLCC bootstrap profile (key artifactsS3Bucket) — never baked into the notebook.\n',
+    'import json as _json, os as _os\n',
+    'def _mlcc_profile_value(key):\n',
+    '    try:\n',
+    '        with open(_os.path.expanduser("~/.ml-container-creator/config.json")) as f:\n',
+    '            cfg = _json.load(f)\n',
+    '        return cfg["profiles"][cfg["activeProfile"]].get(key, "")\n',
+    '    except (OSError, KeyError, ValueError):\n',
+    '        return ""\n',
+    'TUNE_OUTPUT_BUCKET = (_os.environ.get("ARTIFACTS_S3_BUCKET") or _os.environ.get("TUNE_S3_BUCKET")\n',
+    '                      or _mlcc_profile_value("artifactsS3Bucket"))\n',
+    'if not TUNE_OUTPUT_BUCKET:\n',
+    '    raise RuntimeError("No artifacts bucket: the active bootstrap profile has no artifactsS3Bucket. "\n',
+    '                       "Run: ml-container-creator bootstrap add-module training")'
 ]))
 
 cells.append(make_code_cell([
@@ -516,7 +531,7 @@ cells.append(make_code_cell([
     '    training_dataset={"s3Uri": DATASET_S3_URI},\n',
     '    technique=TECHNIQUE,\n',
     '    training_type=TRAINING_TYPE,\n',
-    '    output_path=f"s3://{TUNE_OUTPUT_BUCKET}/{PROJECT_NAME}/output/",\n',
+    '    output_path=f"s3://{TUNE_OUTPUT_BUCKET}/{PROJECT_NAME}/tune/{TECHNIQUE}/",\n',
     '    role=role,\n',
     ')\n',
     'trainer.train()\n',

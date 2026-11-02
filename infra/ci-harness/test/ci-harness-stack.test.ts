@@ -2,6 +2,7 @@ import { App } from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import assert from 'node:assert/strict';
 import { MlccCiHarnessStack } from '../lib/ci-harness-stack';
+import { writerColumns, writerPartitionKeys } from './writer-schema';
 
 describe('MlccCiHarnessStack', () => {
     let template: Template;
@@ -11,6 +12,14 @@ describe('MlccCiHarnessStack', () => {
         const stack = new MlccCiHarnessStack(app, 'TestStack');
         template = Template.fromStack(stack);
     });
+
+    /** TableInput of the benchmark_results Glue table (there is also mlcc_evaluations). */
+    function benchmarkResultsTableInput(): any {
+        const tables = Object.values(template.findResources('AWS::Glue::Table'))
+            .filter((r: any) => r.Properties.TableInput.Name === 'benchmark_results');
+        assert.equal(tables.length, 1, 'expected exactly one benchmark_results table');
+        return (tables[0] as any).Properties.TableInput;
+    }
 
     describe('DynamoDB Table', () => {
         it('creates a table with configId partition key', () => {
@@ -369,7 +378,8 @@ describe('MlccCiHarnessStack', () => {
     describe('Orchestrator IAM Role', () => {
         it('creates orchestrator role assumed by states.amazonaws.com', () => {
             template.hasResourceProperties('AWS::IAM::Role', {
-                RoleName: 'mlcc-ci-orchestrator-role',
+                // Region-suffixed for multi-region deploys (docs/ci-integration.md).
+                RoleName: { 'Fn::Join': ['', ['mlcc-ci-orchestrator-role-', { Ref: 'AWS::Region' }]] },
                 AssumeRolePolicyDocument: Match.objectLike({
                     Statement: Match.arrayWith([
                         Match.objectLike({
@@ -443,7 +453,8 @@ describe('MlccCiHarnessStack', () => {
     describe('CodeBuild IAM Role', () => {
         it('creates codebuild role assumed by codebuild.amazonaws.com', () => {
             template.hasResourceProperties('AWS::IAM::Role', {
-                RoleName: 'mlcc-ci-codebuild-role',
+                // Region-suffixed for multi-region deploys (docs/ci-integration.md).
+                RoleName: { 'Fn::Join': ['', ['mlcc-ci-codebuild-role-', { Ref: 'AWS::Region' }]] },
                 AssumeRolePolicyDocument: Match.objectLike({
                     Statement: Match.arrayWith([
                         Match.objectLike({
@@ -654,43 +665,14 @@ describe('MlccCiHarnessStack', () => {
             });
         });
 
-        it('Glue table has all required core dimension columns', () => {
-            template.hasResourceProperties('AWS::Glue::Table', {
-                TableInput: Match.objectLike({
-                    StorageDescriptor: Match.objectLike({
-                        Columns: Match.arrayWith([
-                            Match.objectLike({ Name: 'config_id', Type: 'string' }),
-                            Match.objectLike({ Name: 'model_name', Type: 'string' }),
-                            Match.objectLike({ Name: 'model_family', Type: 'string' }),
-                            Match.objectLike({ Name: 'instance_type', Type: 'string' }),
-                            Match.objectLike({ Name: 'instance_family', Type: 'string' }),
-                            Match.objectLike({ Name: 'deployment_config', Type: 'string' }),
-                            Match.objectLike({ Name: 'deployment_target', Type: 'string' }),
-                            Match.objectLike({ Name: 'run_timestamp', Type: 'timestamp' }),
-                        ]),
-                    }),
-                }),
-            });
-        });
-
-        it('Glue table has all required metric columns', () => {
-            template.hasResourceProperties('AWS::Glue::Table', {
-                TableInput: Match.objectLike({
-                    StorageDescriptor: Match.objectLike({
-                        Columns: Match.arrayWith([
-                            Match.objectLike({ Name: 'ttft_p50_ms', Type: 'double' }),
-                            Match.objectLike({ Name: 'ttft_p99_ms', Type: 'double' }),
-                            Match.objectLike({ Name: 'itl_p50_ms', Type: 'double' }),
-                            Match.objectLike({ Name: 'itl_p99_ms', Type: 'double' }),
-                            Match.objectLike({ Name: 'throughput_rps', Type: 'double' }),
-                            Match.objectLike({ Name: 'tokens_per_second', Type: 'double' }),
-                            Match.objectLike({ Name: 'cost_per_1m_tokens', Type: 'double' }),
-                            Match.objectLike({ Name: 'error_rate', Type: 'double' }),
-                            Match.objectLike({ Name: 'status', Type: 'string' }),
-                        ]),
-                    }),
-                }),
-            });
+        // BL219: column and partition expectations derive from the writer
+        // (templates/do/.benchmark_writer.py), the source of truth for what it emits.
+        it('Glue table columns equal the writer PARQUET_COLUMNS (names + types, order-independent)', () => {
+            const byName = (a: { Name: string }, b: { Name: string }) => a.Name.localeCompare(b.Name);
+            const actual = benchmarkResultsTableInput().StorageDescriptor.Columns
+                .map((col: { Name: string; Type: string }) => ({ Name: col.Name, Type: col.Type }))
+                .sort(byName);
+            assert.deepEqual(actual, writerColumns().sort(byName));
         });
 
         it('Glue table has run_type provenance column (Req 8.10)', () => {
@@ -699,25 +681,7 @@ describe('MlccCiHarnessStack', () => {
                     StorageDescriptor: Match.objectLike({
                         Columns: Match.arrayWith([
                             Match.objectLike({ Name: 'run_type', Type: 'string' }),
-                            Match.objectLike({ Name: 'ci_run_id', Type: 'string' }),
                             Match.objectLike({ Name: 'benchmark_job_name', Type: 'string' }),
-                            Match.objectLike({ Name: 'account_id', Type: 'string' }),
-                        ]),
-                    }),
-                }),
-            });
-        });
-
-        it('Glue table has configuration dimension columns (quantization, tp, lora)', () => {
-            template.hasResourceProperties('AWS::Glue::Table', {
-                TableInput: Match.objectLike({
-                    StorageDescriptor: Match.objectLike({
-                        Columns: Match.arrayWith([
-                            Match.objectLike({ Name: 'tensor_parallel_degree', Type: 'int' }),
-                            Match.objectLike({ Name: 'quantization', Type: 'string' }),
-                            Match.objectLike({ Name: 'enable_lora', Type: 'boolean' }),
-                            Match.objectLike({ Name: 'base_image', Type: 'string' }),
-                            Match.objectLike({ Name: 'mcc_version', Type: 'string' }),
                         ]),
                     }),
                 }),
@@ -739,16 +703,10 @@ describe('MlccCiHarnessStack', () => {
             });
         });
 
-        it('Glue table has region/year/month partition keys', () => {
-            template.hasResourceProperties('AWS::Glue::Table', {
-                TableInput: Match.objectLike({
-                    PartitionKeys: [
-                        { Name: 'region', Type: 'string' },
-                        { Name: 'year', Type: 'string' },
-                        { Name: 'month', Type: 'string' },
-                    ],
-                }),
-            });
+        it('Glue table partition keys follow the writer S3 scheme (model, instance, target)', () => {
+            const keys = benchmarkResultsTableInput().PartitionKeys;
+            assert.deepEqual(keys.map((k: { Name: string }) => k.Name), writerPartitionKeys());
+            for (const k of keys) assert.equal(k.Type, 'string', k.Name);
         });
 
         it('Glue table storage location references account/region bucket via Fn::Join', () => {
@@ -846,6 +804,8 @@ describe('MlccCiHarnessStack', () => {
                                 'glue:GetPartitions',
                                 'glue:BatchCreatePartition',
                                 'glue:CreatePartition',
+                                'glue:GetPartition',
+                                'glue:UpdatePartition',
                             ]),
                             Resource: Match.arrayWith([
                                 'arn:aws:glue:*:*:catalog',

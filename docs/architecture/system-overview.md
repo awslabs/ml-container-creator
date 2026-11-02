@@ -82,7 +82,7 @@ Everything upstream produces a single normalized `answers` object;
 regeneration, reading back `.mlcc-generation-params.json` (the state boundary).
 
 ### MCP boundary — servers are child processes
-The 15 picker servers under `servers/` are independent processes reached only
+The bundled MCP servers under `servers/` are independent processes reached only
 through `src/lib/mcp-client.js` over stdio. They return `{ values, choices }`.
 Today each server re-implements the same scaffold; Wave 2 introduces a shared
 `createPickerServer` factory.

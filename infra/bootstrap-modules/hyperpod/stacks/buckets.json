@@ -1,0 +1,12 @@
+{
+  "$comment": "Single declared source for the S3 buckets the inference-operator stack owns (ADR-008 derive-dont-hardcode, bucket consolidation R1.2). inference-operator-stack.ts, eks-cluster-stack.ts (exact-ARN grant) and module-runner.cjs (adopt flags) read this file. Placeholders: {account} {region} {profile}. Like every declared bucket, an existing TLS bucket the stack does not own is imported implicitly by bootstrap update / add-module.",
+  "stack": "inference-operator",
+  "buckets": {
+    "TlsBucket": {
+      "name": "mlcc-hyperpod-tls-{profile}",
+      "adoptContext": "adoptTlsBucket",
+      "output": "TlsBucketNameOutput",
+      "purpose": "HyperPod inference operator TLS material (operator-managed)"
+    }
+  }
+}

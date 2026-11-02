@@ -88,6 +88,12 @@ describe('Path Prover Orchestration', () => {
             assert.equal(aslDefinition.States.CheckTune.Default, 'Benchmark')
         })
 
+        it('TuneAdapterTest uses CodeBuild .sync integration', () => {
+            assert.equal(
+                aslDefinition.States.TuneAdapterTest.Resource,
+                'arn:aws:states:::codebuild:startBuild.sync'
+            )
+        })
         it('Benchmark uses CodeBuild .sync integration', () => {
             assert.equal(
                 aslDefinition.States.Benchmark.Resource,

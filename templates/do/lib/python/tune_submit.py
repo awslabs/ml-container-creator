@@ -109,8 +109,13 @@ def cmd_submit(args):
     if not training_type:
         _error_exit(f"Unsupported training type: {args.training_type}")
 
-    # Build hyperparameters dict from optional overrides
-    # Map CLI flag names to SDK v3 fine-tuning option names
+    # Build hyperparameters dict.
+    # BL128: do/tune now resolves the technique's knobs via the config builder and passes
+    # them as a single --hyperparameters JSON blob, keyed by the canonical override-param
+    # names (which ARE the SDK fine-tuning option names). The legacy named flags below are
+    # kept as a FALLBACK for direct `tune_submit` calls (and map onto the same canonical
+    # names); the blob overlays them so a do/tune invocation (which sends the blob) is
+    # authoritative. The old hand-maintained 6-entry map is subsumed by the blob merge.
     hyperparameters = {}
     if args.epochs is not None:
         hyperparameters["max_epochs"] = args.epochs
@@ -124,6 +129,17 @@ def cmd_submit(args):
         hyperparameters["lora_alpha"] = args.lora_alpha
     if args.batch_size is not None:
         hyperparameters["global_batch_size"] = args.batch_size
+    # Overlay the builder's resolved knobs (BL128). Canonical names match by construction,
+    # so this is a straight merge — no translation table.
+    blob = getattr(args, "hyperparameters", None)
+    if blob:
+        import json as _json
+        try:
+            resolved = _json.loads(blob)
+        except (ValueError, TypeError):
+            _error_exit("--hyperparameters must be valid JSON")
+        if isinstance(resolved, dict):
+            hyperparameters.update(resolved)
 
     # Build trainer kwargs — API differs between SDK v2 and v3
     output_path = f"s3://{args.output_bucket}/{args.project_name}/tune/{technique}/"
@@ -200,9 +216,16 @@ def cmd_submit(args):
             if args.accept_eula:
                 trainer_kwargs["accept_eula"] = True
 
-            # Resolve model package group — create if it doesn't exist
-            # Using sagemaker-core ModelPackageGroup.create() per SDK v3 policy
-            mpg_name = args.model_package_group or f"{args.project_name}-tune-models"
+            # Resolve model package group — create if it doesn't exist.
+            # BL164: register the tuned model into the PROJECT group (one catalog
+            # per project), NOT a separate "<project>-tune-models" group. The
+            # managed trainer is MLflow-aware (it takes model_package_group +
+            # mlflow_experiment_name and builds an mlflow_config), so passing the
+            # project name + the per-project experiment consolidates the tune
+            # output with do/register's bridge registrations. (Whether the
+            # trainer routes the group through the MLflow bridge vs a verbatim
+            # MPG is the one remaining live-run confirmation — BL164 Task 11.)
+            mpg_name = args.model_package_group or args.project_name
             try:
                 from sagemaker.core.resources import ModelPackageGroup
                 from botocore.exceptions import ClientError as _ClientError
@@ -252,6 +275,18 @@ def cmd_submit(args):
             mlflow_arn = os.environ.get('MLFLOW_APP_ARN', '')
             if mlflow_arn:
                 trainer.mlflow_resource_arn = mlflow_arn
+            # BL164/BL166: pin the tune job's telemetry to the per-project
+            # experiment via the trainer's NATIVE mlflow_experiment_name knob
+            # (SDK-confirmed to exist), so job metrics land under the project
+            # experiment — not a trainer-default/job-named one. Resolved from the
+            # same single source the register paths use (_project_experiment_name).
+            try:
+                import mlcc_mlflow as _mm
+                _exp = _mm._project_experiment_name(getattr(args, 'project_name', '') or '')
+                if _exp and _exp != "Default":
+                    trainer.mlflow_experiment_name = _exp
+            except Exception:  # noqa: BLE001 — experiment pin is best-effort
+                pass
 
             # Suppress SDK print() output (e.g., "Training Job Name: ...")
             # that pollutes stdout and breaks JSON parsing by the shell script

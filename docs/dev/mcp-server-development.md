@@ -43,21 +43,23 @@ For user-facing documentation (adding/removing servers, smart mode, configuring 
 
 ## Bundled Servers
 
-Twelve servers ship with the project:
+These servers ship with the project (`ml-container-creator mcp --bundled list` prints the current set; a server is any `servers/<name>/` whose `package.json` depends on `@modelcontextprotocol/sdk`):
 
-| Server | Tool Name | Modes | Purpose |
+| Server | Tool Name(s) | Modes | Purpose |
 |--------|-----------|-------|---------|
-| `instance-sizer` | `get_instance_recommendation` | static, smart, discover | Estimates VRAM, recommends instance types |
+| `instance-sizer` | `get_instance_recommendation`, `get_instance_types`, `recommend`, `write_local_instance` | static, smart, discover | Estimates VRAM, recommends instance types |
 | `region-picker` | `get_regions` | static, smart | Filters AWS regions by search term |
-| `base-image-picker` | `get_ml_config` | static, smart | Selects base Docker images per framework |
-| `model-picker` | `get_ml_config` | static, smart, discover | Resolves HuggingFace model metadata |
-| `hyperpod-cluster-picker` | `get_ml_config` | discover | Discovers existing HyperPod EKS clusters |
+| `base-image-picker` | `get_base_images`, `write_local_image` | static, smart | Selects base Docker images per framework |
+| `model-picker` | `get_models`, `write_local_model` | static, smart, discover | Resolves HuggingFace model metadata |
+| `hyperpod-cluster-picker` | `get_hyperpod_clusters` | discover | Discovers existing HyperPod EKS clusters |
 | `endpoint-picker` | `get_inference_endpoints` | discover | Discovers InService SageMaker AI endpoints |
-| `e2e-status` | `get_ml_config` | static | Returns E2E validation status for models |
+| `e2e-status` | `get_e2e_status`, `list_e2e_runs` | static | Returns E2E validation status for models |
 | `workload-picker` | `list_workloads`, `get_workload_profile` | static | Provides named benchmark workload profiles for `do/benchmark` |
 | `draft-model-picker` | `list_draft_models`, `get_draft_model`, `recommend_draft` | static, discover | Catalog of speculative-decoding draft models; queried at runtime by `do/draft list` |
-| `model-registry` | `list_model_packages`, `get_model_version` | discover | Queries SageMaker Model Package Groups |
-| `agent-knowledge` | `query_knowledge` | static | Script reference, config docs, troubleshooting, capability matrix |
+| `model-registry` | `get_model_registry`, `get_model_version`, `list_datasets`, `get_dataset`, `list_dataset_versions`, `list_evaluators`, `get_evaluator` | discover | Queries SageMaker Model Package Groups, datasets and evaluators |
+| `agent-knowledge` | `query_knowledge`, `write_local_capability` | static | Script reference, config docs, troubleshooting, capability matrix |
+| `adapter-picker` | `search_hf_adapters`, `get_adapter_metadata`, `recommend_adapter` | discover | Searches the Hugging Face Hub for LoRA adapters compatible with a base model |
+| `reasoning` | `interpret` | Bedrock | Stateless reasoning/interpretation tool |
 
 **Modes:**
 
@@ -377,7 +379,7 @@ Add your server to `config/mcp.json`:
 Or use the CLI:
 
 ```bash
-ml-container-creator mcp add my-server --bundled
+ml-container-creator mcp --bundled add my-server
 ```
 
 The `mcp init` command registers all bundled servers at once:

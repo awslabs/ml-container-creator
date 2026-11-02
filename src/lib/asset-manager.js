@@ -47,7 +47,11 @@ const VALID_RESOURCE_TYPES = [
     's3-object',
     'sns-topic',
     'k8s-deployment',
-    'k8s-service'
+    'k8s-service',
+    // Wave 10 (ADR-014): scale-to-zero resources do/deploy creates and do/clean removes.
+    'application-autoscaling-scalable-target',
+    'application-autoscaling-scaling-policy',
+    'cloudwatch-alarm'
 ];
 
 const VALID_STATUSES = ['active', 'deleted', 'unknown'];

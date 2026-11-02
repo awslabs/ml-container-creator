@@ -5,3 +5,8 @@ anthropic>=0.120.0
 sagemaker>=3.0.0
 sagemaker-mlflow>=0.1.0
 huggingface_hub>=1.31.0
+# BL178: the do/ interactive prompts (do/tune hyperparameter config builder via
+# tune_config_builder._questionary_prompter, and deploy_prompts.py) import
+# questionary. It was previously only present transitively; declare it so
+# `mcc hey init` installs it into .mlcc/hey-venv. questionary pulls prompt_toolkit.
+questionary>=2.0.0

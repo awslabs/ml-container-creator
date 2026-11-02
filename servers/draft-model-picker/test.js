@@ -74,10 +74,15 @@ function makeMockS3({ keys = {}, throwOnList = false, throwOnGet = false } = {})
 
 console.log('\ndraft-model-picker: listDraftModels\n');
 
-test('returns all 6 catalog entries with no filter', () => {
+test('returns every catalog entry with no filter', () => {
+    // Derived from the shipped catalog, not a frozen count, so adding or
+    // removing a draft (e.g. BL191 dropped the acme placeholder) stays green.
+    const catalog = JSON.parse(readFileSync(resolve(__dirname, '../lib/catalogs/draft-models.json'), 'utf8'));
+    const expected = Object.keys(catalog).length;
     const result = listDraftModels();
-    assert.strictEqual(result.count, 6);
-    assert.strictEqual(result.models.length, 6);
+    assert.ok(expected >= 1, 'catalog should not be empty');
+    assert.strictEqual(result.count, expected);
+    assert.strictEqual(result.models.length, expected);
 });
 
 test('each entry has hf_id, algorithm, target_model, engine_support', () => {

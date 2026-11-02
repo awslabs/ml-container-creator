@@ -20,6 +20,7 @@ _mark_hp_failed() {
 FORCE_NEW=false
 FORCE_IC=false
 IC_TARGET=""
+SURGE_NODE=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --force) FORCE_NEW=true; shift ;;
@@ -27,12 +28,17 @@ while [ $# -gt 0 ]; do
             FORCE_IC=true
             shift
             ;;
+        --surge-node) SURGE_NODE=true; shift ;;
         --help|-h)
-            echo "Usage: ./do/deploy [--force] [--force-ic]"
+            echo "Usage: ./do/deploy [--force] [--force-ic] [--surge-node]"
             echo ""
             echo "Options:"
-            echo "  --force      Create a new endpoint, even if one already exists."
-            echo "  --force-ic   Recreate the inference component on the existing endpoint."
+            echo "  --force       Create a new endpoint, even if one already exists."
+            echo "  --force-ic    Recreate the inference component on the existing endpoint."
+            echo "  --surge-node  When a changed pod template cannot roll out (single-node instance"
+            echo "                group, no spare GPUs), temporarily add ONE node to the instance group"
+            echo "                (SageMaker UpdateCluster), roll out, then restore the original count."
+            echo "                Billed for the extra instance while it runs. Opt-in only."
             echo ""
             echo "Without flags, deploy resumes from the last run."
             exit 0
@@ -203,25 +209,69 @@ echo "📁 Ensuring namespace exists: ${HP_NAMESPACE}"
 # during the operator's model download and is not exposed to the container.
 # ─────────────────────────────────────────────────────────────────────────────
 
-if [ -n "${RESOLVED_HF_TOKEN:-}" ]; then
-    echo "🔑 Creating K8s Secret 'hf-token-secret' in namespace '${HP_NAMESPACE}'..."
-    kubectl create secret generic hf-token-secret \
-        --from-literal=token="${RESOLVED_HF_TOKEN}" \
-        --namespace "${HP_NAMESPACE}" \
-        --dry-run=client -o yaml | kubectl apply -f - 2>&1 || {
-        echo "⚠️  Warning: Could not create hf-token-secret (will continue)"
-        echo "   The pod may fail to pull gated models — set HF_TOKEN_ARN in do/config"
-    }
-    echo "✅ HuggingFace token secret ready"
-else
-    echo "   ⚠️  No HuggingFace token configured"
-    echo "   Set HF_TOKEN_ARN in do/config or run: mcc bootstrap add-secret hfToken <arn>"
-    echo "   (Continuing — token only required for gated HuggingFace models)"
+# Wave 11 (do/add-pod): MLCC_HP_RENDER_ONLY=<dir> runs this driver only up to the
+# IEC render (same derivation as a real deploy) and copies the manifests to <dir>;
+# it makes no cluster write (the base deployment already created both objects).
+if [ -z "${MLCC_HP_RENDER_ONLY:-}" ]; then
+    if [ -n "${RESOLVED_HF_TOKEN:-}" ]; then
+        echo "🔑 Creating K8s Secret 'hf-token-secret' in namespace '${HP_NAMESPACE}'..."
+        kubectl create secret generic hf-token-secret \
+            --from-literal=token="${RESOLVED_HF_TOKEN}" \
+            --namespace "${HP_NAMESPACE}" \
+            --dry-run=client -o yaml | kubectl apply -f - 2>&1 || {
+            echo "⚠️  Warning: Could not create hf-token-secret (will continue)"
+            echo "   The pod may fail to pull gated models — set HF_TOKEN_ARN in do/config"
+        }
+        echo "✅ HuggingFace token secret ready"
+    else
+        echo "   ⚠️  No HuggingFace token configured"
+        echo "   Set HF_TOKEN_ARN in do/config or run: mcc bootstrap add-secret hfToken <arn>"
+        echo "   (Continuing — token only required for gated HuggingFace models)"
+    fi
+
+    echo "📁 Ensuring namespace exists: ${HP_NAMESPACE}"
+    if ! kubectl create namespace "${HP_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - 2>&1; then
+        echo "⚠️  Warning: Could not create/verify namespace"
+    fi
 fi
 
-echo "📁 Ensuring namespace exists: ${HP_NAMESPACE}"
-if ! kubectl create namespace "${HP_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - 2>&1; then
-    echo "⚠️  Warning: Could not create/verify namespace"
+# ── Preflight: cluster inference capability (WARN, do not block) ──────────────
+# The operator creates the SageMaker AI endpoint (CreateModel → CreateEndpointConfig
+# → CreateEndpoint) once the HyperPod cluster is inference-enabled. We probe
+# describe-cluster → InferenceConfig as a HEALTH SIGNAL, but we DO NOT block the
+# deploy on it, for two reasons (BL143 open Q1):
+#   1. The signal itself is under question: the operator has been observed logging
+#      the inference watcher as "Enabled" while describe-cluster still returns
+#      InferenceConfig: null. If InferenceConfig is the WRONG field, a hard gate here
+#      false-fails a working deploy. (Resolve by the parked GPU model-deploy
+#      observation; if confirmed wrong, re-gate on operator watcher-status /
+#      SageMakerEndpointRegistration state.)
+#   2. The add-on controller enables inference asynchronously and self-retries, so a
+#      transient null may resolve on its own during the deploy.
+# A FAILED describe call (creds/throttle/validation) is treated as "unknown", NOT as
+# "not enabled" — we must not penalize the deploy for a probe error we swallowed.
+_profile_arg_ic=""
+[ -n "${_PROFILE_awsProfile:-${AWS_PROFILE:-}}" ] && _profile_arg_ic="--profile ${_PROFILE_awsProfile:-${AWS_PROFILE}}"
+_IC_PROBE_RC=0
+_INFERENCE_CONFIG=$(aws sagemaker describe-cluster \
+    --cluster-name "${HP_CLUSTER_NAME}" \
+    --region "${AWS_REGION}" \
+    ${_profile_arg_ic} \
+    --query "InferenceConfig" --output text 2>/dev/null) || _IC_PROBE_RC=$?
+if [ "${_IC_PROBE_RC}" -ne 0 ]; then
+    echo "⚠️  Could not read cluster inference status (describe-cluster probe failed)."
+    echo "    Proceeding anyway — this is a non-blocking health check, not a gate."
+elif [ -z "${_INFERENCE_CONFIG}" ] || [ "${_INFERENCE_CONFIG}" = "None" ]; then
+    echo "⚠️  HyperPod cluster '${HP_CLUSTER_NAME}' reports InferenceConfig: null."
+    echo "    Cluster inference enablement happens at bootstrap time (the inference"
+    echo "    add-on controller's EnableClusterInference, which can take 15+ minutes)"
+    echo "    and the operator self-retries. If the SageMaker AI endpoint does not get"
+    echo "    created, complete enablement and redeploy:"
+    echo "      ml-container-creator bootstrap add-module hyperpod"
+    echo "      aws sagemaker describe-cluster --cluster-name ${HP_CLUSTER_NAME} --region ${AWS_REGION} --query InferenceConfig"
+    echo "    Proceeding with the deploy (non-blocking — see BL143 open Q1)."
+else
+    echo "✅ Cluster inference capability is enabled"
 fi
 
 # Apply the InferenceEndpointConfig custom resource
@@ -427,26 +477,11 @@ echo "   Instance type: ${HP_INSTANCE_TYPE:-<unset>}"
 echo "   GPU count (auto-detected): ${HP_GPU_COUNT}"
 echo "   CPU request: ${HP_CPU_REQUEST}  Memory request: ${HP_MEM_REQUEST}"
 
-# Portable variable-substitution shim.
-#
-# GNU envsubst only expands bare ${VAR}/$VAR references and does NOT understand
-# the ${VAR:-default} form — it would leave those placeholders verbatim, which
-# produces invalid YAML for kubectl. The CRD template (BL096) uses ${VAR:-N}
-# defaults for HP_INSTANCE_TYPE / HP_GPU_COUNT / HP_CPU_REQUEST / HP_MEM_REQUEST,
-# so we always route substitution through a perl pass that resolves BOTH the
-# ${VAR:-default} and the bare ${VAR} forms from the process environment. This is
-# deterministic across macOS/Linux and independent of whether gettext is present.
-envsubst() {
-    perl -pe '
-        # ${VAR:-default} → env value if set & non-empty, else the default.
-        s/\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}/
-            (defined $ENV{$1} && length $ENV{$1}) ? $ENV{$1} : $2/ge;
-        # bare ${VAR} → env value if defined, else leave the placeholder intact
-        # (so unrelated shell references are not silently dropped).
-        s/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/
-            defined $ENV{$1} ? $ENV{$1} : "\${$1}"/ge;
-    '
-}
+# Portable variable-substitution shim (envsubst) and the IEC render loop live in
+# lib/hp-iec-render.sh (Wave 11 R7.4), shared with do/add-pod so a second IEC is
+# rendered from the same template. The base render is byte-identical to the
+# former inline code (golden test: test/unit/hp-iec-render.test.js).
+source "${SCRIPT_DIR}/lib/hp-iec-render.sh"
 
 # ── Build spec.modelSourceConfig ──────────────────────────────────────────────
 # When the model has been staged to S3 (STAGED_MODEL_PATH in do/config), use the
@@ -454,6 +489,27 @@ envsubst() {
 # URI), so parse STAGED_MODEL_PATH (s3://<bucket>/<prefix>/) into its parts.
 # modelLocation carries the key prefix within the bucket. Otherwise fall back to
 # the Hugging Face source using MODEL_NAME and the hf-token-secret Secret.
+#
+# Wave 6.1 R1.2 (owner decision D1 / H5, validated live 2026-10-23): when LoRA is
+# on AND the model source is S3 AND this target delivers adapters through the
+# model mount (targets.d/hyperpod-eks adapter_delivery.strategy = model-prefix),
+# emit prefetchEnabled: false so the worker reads the operator's S3 CSI mount at
+# /opt/ml/model directly — adapters do/adapter places under
+# <modelLocation>/.mlcc-adapters/ then appear in the pod without a restart.
+# Non-LoRA and Hugging Face-sourced deployments are unchanged (prefetch stays on).
+_HP_MODEL_PREFETCH="true"
+if [ "${_HP_LORA_ON}" = "true" ] && [ -z "${OPTIMIZE_MODEL_PACKAGE_ARN:-}" ] && [ -n "${STAGED_MODEL_PATH:-}" ]; then
+    _HP_DELIVERY_STRATEGY="$(python3 "${SCRIPT_DIR}/lib/python/target_manifest.py" adapter_delivery hyperpod-eks 2>/dev/null \
+        | python3 -c 'import json,sys; print((json.load(sys.stdin) or {}).get("strategy",""))' 2>/dev/null || echo "")"
+    if [ "${_HP_DELIVERY_STRATEGY}" = "model-prefix" ]; then
+        _HP_MODEL_PREFETCH="false"
+        echo "   LoRA adapter delivery: prefetchEnabled=false (the worker reads the S3 model mount directly,"
+        echo "   so do/adapter can hot-load adapters placed under the model prefix)."
+        echo "   ⚠️  Cold start is slower without prefetch (measured: ~512 s model load, ~15 min to Ready"
+        echo "      for a 16 GB model, vs ~3 s load with prefetch) — known tradeoff, BL193."
+    fi
+fi
+
 build_model_source_config() {
     # SageMaker Inference Optimizer override: when do/optimize has recorded a
     # ModelPackageArn (OPTIMIZE_MODEL_PACKAGE_ARN), deploy the optimized model
@@ -483,7 +539,7 @@ s3Storage:
   bucketName: ${bucket}
   region: ${AWS_REGION}
 modelLocation: ${prefix}
-prefetchEnabled: true
+prefetchEnabled: ${_HP_MODEL_PREFETCH}
 EOF
     else
         export HP_MODEL_SOURCE="huggingface"
@@ -564,12 +620,55 @@ _HP_MODEL_FOR_ENV="${HP_MODEL_NAME_OVERRIDE:-${MODEL_NAME:-}}"
 # The active engine's capability_map tells us WHICH LoRA companions it requires
 # (ADR-010), so MLCC supplies pure-dynamic defaults without branching on engine.
 _HP_CAP_MAP="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" capability_map "${_HP_ENGINE}" 2>/dev/null || echo '{}')"
+# ── LoRA sizing (Wave 6.1 R2, BL188) ───────────────────────────────────────────
+# derive-dont-hardcode: the LoRA sizing defaults (e.g. vLLM lora_max=4,
+# lora_max_rank=16) are each capability's `default` in serve.d/<engine>/
+# manifest.json — the single source the generator, Dockerfile and schema also
+# derive from (drift-tested). max_lora_rank is then DERIVED by the shared
+# right_sizing.effective_lora_rank: snap_up(max(recorded tune adapters'
+# adapter_config.json r / rank_pattern, TUNE_LORA_RANK_*, manifest default),
+# the engine's allowed set). Tuning techniques drive the rank; an explicit
+# <engine>_MAX_LORA_RANK wins (with a warning when below what recorded adapters
+# need). The LoRA buffer must fit 10% of the post-weights GPU memory; an
+# auto-raise over that cap refuses the deploy naming the adapters (never a
+# silent cap). vLLM's own defaults are max_loras=1 / max_lora_rank=16.
+_HP_CAP_DEFAULTS="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" capability_defaults "${_HP_ENGINE}" 2>/dev/null || echo '{}')"
+_HP_EFFECTIVE_RANK=""
+if [ "${_HP_LORA_ON:-false}" = "true" ]; then
+    _HP_RANK_RC=0
+    # Wave 8: the do/deploy preflight already ran `right_sizing.py check` and
+    # printed every finding (incl. these), so ask only for the rank VALUE
+    # (--quiet) instead of re-reporting. A block is still honored here (a
+    # driver sourced without the preflight), and --ignore-sizing (OQ-8.7,
+    # MLCC_IGNORE_SIZING=1 from do/deploy) overrides it like every sizing block.
+    _HP_RANK_QUIET=""
+    [ "${MLCC_SIZING_PREFLIGHT_DONE:-0}" = "1" ] && _HP_RANK_QUIET="--quiet"
+    _HP_RANK_JSON="$(python3 "${SCRIPT_DIR}/lib/python/right_sizing.py" effective-lora-rank ${_HP_RANK_QUIET})" || _HP_RANK_RC=$?
+    if [ "${_HP_RANK_RC}" -eq 2 ]; then
+        if [ "${MLCC_IGNORE_SIZING:-0}" = "1" ]; then
+            echo "⚠️  --ignore-sizing: proceeding despite the LoRA right-sizing block." >&2
+        else
+            echo "❌ LoRA right-sizing refused this deploy (see the finding above)." >&2
+            echo "   Nothing was applied; the running deployment is unchanged." >&2
+            echo "   Override (at your own risk): ./do/deploy --target hyperpod-eks --ignore-sizing" >&2
+        _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed" 2>/dev/null || true
+            exit 1
+        fi
+    fi
+    _HP_EFFECTIVE_RANK="$(printf '%s' "${_HP_RANK_JSON}" | python3 -c 'import json,sys; r=json.load(sys.stdin).get("rank"); print("" if r is None else r)' 2>/dev/null || echo "")"
+    if [ -n "${_HP_EFFECTIVE_RANK}" ]; then
+        echo "   LoRA max_lora_rank: ${_HP_EFFECTIVE_RANK} (derived from recorded tune adapters + engine default; explicit override wins)"
+    else
+        echo "   ⚠️  Could not derive max_lora_rank (right_sizing.py unavailable); using the engine manifest default." >&2
+    fi
+fi
 _HP_TIER1_VALUES=$(
     MODEL_ID="${_HP_MODEL_FOR_ENV}" \
     TP_DEGREE="${VLLM_TENSOR_PARALLEL_SIZE:-${HP_GPU_COUNT:-1}}" \
     QUANT="${VLLM_QUANTIZATION:-}" \
     LORA_ON="${_HP_LORA_ON:-false}" \
-    LORA_MAX_RANK="${VLLM_MAX_LORA_RANK:-}" \
+    LORA_MAX_RANK="${_HP_EFFECTIVE_RANK:-${VLLM_MAX_LORA_RANK:-}}" \
+    CAP_DEFAULTS="${_HP_CAP_DEFAULTS}" \
     LORA_MAX="${VLLM_MAX_LORAS:-}" \
     LORA_TARGET_MODULES="${VLLM_LORA_TARGET_MODULES:-}" \
     CAP_MAP="${_HP_CAP_MAP}" \
@@ -593,31 +692,28 @@ if os.environ.get("LORA_ON") == "true":
     for k, val in user.items():
         if val:
             v[k] = val
-    # MLCC pure-dynamic LoRA defaults, keyed by CAPABILITY (not engine name).
-    # lora_max=4 / lora_max_rank=16 are memory-safe sizing defaults: vLLM's own
-    # defaults (max_loras=30, max_lora_rank=64) pre-allocate a large LoRA buffer
-    # that OOMs big models on tight VRAM (validated remediation in the capability
-    # matrix: "reduce max_loras 30→4, max_lora_rank 64→16"). 4 covers 2–3 adapters
-    # plus hot-swap headroom; override via VLLM_MAX_LORAS / VLLM_MAX_LORA_RANK.
-    MLCC_LORA_DEFAULTS = {"lora_max": "4", "lora_max_rank": "16", "lora_target_modules": "all"}
+    # LoRA sizing/companion defaults, keyed by CAPABILITY (not engine name) and
+    # READ from the active engine's manifest (capability_map `default`, passed in
+    # as CAP_DEFAULTS) — never a literal here. max_lora_rank arrives already
+    # derived (LORA_MAX_RANK = right_sizing.effective_lora_rank). Fill a default
+    # for every capability the ACTIVE engine DECLARES (not only ones gated as
+    # "required"): vLLM gets lora_max; SGLang (no lora_max) gets its
+    # lora_target_modules companion. Explicit user values (above) always win.
     try:
         caps = json.loads(os.environ.get("CAP_MAP") or "{}")
-    except Exception:
+    except ValueError:
         caps = {}
+    try:
+        cap_defaults = json.loads(os.environ.get("CAP_DEFAULTS") or "{}")
+    except ValueError:
+        cap_defaults = {}
     lora_decl = caps.get("lora_enable") or {}
-    # Fill a default for every sizing/companion capability the ACTIVE engine
-    # DECLARES in its capability_map (not only ones gated as "required"): a plugin
-    # that declares lora_max gets the memory-safe count; one that doesn't (e.g.
-    # SGLang) silently skips it. This is the per-engine translation — each manifest
-    # maps the capability to its own env suffix (vLLM lora_max→MAX_LORAS, etc.).
     declared = set(k for k in caps.keys())
-    # requiresAnyOf/requires companions are always eligible too (they may not be
-    # top-level capability keys on every engine).
     for group in (lora_decl.get("requiresAnyOf") or [lora_decl.get("requires") or []]):
         declared.update(group)
-    for comp, default in MLCC_LORA_DEFAULTS.items():
+    for comp, default in cap_defaults.items():
         if comp in declared and not v.get(comp):
-            v[comp] = default
+            v[comp] = str(default)
 print(json.dumps(v))
 _PYEOF
 )
@@ -716,70 +812,196 @@ _PYEOF
 )
 export VLLM_EXTRA_ENVVARS
 
-for manifest in hyperpod/*.yaml; do
-    # envsubst first (expands ${ECR_IMAGE}, ${HP_INSTANCE_TYPE}, ${HP_*} defaults),
-    # then splice the multi-line modelSourceConfig block in place of the marker,
-    # preserving the marker line's indentation for every replacement line so the
-    # rendered YAML stays well-formed.
-    RENDERED=$(envsubst < "${manifest}")
-    RENDERED=$(MODEL_SOURCE_CONFIG="${MODEL_SOURCE_CONFIG}" \
-        HP_MODEL_NAME_OVERRIDE="${HP_MODEL_NAME_OVERRIDE}" \
-        HP_TIER1_ENVVARS="${HP_TIER1_ENVVARS}" \
-        printf '%s' "${RENDERED}" | \
-        MODEL_SOURCE_CONFIG="${MODEL_SOURCE_CONFIG}" \
-        HP_MODEL_NAME_OVERRIDE="${HP_MODEL_NAME_OVERRIDE}" \
-        HP_TIER1_ENVVARS="${HP_TIER1_ENVVARS}" \
-        python3 -c '
-import os, re, sys
-repl = os.environ.get("MODEL_SOURCE_CONFIG", "")
-extra_envvars = os.environ.get("VLLM_EXTRA_ENVVARS", "")
-tier1_envvars = os.environ.get("HP_TIER1_ENVVARS", "")
-name_override = os.environ.get("HP_MODEL_NAME_OVERRIDE", "")
-marker = "__MODEL_SOURCE_CONFIG__"
-envvars_marker = "__VLLM_EXTRA_ENVVARS__"
-tier1_marker = "__TIER1_ENVVARS__"
-# Rewrite the top-level spec.modelName only (2-space indent), leaving deeper
-# keys such as huggingFaceModel.modelId untouched.
-name_re = re.compile(r"^(  modelName:\s*).*$")
-out = []
-for line in sys.stdin.read().splitlines():
-    pos = line.find(marker)
-    epos = line.find(envvars_marker)
-    tpos = line.find(tier1_marker)
-    if pos >= 0:
-        indent = line[:pos]
-        for rl in repl.splitlines():
-            out.append(indent + rl)
-    elif tpos >= 0:
-        # ADR-010: splice the manifest-DERIVED Tier-1 env block (model / TP /
-        # LoRA-companion contract for the ACTIVE engine) at the marker indent.
-        # When empty (resolver unavailable) drop the marker so the YAML list
-        # stays well-formed.
-        indent = line[:tpos]
-        for rl in tier1_envvars.splitlines():
-            if rl.strip():
-                out.append(indent + rl)
-    elif epos >= 0:
-        # Splice Tier-2 prefix pass-through env vars at the marker indentation.
-        # When there are none, drop the marker line entirely so the YAML list
-        # stays well-formed.
-        indent = line[:epos]
-        for rl in extra_envvars.splitlines():
-            if rl.strip():
-                out.append(indent + rl)
-    elif name_override and name_re.match(line):
-        out.append("  modelName: \"%s\"" % name_override)
-    else:
-        out.append(line)
-sys.stdout.write("\n".join(out) + "\n")
-')
-    if echo "${RENDERED}" | grep -q '^kind:'; then
-        FILE_OUTPUT=$(echo "${RENDERED}" | kubectl apply -n "${HP_NAMESPACE}" -f - 2>&1) || {
-            APPLY_EXIT_CODE=$?
-        }
-        APPLY_OUTPUT="${APPLY_OUTPUT}${FILE_OUTPUT}\n"
+# Render every manifest first (into a temp dir), decide whether the rollout can
+# schedule (Wave 6.1 R4), and only then apply.
+_HP_RENDER_DIR="$(mktemp -d)"
+_hp_render_iec "${_HP_RENDER_DIR}" hyperpod || {
+    echo "❌ Failed to render the hyperpod manifests (template drift; see above)"
+    rm -rf "${_HP_RENDER_DIR}"
+    exit 3
+}
+if [ -n "${MLCC_HP_RENDER_ONLY:-}" ]; then
+    cp "${_HP_RENDER_DIR}"/* "${MLCC_HP_RENDER_ONLY}/"
+    rm -rf "${_HP_RENDER_DIR}"
+    return 0 2>/dev/null || exit 0
+fi
+
+# ── Contract preflight (Wave 6.1 R6; read-only, report only) ──────────────────
+# Mirrors the eks BL156 contract for hyperpod-eks: S3 CSI driver present, the
+# model source is S3 when LoRA delivery needs the mount, and the CSI driver's IAM
+# role can read the model bucket (IAM simulation, when resolvable). Never
+# mutates and never blocks — findings are printed for the operator.
+_HP_MODEL_BUCKET=""
+if [ "${HP_MODEL_SOURCE:-}" = "s3" ] && [ -n "${STAGED_MODEL_PATH:-}" ]; then
+    _HP_MODEL_BUCKET="${STAGED_MODEL_PATH#s3://}"
+    _HP_MODEL_BUCKET="${_HP_MODEL_BUCKET%%/*}"
+fi
+_HP_PREFLIGHT_JSON="$(python3 "${SCRIPT_DIR}/lib/python/hyperpod_ops.py" preflight \
+    --cluster "${HP_CLUSTER_NAME}" --namespace "${HP_NAMESPACE}" --project "${PROJECT_NAME}" \
+    --model-source "${HP_MODEL_SOURCE:-}" --model-bucket "${_HP_MODEL_BUCKET}" \
+    --lora-delivery "${_HP_LORA_ON:-false}" --eks-cluster "${EKS_CLUSTER_NAME:-}" 2>/dev/null || echo '')"
+if [ -n "${_HP_PREFLIGHT_JSON}" ]; then
+    echo "🔍 hyperpod-eks contract preflight (read-only):"
+    printf '%s' "${_HP_PREFLIGHT_JSON}" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+icon = {"info": "✅", "warn": "⚠️ "}
+for f in data.get("findings", []):
+    print("   %s %s" % (icon.get(f.get("severity"), "•"), f.get("message", "")))
+    if f.get("fix"):
+        print("      Fix: %s" % f["fix"])
+' 2>/dev/null || true
+fi
+
+# ── Rollout capacity (Wave 6.1 R4; owner decision D2) ─────────────────────────
+# The operator rolls a changed pod template with RollingUpdate (surge 1,
+# unavailable 0 at replicas 1): the new pod needs a node with free GPUs while the
+# old pod keeps serving. On a single-node instance group with every GPU in use it
+# stays Pending forever. MLCC NEVER scales replicas to zero or deletes the
+# serving pod to make room (R4.2). Instead:
+#   • no pod-template change (rendered IEC == live IEC) → skip this entirely;
+#   • the surge pod can schedule → apply as usual;
+#   • it cannot → without --surge-node stop BEFORE applying and print the exact
+#     command + cost note; with --surge-node raise the instance group by one
+#     node (UpdateCluster), wait, apply, wait for the new pod Ready and the old
+#     pod gone, then restore the original count. A trap restores the count on
+#     ANY exit after the increase; capacity errors are reported verbatim.
+_HP_ROLLOUT_NEEDS_SURGE=false
+_HP_SURGE_GROUP=""
+_HP_SURGE_ORIGINAL=""
+_HP_SURGE_ACTIVE=false
+_HP_IEC_LIVE=false
+if kubectl get inferenceendpointconfig "${PROJECT_NAME}" -n "${HP_NAMESPACE}" >/dev/null 2>&1; then
+    _HP_IEC_LIVE=true
+fi
+if [ "${_HP_IEC_LIVE}" = "true" ]; then
+    _HP_DIFF_RC=0
+    kubectl diff -n "${HP_NAMESPACE}" -f "${_HP_RENDER_DIR}" >/dev/null 2>&1 || _HP_DIFF_RC=$?
+    if [ "${_HP_DIFF_RC}" -eq 0 ]; then
+        echo "✅ No change to the InferenceEndpointConfig (rendered == live): no rollout needed."
+    else
+        _HP_CAP_RC=0
+        _HP_CAP_JSON="$(python3 "${SCRIPT_DIR}/lib/python/hyperpod_ops.py" rollout-capacity \
+            --cluster "${HP_CLUSTER_NAME}" --namespace "${HP_NAMESPACE}" --project "${PROJECT_NAME}" \
+            --instance-type "${HP_INSTANCE_TYPE}" --gpus "${HP_GPU_COUNT:-1}" \
+            --model-source "${HP_MODEL_SOURCE:-}" --purpose rollout)" || _HP_CAP_RC=$?
+        if [ "${_HP_CAP_RC}" -eq 3 ]; then
+            _HP_ROLLOUT_NEEDS_SURGE=true
+            _HP_SURGE_GROUP="$(printf '%s' "${_HP_CAP_JSON}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("group") or "")' 2>/dev/null || echo "")"
+            _HP_CAP_REASON="$(printf '%s' "${_HP_CAP_JSON}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("%s (instance group %s: %s/%s instances)%s" % (d.get("reason",""), d.get("group") or "?", d.get("current_count"), d.get("target_count"), ("\n   Other fixes: " + d["fix"]) if d.get("fix") else ""))' 2>/dev/null || echo "")"
+        elif [ "${_HP_CAP_RC}" -ne 0 ]; then
+            echo "⚠️  Could not determine rollout capacity; applying (the operator keeps the old pod serving if the new one cannot schedule)."
+        fi
     fi
+else
+    # BL236: a FIRST deploy needs room too. GPUs alone are not enough: the pod
+    # also needs a pod slot on the node, plus one for its Mountpoint-S3 pod when
+    # the model is mounted from S3. If GPUs are free but pod slots are not, the
+    # pod schedules and then hangs in ContainerCreating (FailedMount) because its
+    # Mountpoint pod is refused "Too many pods" — stop before applying. A GPU
+    # shortage alone only warns (unchanged: the pod waits Pending for a GPU).
+    _HP_CAP_RC=0
+    _HP_CAP_JSON="$(python3 "${SCRIPT_DIR}/lib/python/hyperpod_ops.py" rollout-capacity \
+        --cluster "${HP_CLUSTER_NAME}" --namespace "${HP_NAMESPACE}" --project "${PROJECT_NAME}" \
+        --instance-type "${HP_INSTANCE_TYPE}" --gpus "${HP_GPU_COUNT:-1}" \
+        --model-source "${HP_MODEL_SOURCE:-}" --purpose new)" || _HP_CAP_RC=$?
+    _HP_CAP_LIMIT="$(printf '%s' "${_HP_CAP_JSON}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("limit") or "")' 2>/dev/null || echo "")"
+    if [ "${_HP_CAP_RC}" -eq 3 ] && [ "${_HP_CAP_LIMIT}" = "pod-slots" ]; then
+        echo ""
+        echo "❌ The serving pod cannot start on ${HP_INSTANCE_TYPE}: no node has a free pod slot."
+        printf '%s' "${_HP_CAP_JSON}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("   " + d.get("reason", "")); print("   Fix: " + d.get("fix", ""))' 2>/dev/null || true
+        echo "   Nothing was applied."
+        rm -rf "${_HP_RENDER_DIR}"
+        _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
+        exit 1
+    elif [ "${_HP_CAP_RC}" -eq 3 ]; then
+        echo "⚠️  $(printf '%s' "${_HP_CAP_JSON}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("reason", ""))' 2>/dev/null || echo "no node has free GPUs right now")"
+        echo "   Applying anyway; the pod stays Pending until a GPU frees up."
+    elif [ "${_HP_CAP_RC}" -ne 0 ]; then
+        echo "⚠️  Could not determine serving capacity (GPUs / pod slots); applying."
+    fi
+fi
+
+_hp_surge_restore() {
+    # Restore the instance group to its original count. Never below it, never
+    # zero, and never removing a node that hosts the last Ready serving pod.
+    [ "${_HP_SURGE_ACTIVE}" = "true" ] || return 0
+    _HP_SURGE_ACTIVE=false
+    echo ""
+    echo "↩️  Restoring instance group '${_HP_SURGE_GROUP}' to ${_HP_SURGE_ORIGINAL} instance(s)..."
+    if python3 "${SCRIPT_DIR}/lib/python/hyperpod_ops.py" surge-restore \
+        --cluster "${HP_CLUSTER_NAME}" --group "${_HP_SURGE_GROUP}" --original-count "${_HP_SURGE_ORIGINAL}" \
+        --namespace "${HP_NAMESPACE}" --project "${PROJECT_NAME}"; then
+        echo "✅ Instance group '${_HP_SURGE_GROUP}' restored to ${_HP_SURGE_ORIGINAL} instance(s)."
+    else
+        echo "❌ Could not restore instance group '${_HP_SURGE_GROUP}' automatically — the extra node is still billed."
+        echo "   Restore it: aws sagemaker describe-cluster --cluster-name ${HP_CLUSTER_NAME} --region ${AWS_REGION}"
+        echo "   then remove the node without the serving pod:"
+        echo "   aws sagemaker batch-delete-cluster-nodes --cluster-name ${HP_CLUSTER_NAME} --node-ids <instance-id> --region ${AWS_REGION}"
+    fi
+}
+
+if [ "${_HP_ROLLOUT_NEEDS_SURGE}" = "true" ]; then
+    echo ""
+    echo "⚠️  This deploy changes the pod template, and the rollout cannot schedule:"
+    echo "   ${_HP_CAP_REASON}"
+    if [ "${SURGE_NODE}" != "true" ]; then
+        echo ""
+        echo "   Nothing was applied; the current pod keeps serving. MLCC never scales the"
+        echo "   deployment to zero or deletes the serving pod to make room."
+        echo ""
+        echo "   To roll out, temporarily add one node to the instance group:"
+        echo "     ./do/deploy --target hyperpod-eks --force --surge-node"
+        echo ""
+        echo "   Cost/time note: --surge-node adds ONE ${HP_INSTANCE_TYPE} to instance group"
+        echo "   '${_HP_SURGE_GROUP:-<unknown>}' (SageMaker UpdateCluster), billed while it runs (typically"
+        echo "   15–45 min: node provisioning + model load + rollout), then restores the original"
+        echo "   count. It fails without changes if the Region has no spare capacity (InsufficientCapacity)."
+        rm -rf "${_HP_RENDER_DIR}"
+        exit 1
+    fi
+    if [ -z "${_HP_SURGE_GROUP}" ]; then
+        echo "❌ --surge-node: could not identify the serving node's instance group; nothing was applied."
+        rm -rf "${_HP_RENDER_DIR}"
+        exit 1
+    fi
+    echo ""
+    echo "➕ --surge-node: adding one ${HP_INSTANCE_TYPE} to instance group '${_HP_SURGE_GROUP}' (billed while it runs)..."
+    _HP_SURGE_ACTIVE=true
+    # (Replaces do/deploy's EXIT trap for the run; keep its temp-file cleanup.)
+    trap '_hp_surge_restore; rm -f "${_DEPLOY_JSON_TMP:-}"' EXIT
+    trap '_hp_surge_restore; exit 130' INT TERM
+    _HP_SURGE_UP_JSON=""
+    if ! _HP_SURGE_UP_JSON="$(python3 "${SCRIPT_DIR}/lib/python/hyperpod_ops.py" surge-up \
+        --cluster "${HP_CLUSTER_NAME}" --group "${_HP_SURGE_GROUP}")"; then
+        echo "❌ UpdateCluster failed (error above, verbatim). Nothing was applied."
+        _HP_SURGE_ORIGINAL="$(printf '%s' "${_HP_SURGE_UP_JSON}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("original_target",""))' 2>/dev/null || echo "")"
+        [ -n "${_HP_SURGE_ORIGINAL}" ] || _HP_SURGE_ACTIVE=false
+        rm -rf "${_HP_RENDER_DIR}"
+        exit 1
+    fi
+    _HP_SURGE_ORIGINAL="$(printf '%s' "${_HP_SURGE_UP_JSON}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["original_target"])')"
+    echo "⏳ Waiting for the new node to join (InService + Ready)..."
+    if ! python3 "${SCRIPT_DIR}/lib/python/hyperpod_ops.py" surge-wait \
+        --cluster "${HP_CLUSTER_NAME}" --group "${_HP_SURGE_GROUP}" --count "$((_HP_SURGE_ORIGINAL + 1))" >/dev/null; then
+        echo "❌ The surge node did not become Ready (reason above, verbatim). Nothing was applied."
+        rm -rf "${_HP_RENDER_DIR}"
+        exit 1
+    fi
+    echo "✅ Surge node Ready"
+fi
+
+for _hp_rendered in "${_HP_RENDER_DIR}"/*; do
+    [ -f "${_hp_rendered}" ] || continue
+    FILE_OUTPUT=$(kubectl apply -n "${HP_NAMESPACE}" -f "${_hp_rendered}" 2>&1) || {
+        APPLY_EXIT_CODE=$?
+    }
+    APPLY_OUTPUT="${APPLY_OUTPUT}${FILE_OUTPUT}\n"
 done
+rm -rf "${_HP_RENDER_DIR}"
 
 if [ "${APPLY_EXIT_CODE}" -ne 0 ]; then
     echo ""
@@ -823,7 +1045,13 @@ echo "✅ InferenceEndpointConfig applied"
 # confirm the SageMaker endpoint is InService.
 #
 # Max wait: 15 minutes (900s), overridable via DEPLOY_TIMEOUT.
-DEPLOY_TIMEOUT=${DEPLOY_TIMEOUT:-900}
+# Wave 6.1: without prefetch the model streams over the S3 mount (measured ~15
+# min to Ready for a 16 GB model), so the default wait doubles in that mode.
+if [ "${_HP_MODEL_PREFETCH:-true}" = "false" ]; then
+    DEPLOY_TIMEOUT=${DEPLOY_TIMEOUT:-1800}
+else
+    DEPLOY_TIMEOUT=${DEPLOY_TIMEOUT:-900}
+fi
 POLL_INTERVAL=15
 ELAPSED=0
 echo "⏳ Waiting for InferenceEndpointConfig to reconcile (timeout: ${DEPLOY_TIMEOUT}s)..."
@@ -881,17 +1109,44 @@ if [ "${CRD_STATE}" != "DeploymentComplete" ]; then
     exit 1
 fi
 
+# --surge-node: wait until the new pod is Ready and the old pod is gone, then
+# give the extra node back (the EXIT trap also covers every failure path).
+if [ "${_HP_SURGE_ACTIVE}" = "true" ]; then
+    echo "⏳ Waiting for the old pod to terminate (new pod Ready)..."
+    if ! python3 "${SCRIPT_DIR}/lib/python/hyperpod_ops.py" rollout-wait \
+        --namespace "${HP_NAMESPACE}" --project "${PROJECT_NAME}" --replicas "${HP_REPLICAS:-1}" >/dev/null; then
+        echo "⚠️  The rollout did not settle in time; restoring the instance group anyway"
+        echo "   (the node hosting the Ready serving pod is kept)."
+    fi
+    _hp_surge_restore
+    trap - INT TERM
+    trap 'rm -f "${_DEPLOY_JSON_TMP:-}"' EXIT
+fi
+
 # Endpoint ARN is surfaced on the CRD status once registered (informational).
 ENDPOINT_ARN=$(kubectl get inferenceendpointconfig "${PROJECT_NAME}" \
     -n "${HP_NAMESPACE}" \
     -o jsonpath='{.status.endpoints.sagemaker.endpointArn}' 2>/dev/null || echo "")
 
-# ── Poll the SageMaker endpoint until InService (AC-3) ────────────────────────
-# ENDPOINT_NAME == metadata.name == PROJECT_NAME.
+# ── Poll the SageMaker endpoint — WARN, do not block (BL143 finding #11) ──────
+# The deployment is considered RUNNING once the InferenceEndpointConfig reached
+# DeploymentComplete (gate 1 above) AND the serving pod is healthy — that is the
+# user-facing serving surface (vLLM behind the ALB, which answers /ping + real
+# inference). The operator ALSO registers a managed SageMaker endpoint via its
+# SageMakerEndpointRegistration controller, but that control-plane step has been
+# observed NOT to complete even on a correctly-configured cluster (the operator
+# polls DescribeEndpoint for an endpoint it never issues CreateEndpoint for — see
+# the migration-doc root-cause section; an operator/control-plane issue outside
+# MLCC's control). Gating `Running` on `describe-endpoint InService` therefore
+# reported Failed for deployments that are actually serving. So: poll the endpoint
+# as an ADVISORY sub-status with a short window, record it in
+# HP_SAGEMAKER_ENDPOINT_STATUS, and NEVER fail the deploy on it.
 echo ""
-echo "⏳ Waiting for SageMaker endpoint '${PROJECT_NAME}' to reach InService..."
+_ENDPOINT_POLL_WINDOW="${HP_ENDPOINT_POLL_WINDOW:-120}"
+echo "⏳ Checking for a managed SageMaker endpoint '${PROJECT_NAME}' (advisory, up to ${_ENDPOINT_POLL_WINDOW}s)..."
 ENDPOINT_STATUS=""
-while [ "${ELAPSED}" -lt "${DEPLOY_TIMEOUT}" ]; do
+_EP_ELAPSED=0
+while [ "${_EP_ELAPSED}" -lt "${_ENDPOINT_POLL_WINDOW}" ]; do
     ENDPOINT_STATUS=$(aws sagemaker describe-endpoint \
         --endpoint-name "${PROJECT_NAME}" \
         --region "${AWS_REGION}" \
@@ -899,30 +1154,31 @@ while [ "${ELAPSED}" -lt "${DEPLOY_TIMEOUT}" ]; do
         --output text 2>/dev/null || echo "")
 
     if [ "${ENDPOINT_STATUS}" = "InService" ]; then
-        echo "   ✅ $(date +%H:%M:%S) Endpoint status: InService"
+        echo "   ✅ $(date +%H:%M:%S) SageMaker endpoint status: InService"
         break
     elif [ "${ENDPOINT_STATUS}" = "Failed" ]; then
-        echo ""
-        echo "❌ SageMaker endpoint '${PROJECT_NAME}' entered Failed state"
-        echo "   aws sagemaker describe-endpoint --endpoint-name ${PROJECT_NAME} --region ${AWS_REGION}"
-        _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
-        exit 1
+        echo "   ⚠️  $(date +%H:%M:%S) SageMaker endpoint entered Failed state (deployment still serves via the pod/ALB)."
+        break
     fi
-
-    echo "   📊 $(date +%H:%M:%S) Endpoint status: ${ENDPOINT_STATUS:-<registering>}"
+    echo "   📊 $(date +%H:%M:%S) SageMaker endpoint: ${ENDPOINT_STATUS:-<not yet registered>}"
     sleep "${POLL_INTERVAL}"
-    ELAPSED=$((ELAPSED + POLL_INTERVAL))
+    _EP_ELAPSED=$((_EP_ELAPSED + POLL_INTERVAL))
 done
 
-if [ "${ENDPOINT_STATUS}" != "InService" ]; then
-    echo ""
-    echo "❌ SageMaker endpoint '${PROJECT_NAME}' did not reach InService within ${DEPLOY_TIMEOUT}s"
-    echo "   Last observed status: ${ENDPOINT_STATUS:-<none>}"
-    _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
-    exit 1
-fi
+# Record the endpoint sub-status separately from the deployment status. Never fatal.
+_update_config "HP_SAGEMAKER_ENDPOINT_STATUS" "${ENDPOINT_STATUS:-NotRegistered}"
 
-echo "✅ HyperPod EKS deployment complete!"
+if [ "${ENDPOINT_STATUS}" = "InService" ]; then
+    echo "✅ HyperPod EKS deployment complete (model serving + SageMaker endpoint InService)."
+else
+    echo "✅ HyperPod EKS deployment complete — model is SERVING (pod healthy, ALB up)."
+    echo "   ℹ️  Managed SageMaker endpoint '${PROJECT_NAME}' is '${ENDPOINT_STATUS:-not yet registered}'."
+    echo "      The deployment is usable now via the pod/ALB. The operator registers the"
+    echo "      SageMaker endpoint asynchronously; if it never appears, that is a known"
+    echo "      operator/control-plane behavior (see docs/architecture/eks-hyperpod-migration.md),"
+    echo "      NOT a failed deployment. Re-check later:"
+    echo "        aws sagemaker list-endpoints --region ${AWS_REGION} --query \"Endpoints[?EndpointName=='${PROJECT_NAME}']\""
+fi
 
 # ── Persist endpoint name for downstream workflows (AC-4) ─────────────────────
 # do/benchmark, do/test, and do/register consume ENDPOINT_NAME from do/config.
@@ -944,7 +1200,13 @@ fi
 _update_config "HP_CLUSTER_NAME" "${HP_CLUSTER_NAME}"
 _update_config "HP_NAMESPACE" "${HP_NAMESPACE}"
 
-# ── Write per-target status (FR-4.2) — only after InService (AC-3) ────────────
+# ── Write per-target status (FR-4.2) ──────────────────────────────────────────
+# Running = the serving surface is up: the InferenceEndpointConfig reached
+# DeploymentComplete (gate 1, a hard requirement enforced above — the script exits
+# non-zero before here if it did not) AND the pod is healthy. The managed SageMaker
+# endpoint is tracked SEPARATELY in HP_SAGEMAKER_ENDPOINT_STATUS and is NOT a gate on
+# Running (BL143 finding #11 — the operator's endpoint registration can lag/never
+# complete independent of the deployment actually serving).
 _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Running"
 echo ""
 echo "📋 Deployment Details:"

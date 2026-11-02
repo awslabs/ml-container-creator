@@ -32,6 +32,7 @@ from tune_resolve import cmd_resolve  # noqa: E402
 from tune_stage_hf import cmd_stage_hf  # noqa: E402
 from tune_validate import cmd_validate  # noqa: E402
 from tune_discover import cmd_discover  # noqa: E402
+from tune_config_builder import cmd_build_config  # noqa: E402
 
 # Re-export internal helpers accessed by tests via importlib
 from tune_resolve import _resolve_dataset_name, _resolve_evaluator_name  # noqa: E402, F401
@@ -96,6 +97,11 @@ def main():
                                help="LoRA alpha scaling factor")
     submit_parser.add_argument("--batch-size", type=int, default=None,
                                help="Global batch size")
+    submit_parser.add_argument("--hyperparameters", default=None,
+                               help="BL128: JSON object of resolved {knob: value} from the "
+                                    "config builder (keyed by canonical override-param name). "
+                                    "Merged into the hyperparameters dict; the legacy named "
+                                    "flags above remain as a fallback for direct calls.")
     submit_parser.add_argument("--reward-function", default=None,
                                help="Lambda ARN for reward function (RLVR)")
     submit_parser.add_argument("--reward-prompt", default=None,
@@ -185,6 +191,38 @@ def main():
     discover_parser.add_argument("--region", default="",
                                  help="AWS region (default: AWS_REGION env or us-east-1)")
 
+    # ── build-config (BL128) ────────────────────────────────────────────────────
+    build_config_parser = subparsers.add_parser(
+        "build-config",
+        help="Resolve a technique's hyperparameter knobs from its tune descriptor")
+    build_config_parser.add_argument("--technique", required=True,
+                                     choices=["sft", "dpo", "rlaif", "rlvr", "mtrl"],
+                                     help="Customization technique")
+    build_config_parser.add_argument("--variant", default=None,
+                                     help="PEFT variant (lora|full); default resolves lora")
+    build_config_parser.add_argument("--model", default=None,
+                                     help="BL180: model id (TUNE_MODEL_ID). When set, the "
+                                          "AUTHORITATIVE per-model hyperparameter specs are read "
+                                          "live from the SMTJ SDK; falls back to the tune "
+                                          "descriptor when the SDK/model can't be resolved.")
+    build_config_parser.add_argument("--supplied", default="{}",
+                                     help="JSON object of already-resolved knob values "
+                                          "(merged config file + --set, flag-wins)")
+    build_config_parser.add_argument("--advanced", action="store_true", default=False,
+                                     help="Prompt advanced-tier knobs too")
+    build_config_parser.add_argument("--non-interactive", action="store_true", default=False,
+                                     dest="non_interactive",
+                                     help="Apply defaults without prompting (same validation)")
+    build_config_parser.add_argument("--tune-dir", default=None, dest="tune_dir",
+                                     help="Override the tune.d root (tests)")
+    build_config_parser.add_argument("--skip-knob", action="append", default=[],
+                                     dest="skip_knobs", metavar="KNOB",
+                                     help="Drop a knob from resolution/prompting "
+                                          "(repeatable). Used when the value is set "
+                                          "elsewhere, e.g. judge_prompt_template when "
+                                          "--reward-prompt was passed, so the user is "
+                                          "not asked for it twice.")
+
     # ── Parse and dispatch ────────────────────────────────────────────────────
     args = parser.parse_args()
 
@@ -199,6 +237,7 @@ def main():
         'stage-hf': cmd_stage_hf,
         'validate': cmd_validate,
         'discover': cmd_discover,
+        'build-config': cmd_build_config,
     }
 
     handler = command_map.get(args.command)

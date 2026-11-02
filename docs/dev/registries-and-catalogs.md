@@ -38,6 +38,11 @@ All catalogs live in the centralized shared directory `servers/lib/catalogs/`. I
 | `triton-backends.json` | `servers/lib/catalogs/` | Triton backend configurations |
 | `regions.json` | `servers/lib/catalogs/` | AWS region availability |
 | `draft-models.json` | `servers/lib/catalogs/` | Speculative-decoding draft model catalog (keyed by HF model ID) |
+| `fleet-drivers.json` | `servers/lib/catalogs/` | GPU driver / CUDA per instance family and the per-family inference AMI lists (`resolveInferenceAmi()`) |
+| `model-arch-support.json` | `servers/lib/catalogs/` | Model architecture → minimum framework version (driver-aware image filtering) |
+| `bedrock-equivalents.json` | `servers/lib/catalogs/` | HF model ID → Bedrock model ID, written only by `pricing.py verify-bedrock` after a live check |
+| `pricing-snapshot.json` | `servers/lib/catalogs/` | Bundled Price List snapshot; the benchmark cost fallback when `pricing:GetProducts` is unavailable |
+| `tune-catalog.json` | `config/` | `do/tune` Supported Model Catalog, synced from the SageMaker AI model-customization docs (`./do/tune --list-models`) |
 
 Each catalog has a corresponding JSON schema in `servers/lib/schemas/` that defines the required fields and value constraints.
 
@@ -127,7 +132,7 @@ and by the `do/draft list` command.
 |------|----------|
 | Source catalog | `servers/lib/catalogs/draft-models.json` |
 | Schema | `servers/lib/schemas/draft-models.schema.json` |
-| Project-local copy | `<project>/.mlcc/draft-models.json` (written at `mcc generate` time) |
+| Project-local copy | `<project>/.mlcc/draft-models.json` (written at generation time) |
 
 ### Schema
 
@@ -266,6 +271,8 @@ Add an entry mapping the instance family (without `ml.` prefix) to its driver in
 
 This is used by `image-filter.js` to determine which container images are CUDA-driver-compatible with the instance.
 
+Also add the family to the `default_families` or `override_families` list of every `ami_versions` entry that the [AWS GPU driver table](https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html) lists it under (copy the table; do not guess). If AWS names a default AMI for the family, also set `inference_ami_version` on the family entry. `resolveInferenceAmi()` in `image-filter.js` reads these lists to pick the `InferenceAmiVersion` sent at deploy time (BL209), and `do/lib/endpoint-config.sh` uses them to validate pools. `test/unit/catalog-driver-conformance.test.js` fails if a GPU family resolves to an AMI AWS does not list for it.
+
 ### Step 2: `servers/lib/catalogs/instances.json`
 
 Add one entry per instance size under the `catalog` key:
@@ -336,7 +343,7 @@ These files are instance-family-agnostic and need no updates:
 
 - **`model-servers.json`** — image entries specify CUDA version requirements, not instance families. The `image-filter.js` handles instance↔image compatibility at runtime via `fleet-drivers.json`.
 - **`popular-transformers.json` / `popular-diffusors.json`** — model-centric catalogs, no instance references.
-- **`image-filter.js`** — uses generic regex `^ml\.([a-z0-9]+)\.` to parse family, then looks up `fleet-drivers.json`. Works for any family automatically.
+- **`image-filter.js`** — uses generic regex `^ml\.([a-z0-9][a-z0-9-]*)\.` to parse family (hyphenated families such as `p6-b200` included), then looks up `fleet-drivers.json`. Works for any family automatically.
 - **`scripts/validate-catalogs.js`** — schema accepts any `ml.*` key with the correct shape.
 - **`scripts/sync-model-families.js`** — model discovery, not instance-related.
 - **`scripts/sync-serving-versions.js`** — image version management, not instance-related.
