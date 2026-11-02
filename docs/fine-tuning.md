@@ -918,22 +918,7 @@ When auto-flatten converts columns, you'll see:
     Format: extracted content field
 ```
 
-**Disabling auto-flatten:**
-
-If you need to preserve the original column structure (e.g., for debugging or custom preprocessing):
-
-```bash
-./do/tune --technique dpo --dataset hf://my-org/my-dataset --no-transform
-```
-
-With `--no-transform` active, the pipeline still detects chat-format columns and logs what it found, but halts with an actionable error instead of converting:
-
-```text
-❌ Column 'chosen' contains chat-format data (detected: single_dict) but --no-transform is active.
-
-   Remove --no-transform to enable automatic conversion:
-   ./do/tune --technique dpo --dataset hf://my-org/my-dataset
-```
+`do/tune` has no flag to disable auto-flatten for `hf://` datasets. To keep the original column structure, preprocess the dataset yourself before tuning.
 
 !!! note "Pipeline ordering"
     The full staging pipeline runs in this order: **download** → **column rename** (`--column-map`) → **detect chat-format** → **flatten** → **type validation** → **write JSONL** → **upload to S3**. Column rename always happens before flatten, so `--column-map` and auto-flatten compose correctly.
@@ -1052,7 +1037,6 @@ Each alias is validated against the selected technique's descriptor exactly like
 | Flag | Type | Description |
 |---|---|---|
 | `--column-map` | string | Rename source columns to target columns (e.g., `"input:prompt,output:completion"`) |
-| `--no-transform` | flag | Disable auto-flatten — halt with error if chat-format data is detected |
 
 ### Evaluator flags (RLVR/RLAIF only)
 
@@ -1184,10 +1168,6 @@ all caught in preflight or early in the job:
 ### "Schema divergence detected across files"
 
 Your HuggingFace dataset has files with different column sets. Use `?file=<pattern>` to select only the files matching your technique's schema. The error message shows each file's columns and suggests a pattern.
-
-### "Column contains chat-format data but --no-transform is active"
-
-You passed `--no-transform` but the dataset has chat-format columns that need flattening. Remove `--no-transform` to enable automatic conversion, or preprocess the data manually.
 
 ### "Technique not supported for this model"
 

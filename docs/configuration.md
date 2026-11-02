@@ -81,10 +81,11 @@ Parameters supported by MCC, organized by category. Each can be set via CLI flag
 
 ### Capacity & Serving
 
+Heterogeneous instance pools are a deploy-time choice, not a generation parameter: `./do/deploy --endpoint-strategy heterogeneous --instance-types ml.g5.xlarge,ml.g6.xlarge`.
+
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
-| `capacityReservationArn` | `--capacity-reservation-arn` | string | — | FTP/capacity reservation ARN for deploying on reserved capacity. Mutually exclusive with `instancePools`. |
-| `instancePools` | `--instance-pools` | JSON | — | Heterogeneous instance types with priority-based fallback. Mutually exclusive with `capacityReservationArn`. |
+| `capacityReservationArn` | `--capacity-reservation-arn` | string | — | FTP/capacity reservation ARN for deploying on reserved capacity. |
 | `serverEnv` | `--server-env` | string[] | — | Container environment variable overrides (e.g., `SM_VLLM_KV_CACHE_DTYPE=fp8`). Repeatable flag. |
 
 
@@ -333,13 +334,21 @@ ml-container-creator --config=production.json --skip-prompts
 
 ## CLI Commands
 
-Beyond project generation, MCC provides configuration management commands:
+Beyond project generation, MCC provides these subcommands (`ml-container-creator --help` is the authoritative list):
 
 | Command | Description |
 |---------|-------------|
-| `ml-container-creator configure` | Interactive configuration file setup |
-| `ml-container-creator generate-empty-config` | Create an empty config file template |
+| `ml-container-creator bootstrap` | Set up modular AWS infrastructure (see [Bootstrap](bootstrap.md)) |
+| `ml-container-creator mcp` | Manage MCP servers (add, list, get, remove, init) |
+| `ml-container-creator secrets` | Manage secrets in AWS Secrets Manager (create, list, describe) |
+| `ml-container-creator hey` | Chat with the advisor |
+| `ml-container-creator prove` | Prove a configuration works end-to-end (generate → deploy → test → clean) |
+| `ml-container-creator import` | Generate an operational project from a running SageMaker endpoint |
+| `ml-container-creator update` | Update project configuration fields and regenerate only affected files |
+| `ml-container-creator regenerate` | Re-run generation from saved parameters with the current generator version |
 | `ml-container-creator help` | Show all options and examples |
+
+Any other first word is treated as the project name, so `ml-container-creator generate` creates a project called `generate`.
 
 ## HuggingFace Authentication
 
@@ -519,72 +528,7 @@ Architecture compatibility validation checks whether your chosen model's `model_
 
 #### Syncing Architecture Data
 
-Populate the architecture registry by scraping model type lists from server GitHub repositories (vLLM, SGLang, TensorRT-LLM):
-
-```bash
-ml-container-creator registry sync-architectures
-```
-
-This fetches each server version's model registry source file, parses it for supported `model_type` values, and writes them into the `supportedModelTypes` field in `model-servers.json`.
-
-!!! note
-    `bootstrap` automatically runs `sync-architectures` as part of its post-setup chain. You only need to run it manually to pick up newly released server versions.
-
-#### Viewing Supported Architectures
-
-List supported architecture counts per server version:
-
-```bash
-ml-container-creator registry list-architectures
-```
-
-Output:
-
-```
-Model Architecture Support:
-
-  Server                Version      Architectures
-  ════════════════════  ═══════════  ═════════════
-  vllm                  0.6.3        85
-  vllm                  0.5.5        72
-  sglang                0.4.1        68
-  tensorrt-llm          0.15.0       45
-```
-
-Filter by server or show the full model type list:
-
-```bash
-ml-container-creator registry list-architectures --server vllm
-ml-container-creator registry list-architectures --verbose
-```
-
-#### Pre-Generation Compatibility Check
-
-Check a specific model's compatibility before generating a project:
-
-```bash
-ml-container-creator registry check meta-llama/Llama-3.1-8B-Instruct
-```
-
-Output:
-
-```
-🔍 Checking model: meta-llama/Llama-3.1-8B-Instruct
-
-   Fetching model config from HuggingFace...
-   Model type: llama
-
-   ✅ Compatible server versions:
-      • vllm 0.6.3
-      • vllm 0.5.5
-      • sglang 0.4.1
-      • tensorrt-llm 0.15.0
-
-   ⚠️  Potentially incompatible server versions:
-      • tensorrt-llm 0.12.0
-```
-
-This fetches the model's `config.json` from HuggingFace, extracts the `model_type`, and checks it against all server versions in the catalog.
+The architecture registry (`supportedModelTypes` in `model-servers.json`) is populated by the `bootstrap` post-setup chain (mcp init → sync-architectures → sync-schemas). It runs after `ml-container-creator bootstrap add <profile>` and again after `ml-container-creator bootstrap update`; `--skip-post-setup` skips it. There is no standalone `registry` command in v2 (`ml-container-creator registry …` would generate a project named `registry`).
 
 #### Generation-Time Warning
 

@@ -81,13 +81,13 @@ Benchmark parameters are resolved from named **workload profiles** served by the
 
 List available workloads:
 
-```bash
-# Via MCP (if workload-picker server is running)
-mcc mcp call workload-picker list_workloads
+Ask any MCP client connected to the bundled `workload-picker` server to call its `list_workloads` tool, or read the catalog directly:
 
-# Or inspect the catalog directly
-cat servers/workload-picker/workload-profiles.json
+```bash
+cat servers/workload-picker/catalogs/workload-profiles.json
 ```
+
+Running `./do/benchmark` with no `--workload` / `--dataset` also prints the available workload names.
 
 ### How Resolution Works
 

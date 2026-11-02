@@ -127,7 +127,7 @@ and by the `do/draft list` command.
 |------|----------|
 | Source catalog | `servers/lib/catalogs/draft-models.json` |
 | Schema | `servers/lib/schemas/draft-models.schema.json` |
-| Project-local copy | `<project>/.mlcc/draft-models.json` (written at `mcc generate` time) |
+| Project-local copy | `<project>/.mlcc/draft-models.json` (written at generation time) |
 
 ### Schema
 

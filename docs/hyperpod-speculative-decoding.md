@@ -124,7 +124,7 @@ model's algorithm, its target model, and which engines support it:
 | `--limit <N>` | Maximum entries to display (default 20). |
 
 The catalog is read from `.mlcc/draft-models.json`, which is copied into your project at
-`mcc generate` time from the generator's `servers/lib/catalogs/draft-models.json` (the
+generation time from the generator's `servers/lib/catalogs/draft-models.json` (the
 command falls back to the source tree if the project-local copy is missing). If a newly
 added model doesn't appear, run `mcc regenerate` to refresh the copy. The same catalog
 also powers the [`draft-model-picker` MCP server](mcp-configuration.md#draft-model-picker),

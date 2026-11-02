@@ -73,7 +73,7 @@ The `mcp add` command registers a server in your config file. The server is spaw
 The generator ships with first-party MCP servers in the `servers/` directory:
 
 ```bash
-ml-container-creator mcp add instance-recommender --bundled
+ml-container-creator mcp add instance-sizer --bundled
 ```
 
 Dependencies are installed automatically on first use.
@@ -98,7 +98,7 @@ MCP servers are configured under the `mcpServers` key in `config/mcp.json`:
   "mcpServers": {
     "team-config": {
       "command": "node",
-      "args": ["servers/instance-recommender/index.js"],
+      "args": ["servers/instance-sizer/index.js"],
       "env": { "TEAM_ID": "ml-platform" },
       "toolName": "get_ml_config",
       "limit": 5
@@ -295,7 +295,7 @@ appending entries there (see
 Both bundled servers support an optional smart mode that queries Amazon Bedrock for context-aware recommendations instead of returning static lists. Set `BEDROCK_SMART=true` in the server's environment to enable it. If the Bedrock call fails, the server falls back to static recommendations.
 
 ```bash
-ml-container-creator mcp add instance-recommender --bundled \
+ml-container-creator mcp add instance-sizer --bundled \
   -e BEDROCK_SMART=true
 ```
 

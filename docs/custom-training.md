@@ -30,7 +30,7 @@ ML Container Creator includes a `do/train` command for **unmanaged, user-customi
 
 ```bash
 # SFT training with a HuggingFace dataset
-./do/train --technique sft --dataset "hf://tatsu-lab/alpaca --take 500"
+./do/train --technique sft --dataset hf://tatsu-lab/alpaca
 
 # DPO training with a registered dataset
 ./do/train --technique dpo --dataset "orca-dpo-pairs"
@@ -300,10 +300,10 @@ On completion, `do/train` writes to `do/config`:
 
 ```bash
 # Stage adapter from custom training output
-./do/adapter --from-train sft
+./do/adapter add sft-custom --from-train sft
 
 # Stage adapter from managed tuning output (for comparison)
-./do/adapter --from-tune sft
+./do/adapter add tuned-sft --from-tune sft
 ```
 
 Adapter confs created by `--from-train` include `ADAPTER_SOURCE="train"` to distinguish from managed adapters.
@@ -342,12 +342,12 @@ project home. When MLflow is not configured, `do/train` submits exactly as befor
 
 ```bash
 # Managed SFT
-./do/tune --technique sft --dataset "hf://tatsu-lab/alpaca --take 500"
-./do/adapter --from-tune sft
+./do/tune --technique sft --dataset hf://tatsu-lab/alpaca --take 500
+./do/adapter add tuned-sft --from-tune sft
 
 # Unmanaged SFT (same model, same data, your training code)
-./do/train --technique sft --dataset "hf://tatsu-lab/alpaca --take 500"
-./do/adapter --from-train sft
+./do/train --technique sft --dataset hf://tatsu-lab/alpaca
+./do/adapter add sft-custom --from-train sft
 
 # Deploy both
 ./do/test --adapter tuned-sft        # managed

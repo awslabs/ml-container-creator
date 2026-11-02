@@ -189,7 +189,7 @@ Use `do/adapter add --from-registry` to pull a previously registered adapter bac
 ```bash
 # Project A: tune, stage, register
 ./do/tune --technique sft --dataset "hf://tatsu-lab/alpaca"
-./do/adapter --from-tune sft
+./do/adapter add tuned-sft --from-tune sft
 ./do/register
 
 # Project B (or same project, fresh deployment): pull from registry

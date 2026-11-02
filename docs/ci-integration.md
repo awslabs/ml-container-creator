@@ -37,10 +37,7 @@ MCC uses a **two-stage pipeline** for each configuration:
 Set `benchmarkEnabled: true` on a configuration to opt it into Stage 2:
 
 ```bash
-# During registration
-./do/register --ci --benchmark-enabled
-
-# Or update an existing config in DynamoDB
+# Update the configuration's record in DynamoDB (do/register has no --benchmark-enabled flag)
 aws dynamodb update-item \
   --table-name mlcc-ci-table \
   --key '{"configId": {"S": "your-config-id"}}' \

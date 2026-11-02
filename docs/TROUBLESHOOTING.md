@@ -15,7 +15,7 @@ Common issues and solutions when using ML Container Creator.
 | Endpoint stuck in Creating | Check CloudWatch logs for health check or model loading failures |
 | Model file not found in container | Verify `COPY` directive in Dockerfile targets `/opt/ml/model/` |
 | Adapter "Not Found" on first call | Wait 60s after `do/adapter add` (see [LoRA Adapter Issues](#lora-adapter-issues)) |
-| Adapter read timeout | `./do/test --cli-read-timeout 120` |
+| Adapter read timeout | Re-run `./do/test --adapter <name>` after ~1 minute (see [Read timeout](#read-timeout-on-first-adapter-inference)) |
 | Adapter wrong model name | Use base model name, not adapter name (see [Wrong Model Name](#wrong-model-name-in-adapter-test)) |
 | HuggingFace API timeout | Use `--offline` flag |
 | HuggingFace access denied | Verify token and model license agreement |
@@ -366,13 +366,11 @@ sleep 60
 
 **Root cause:** The first inference triggers JIT compilation of the adapter code path. Combined with thinking-mode tokens (for reasoning models like DeepSeek R1), this can exceed the default CLI read timeout.
 
-**Fix:** Increase the read timeout:
+**Fix:** `do/test` has no read-timeout flag. Wait about a minute and re-run the test; subsequent calls are fast, only the first invocation is slow:
 
 ```bash
-./do/test --cli-read-timeout 120
+./do/test --adapter <name>
 ```
-
-Subsequent calls will be fast — only the first invocation is slow.
 
 ### Wrong model name in adapter test
 

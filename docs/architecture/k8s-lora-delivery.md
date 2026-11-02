@@ -45,7 +45,7 @@ hand copies, stay valid canonical adapters. See
 
 | Producer | What it writes |
 |---|---|
-| `do/tune` (job completes, or `./do/tune status` resolves it) | Promotes `checkpoints/hf/` → canonical `tuned-<technique>[-<dataset>]`; `TUNE_ADAPTER_PATH_<T>` records the canonical URI, the raw path stays in `TUNE_OUTPUT_PATH_<T>` / `TUNE_OUTPUT_PATH_LATEST`. A full model goes to `models/mlcc-<project>/<name>/` and `TUNE_MODEL_PATH_<T>`. |
+| `do/tune` (job completes, or `./do/tune --status` resolves it) | Promotes `checkpoints/hf/` → canonical `tuned-<technique>[-<dataset>]`; `TUNE_ADAPTER_PATH_<T>` records the canonical URI, the raw path stays in `TUNE_OUTPUT_PATH_<T>` / `TUNE_OUTPUT_PATH_LATEST`. A full model goes to `models/mlcc-<project>/<name>/` and `TUNE_MODEL_PATH_<T>`. |
 | `do/train` | Same, as `trained-<technique>` (`TRAIN_ADAPTER_PATH_<T>` / `TRAIN_MODEL_PATH_<T>`; raw in `TRAIN_OUTPUT_PATH_<T>`). |
 | `do/adapter add --from-hub` | Downloads the repo and publishes the loose PEFT files straight to a canonical version. |
 | `do/adapter add` / `update --from-weights` / `--from-registry` / `--from-tune` / `--from-train` | Promotes the source (prefix or `.tar.gz`) to a canonical version before loading. A canonical source (a version or an unversioned home) is used as-is. |
