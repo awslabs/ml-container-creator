@@ -301,6 +301,39 @@ ml-container-creator hyperpod-demo \
 ./do/test hyperpod
 ```
 
+### Full fine-tune on HyperPod EKS (`do/add-pod`)
+
+On a `hyperpod-eks` deployment, a LoRA adapter hot-loads with `do/adapter`, and a **full** fine-tuned model is served next to the base as a second InferenceEndpointConfig with `do/add-pod`:
+
+```bash
+./do/tune --technique sft --dataset s3://my-bucket/train.jsonl --training-type full-rank
+./do/add-pod sft-full --from-tune sft
+./do/add-pod --list
+./do/add-pod --remove sft-full
+```
+
+See [Serving a full fine-tune next to the base](deployments.md#serving-a-full-fine-tune-next-to-the-base-doadd-pod).
+
+## Plain EKS (bring-your-own cluster)
+
+The `eks` target deploys standard Kubernetes objects (Deployment + Service + ConfigMap) to a cluster you already run, with no HyperPod operator and no SageMaker endpoint. Generate as usual, then pick the target at deploy time:
+
+```bash
+ml-container-creator eks-demo \
+  --deployment-config=transformers-vllm \
+  --model-name=Qwen/Qwen3-4B \
+  --instance-type=ml.g5.xlarge \
+  --skip-prompts
+
+cd eks-demo
+./do/submit
+./do/deploy --target eks --cluster-name my-eks-cluster --namespace ml-serving
+./do/test eks
+./do/benchmark --workload multi-turn-chat   # local AIPerf via port-forward (pip install aiperf)
+```
+
+`./do/deploy --target eks` checks the cluster contract (pod identity, CSI driver, volume backing) before applying anything. See [Plain EKS](deployments.md#plain-eks-eks).
+
 ## Benchmarking: Generate → Deploy → Benchmark → Results
 
 Measure LLM endpoint performance using SageMaker AI Benchmarking (NVIDIA AIPerf). Benchmarking is available for transformer and diffusor architectures only.

@@ -308,6 +308,18 @@ A single project can hold active deployments on multiple targets at once. `DEPLO
 - **Switch focus:** if a deployment already exists for the requested target, `./do/deploy --target <mode>` switches focus without redeploying — handy for benchmarking the same model on, say, `realtime-inference` vs. `hyperpod-eks`.
 - **View all target states:** `./do/deploy --status` prints each target's status; `do/config` tracks per-target state in `DEPLOYMENT_TARGET_*_STATUS` vars.
 
+## Adding models to a live deployment
+
+Three additive verbs add a model to a running deployment. The source's artifact kind picks the verb and the target picks the load mechanism ([ADR-013](adr/ADR-013-additive-deploy-artifact-kind-contract.md)). All of them take the same sources: `--from-tune [technique]`, `--from-train [technique]`, `--from-weights <s3-uri>`, `--from-registry <arn>` (and `--from-hub <repo>` for `do/adapter`).
+
+| Verb | Accepts | `realtime-inference` | `hyperpod-eks` | `eks` |
+|---|---|---|---|---|
+| `do/adapter` | LoRA adapter | adapter inference component | vLLM hot-load | vLLM hot-load |
+| `do/add-ic` | full model | inference component | — | — |
+| `do/add-pod` | full model | — | second InferenceEndpointConfig | — |
+
+A verb on a target marked "—" exits with code 3 and names the verb to use. A full model on plain `eks` has no verb yet (planned post-2.0). `async-inference` and `batch-transform` have no additive verbs. The matrix is derived from the additive-deploy contract in `do/lib/script-contract.sh`; `test/unit/docs-inventory-drift.test.js` keeps this table in step with it. See [Fine-Tuning](fine-tuning.md) for the tune → adapter loop.
+
 ## Lifecycle Scripts Reference
 
 All generated projects include these `do/` scripts:

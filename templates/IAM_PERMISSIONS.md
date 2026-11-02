@@ -103,7 +103,7 @@ Created automatically by `./do/submit` as `<%= codebuildProjectName %>-service-r
 
 ## User/CI Permissions
 
-Your AWS user or CI system needs these permissions to run the do-scripts:
+Your AWS user or CI system needs these permissions to run the do-scripts. The MLCC repository's [`docs/MLCC_OPERATOR_POLICY_STATEMENT.json`](https://github.com/awslabs/ml-container-creator/blob/main/docs/MLCC_OPERATOR_POLICY_STATEMENT.json) is the inline operator policy (`MLCCOperatorPolicy`); today it is used together with AWS-managed policies on the operator role (least-privilege tightening is planned), see [Bootstrap — Operator permissions](https://awslabs.github.io/ml-container-creator/bootstrap/#operator-caller-permissions).
 
 | Script | Permissions Needed |
 |--------|-------------------|

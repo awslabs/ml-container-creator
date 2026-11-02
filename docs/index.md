@@ -36,7 +36,7 @@ Then iterate — fine-tune and hot-swap a LoRA adapter without restarting:
 
 For full control over the training code, see [Custom Training](custom-training.md) (`do/train`).
 
-See [Getting Started](getting-started.md) for the full walkthrough with prerequisites.
+See [Getting Started](getting-started.md) for the full walkthrough with prerequisites. Upgrading from 1.x? See [Upgrading to v2](upgrading-to-v2.md).
 
 ---
 
@@ -120,6 +120,7 @@ MCP is optional — MCC works without it. MCP just makes the defaults smarter.
 | Section | For... |
 |---|---|
 | **[Getting Started](getting-started.md)** | First-time users — install, bootstrap, deploy your first model |
+| **[Upgrading to v2](upgrading-to-v2.md)** | Coming from 1.x — what changed and how to migrate |
 | **[Supported Models](supported-models.md)** | Check if your model is validated end-to-end |
 | **[Configuration](configuration.md)** | CLI flags, env vars, config files, MCP, precedence |
 | **[Deployment & Inference](deployments.md)** | All deployment targets + full lifecycle scripts reference |

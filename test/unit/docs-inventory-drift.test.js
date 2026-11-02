@@ -74,6 +74,61 @@ describe('Docs inventory drift', () => {
         });
     }
 
+    it('docs/mcp-configuration.md workload table matches the workload-picker catalog', () => {
+        const catalog = JSON.parse(read('servers/workload-picker/catalogs/workload-profiles.json')).workloads;
+        const text = read('docs/mcp-configuration.md');
+        const start = text.indexOf('#### Available Workloads');
+        assert.ok(start >= 0, 'missing "#### Available Workloads" table');
+        const rows = {};
+        for (const m of text.slice(start).matchAll(/^\| `([a-z0-9-]+)` \| [^|]+ \| (\d+) \| (\d+) \| (yes|no) \| ([\d, ]+) \|$/gm)) {
+            rows[m[1]] = { input: Number(m[2]), output: Number(m[3]), streaming: m[4] === 'yes', levels: m[5].split(',').map(x => Number(x.trim())) };
+        }
+        const expected = {};
+        for (const [name, w] of Object.entries(catalog)) {
+            expected[name] = { input: w.input_tokens_mean, output: w.output_tokens_mean, streaming: w.streaming, levels: w.concurrency_levels };
+        }
+        assert.deepStrictEqual(rows, expected);
+    });
+
+    it('docs/deployments.md additive-verb matrix matches the script-contract.sh derivation', () => {
+        // Parse the bash-3.2 case lookups in the ADDITIVE-DEPLOY CONTRACT block.
+        const sh = read('templates/do/lib/script-contract.sh');
+        const caseMap = fn => {
+            const body = sh.slice(sh.indexOf(`${fn}() {`));
+            const block = body.slice(0, body.indexOf('\n}'));
+            const map = {};
+            for (const m of block.matchAll(/^\s+([a-z-]+)\)\s+echo "([^"]*)"/gm)) map[m[1]] = m[2].split(/\s+/).filter(Boolean);
+            return map;
+        };
+        const listFn = fn => (sh.match(new RegExp(`${fn}\\(\\) \\{\\n\\s+echo "([^"]+)"`)) || [])[1].split(/\s+/);
+        const verbMech = caseMap('_additive_verb_mechanisms');
+        const targetMech = caseMap('_additive_target_mechanisms');
+        const verbs = listFn('_additive_verbs');
+        const targets = listFn('_additive_targets');
+
+        const doc = read('docs/deployments.md');
+        const start = doc.indexOf('## Adding models to a live deployment');
+        assert.ok(start >= 0, 'missing "## Adding models to a live deployment"');
+        const after = doc.slice(start).split('\n');
+        const first = after.findIndex(l => l.startsWith('|'));
+        const lines = [];
+        for (let i = first; i < after.length && after[i].startsWith('|'); i++) lines.push(after[i]);
+        const header = lines[0].split('|').map(c => c.trim()).filter(Boolean);
+        const docTargets = header.slice(2).map(c => c.replace(/`/g, ''));
+        assert.deepStrictEqual(docTargets, targets, 'matrix columns must be the contract targets');
+        const docVerbs = [];
+        for (const row of lines.slice(2)) {
+            const cells = row.split('|').map(c => c.trim()).filter(Boolean);
+            const verb = cells[0].replace(/`/g, '').replace('do/', '');
+            docVerbs.push(verb);
+            targets.forEach((t, i) => {
+                const supported = (verbMech[verb] || []).some(m => (targetMech[t] || []).includes(m));
+                assert.strictEqual(cells[2 + i] !== '—', supported, `do/${verb} on ${t}: docs say ${cells[2 + i]}`);
+            });
+        }
+        assert.deepStrictEqual(docVerbs, verbs, 'matrix rows must be the contract verbs');
+    });
+
     it('docs/configuration.md Deployment Configs table matches DeploymentConfigResolver', () => {
         const text = read('docs/configuration.md');
         const start = text.indexOf('### Deployment Configs');

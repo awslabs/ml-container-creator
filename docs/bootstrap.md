@@ -322,6 +322,14 @@ The `core` module's execution role includes permissions for:
 
 The `training` module adds a separate HyperPod training role, `mlcc-hp-train-role-<region>`, assumed by `do/train` / `do/tune --backend hp-eks` pods through EKS Pod Identity. The generated project's `IAM_PERMISSIONS.md` lists its permissions.
 
+### Operator (caller) permissions
+
+The permissions above belong to the roles bootstrap creates. The identity that **runs** MLCC (your operator role or CI role) needs its own permissions to bootstrap, build, deploy and tune.
+
+[`MLCC_OPERATOR_POLICY_STATEMENT.json`](MLCC_OPERATOR_POLICY_STATEMENT.json) is the inline policy `MLCCOperatorPolicy`. Today it is used **together with AWS-managed policies** on the operator role: it adds the MLCC-specific statements (scoped S3, bootstrap IAM and `iam:PassRole`, CDK bootstrap SSM and role assumption, EKS, Secrets Manager, Service Quotas, Bedrock, `iam:SimulatePrincipalPolicy` for the training-role check), but it is not a standalone policy and does not cover everything on its own. Least-privilege tightening of the operator role is planned. Two statements, `S3ForJumpStart` and `EC2ForHyperPodVPC`, support paths that are deprecated in v2 (JumpStart model sources and HyperPod cluster provisioning).
+
+Each generated project's `IAM_PERMISSIONS.md` lists the permissions every `do/` script calls.
+
 ---
 
 ## Migrating Legacy (Monolithic) Profiles

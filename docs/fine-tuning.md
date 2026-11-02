@@ -170,6 +170,8 @@ The target only picks the load mechanism:
 | `hyperpod-eks` | vLLM hot-load into the running pod | `do/add-pod` — a second InferenceEndpointConfig ([details](deployments.md#serving-a-full-fine-tune-next-to-the-base-doadd-pod)) |
 | `eks` | vLLM hot-load into the running pod | not supported yet (planned post-2.0) |
 
+The full verb × target matrix is in [Adding models to a live deployment](deployments.md#adding-models-to-a-live-deployment).
+
 On a cluster, a tuned LoRA hot-loads straight from the tune output. There is no
 hand-copied S3 URI and no new pod:
 
