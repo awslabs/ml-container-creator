@@ -6,6 +6,9 @@ The built-in instance-sizer heuristic MUST produce the same recommendation
 as the MCP instance-sizer for any model where both use the same VRAM formula
 and precision input. This test independently re-implements the MCP formula
 and verifies agreement with the built-in heuristic across random inputs.
+The oracle includes the KV-cache term BL240 added to both estimators; the
+served-context resolution itself is drift-checked JS<->Python by
+test/unit/served-context-conformance.test.js.
 """
 import os
 import sys
@@ -50,6 +53,11 @@ MCP_BYTES_PER_PARAM = {
 MCP_OVERHEAD_FACTOR = 0.1  # 10%
 MCP_TP_OVERHEAD_PER_GPU = 0.10  # 10% per additional GPU
 MCP_BYTES_IN_GB = 1024**3
+# KV-cache heuristic (servers/instance-sizer/lib/vram-estimator.js estimateKvCache, BL240):
+# bytes per parameter at the reference sequence length, batch 1. With no served
+# context given, the MCP budgets the reference length, so the KV term is params * factor.
+MCP_KV_CACHE_FACTOR = 0.05
+MCP_DEFAULT_MAX_SEQUENCE_LENGTH = 4096
 
 # Same catalog (type, per_gpu_vram_gb, gpu_count), sorted ascending by effective VRAM
 MCP_INSTANCE_CATALOG = [
@@ -62,10 +70,14 @@ MCP_INSTANCE_CATALOG = [
 ]
 
 
-def mcp_estimate_vram(parameter_count: float, precision: str) -> float:
-    """MCP's VRAM estimation: params * bytes_per_param * 1.1 / bytes_in_gb."""
+def mcp_estimate_vram(parameter_count: float, precision: str,
+                      seq_len: int = MCP_DEFAULT_MAX_SEQUENCE_LENGTH, batch: int = 1) -> float:
+    """MCP's VRAM estimation (vram-estimator.js estimateVram):
+    weights * (1 + overhead) + KV, where KV = params * (seq / 4096) * batch * 0.05."""
     bpp = MCP_BYTES_PER_PARAM.get(precision, MCP_BYTES_PER_PARAM["float16"])
-    vram_bytes = parameter_count * bpp * (1 + MCP_OVERHEAD_FACTOR)
+    weight_bytes = parameter_count * bpp
+    kv_bytes = parameter_count * (seq_len / MCP_DEFAULT_MAX_SEQUENCE_LENGTH) * batch * MCP_KV_CACHE_FACTOR
+    vram_bytes = weight_bytes * (1 + MCP_OVERHEAD_FACTOR) + kv_bytes
     return vram_bytes / MCP_BYTES_IN_GB
 
 

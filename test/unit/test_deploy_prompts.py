@@ -53,6 +53,20 @@ def _force_tty(monkeypatch):
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_mcp_config(monkeypatch):
+    """Keep MCP discovery hermetic. mcp_client._load_mcp_config() walks up to the
+    gitignored config/mcp.json, .kiro/settings/mcp.json and ~/.kiro/settings/mcp.json,
+    so on a developer machine these tests spawned the REAL instance-sizer. Since
+    BL241 the helper uses that live answer, so "MCP unavailable" tests got a real
+    recommendation (and failed) locally while passing in CI. Tests that want MCP
+    inject MCP_MOCK_RESPONSES, which is checked before the config file.
+    """
+    import mcp_client
+    monkeypatch.delenv("MCP_CONFIG", raising=False)
+    monkeypatch.setattr(mcp_client, "_load_mcp_config", lambda: None)
+
+
 # ---------------------------------------------------------------------------
 # Config parsing tests
 # ---------------------------------------------------------------------------
