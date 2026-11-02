@@ -13,6 +13,8 @@ This guide covers installation and two end-to-end walkthroughs: deploying a pred
 
 You also need an AWS IAM role with permissions for ECR, SageMaker AI, and (optionally) CodeBuild.
 
+**Gated models** (e.g. Llama): store your Hugging Face token in Secrets Manager with `ml-container-creator secrets create --type hf-token --name <label> --secret-value hf_***`, then `mcc bootstrap add-secret hfToken <secret-arn>`. `do/deploy` refuses plaintext tokens. See [Secrets](secrets.md).
+
 !!! note "Service quota for large model staging"
     If you plan to stage models >15B parameters via `do/stage` (SageMaker Processing Job),
     your account's default EBS volume quota for Processing Jobs may be too low (100-500 GB).
@@ -23,7 +25,7 @@ You also need an AWS IAM role with permissions for ECR, SageMaker AI, and (optio
 
     This is only needed for large model staging — deployments and training use separate quotas.
 
-**Python dependencies** (`boto3`, `sagemaker>=3.0`, `huggingface_hub`, `pyarrow`, `hf_transfer`, `packaging`, `PyYAML`) are installed automatically when you run `npm install`. If you use a virtual environment or pyenv, activate it before running `npm install` so dependencies land in the correct location. The full list is in [`requirements.txt`](https://github.com/awslabs/ml-container-creator/blob/main/requirements.txt).
+**Python dependencies** (`boto3`, `sagemaker>=3.0`, `huggingface_hub`, `pyarrow`, `hf_transfer`, `packaging`, ...) are **not** installed by `npm install`. Install them in the Python environment the `do/` scripts will use (activate your virtual environment or pyenv first): `uv pip install -r requirements.txt` (or `pip install -r requirements.txt`). The file ships in the repository and in the npm package (`$(npm root -g)/@aws/ml-container-creator/requirements.txt`); see [`requirements.txt`](https://github.com/awslabs/ml-container-creator/blob/main/requirements.txt).
 
 Verify your setup:
 
@@ -74,7 +76,6 @@ mkdir sklearn-demo && cd sklearn-demo
 ml-container-creator sklearn-demo \
   --deployment-config=http-flask \
   --model-format=pkl \
-  --deployment-target=realtime-inference \
   --instance-type=ml.m5.large \
   --region=us-east-1 \
   --skip-prompts
@@ -109,7 +110,7 @@ sklearn-demo/
 │   ├── validate                  # Validate config against AWS service models
 │   ├── test                      # Test local or deployed endpoint
 │   ├── clean                     # Tear down resources
-│   ├── register                  # Log to deployment registry
+│   ├── register                  # Register model/adapters/datasets/evaluators (Model Registry + AI Registry)
 │   ├── manifest                  # Asset manifest operations
 │   ├── run                       # Run container locally
 │   ├── logs                      # Tail CloudWatch logs
@@ -122,7 +123,7 @@ sklearn-demo/
 
 ### Build, push, and deploy
 
-If you haven't already, run `ml-container-creator bootstrap` to set up shared AWS infrastructure. The bootstrap provisions modular CDK stacks (core, registry, benchmark, training, ci) that you can select interactively or via `--with`:
+If you haven't already, run `ml-container-creator bootstrap` to set up shared AWS infrastructure. The bootstrap provisions modular CDK stacks (core, registry, benchmark, training, ci, sagemaker-domain, eks) that you can select interactively or via `--with`:
 
 ```bash
 # Interactive: select modules from a menu
@@ -219,13 +220,14 @@ This walkthrough deploys [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B) t
 ml-container-creator qwen3-demo \
   --deployment-config=transformers-vllm \
   --model-name=Qwen/Qwen3-4B \
-  --deployment-target=realtime-inference \
   --instance-type=ml.g5.xlarge \
   --region=us-east-1 \
   --skip-prompts
 ```
 
 ### Project structure
+
+Abridged; every project ships more `do/` scripts (validate, train, add-ic, add-pod, metrics, status, ...). See the [lifecycle scripts reference](deployments.md#lifecycle-scripts-reference).
 
 ```
 qwen3-demo/
@@ -245,7 +247,7 @@ qwen3-demo/
 │   ├── adapter                   # LoRA adapter management (add/remove/list)
 │   ├── benchmark                 # Latency + throughput measurement
 │   ├── clean                     # Tear down resources
-│   ├── register                  # Log to deployment registry
+│   ├── register                  # Register model/adapters/datasets/evaluators (Model Registry + AI Registry)
 │   ├── manifest                  # Asset manifest operations
 │   ├── logs                      # Tail CloudWatch logs
 │   └── export                    # Export project: CLI command, --json config, or --notebook
@@ -315,7 +317,7 @@ Your endpoint supports LoRA adapter hot-swapping (enabled by default). You can f
 ./do/test
 ```
 
-The adapter is served as a separate inference component on the same endpoint — no downtime, no container rebuild. See [Fine-Tuning](fine-tuning.md) for the full guide on training data format, all supported techniques (SFT, DPO, RLAIF, RLVR), and adapter lifecycle management. For full control over the training code (custom trainers, custom techniques), see [Custom Training](custom-training.md).
+On `realtime-inference` the adapter is served as a separate inference component on the same endpoint; on `hyperpod-eks` / `eks` it is hot-loaded into the running vLLM pod. Either way there is no downtime and no container rebuild. See [Fine-Tuning](fine-tuning.md) for the full guide on training data format, all supported techniques (SFT, DPO, RLAIF, RLVR), and adapter lifecycle management. For full control over the training code (custom trainers, custom techniques), see [Custom Training](custom-training.md).
 
 ## Cleanup
 
@@ -375,7 +377,7 @@ For full details, see the [CI Integration Guide](ci-integration.md).
 
 ---
 
-## Quick Start: DLC-Direct Mode (v1.2+)
+## Quick Start: DLC-Direct Mode
 
 For the fastest path to deployment when you don't need container customization:
 
@@ -399,4 +401,4 @@ cd my-model
 
 This skips the Dockerfile/build/push steps entirely — saving 10-20 minutes on first deployment. The resolved DLC image is CUDA-driver-compatible with your chosen instance type.
 
-See [Configuration: DLC-Direct Mode](configuration.md#dlc-direct-mode---no-build) for details and limitations.
+See [Configuration: DLC-Direct Mode](configuration.md#dlc-direct-mode-no-build) for details and limitations.

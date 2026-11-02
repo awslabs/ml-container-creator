@@ -18,7 +18,7 @@ Local containers may produce `exec` errors when deployed to a different architec
 
 ## Deployment Targets
 
-MCC supports five deployment targets. Select the active target at deploy time using `./do/deploy --target <mode>`. The active target determines how `./do/test`, `./do/clean`, and `./do/logs` behave.
+MCC supports five deployment targets. Select the active target at deploy time using `./do/deploy --target <mode>`. The active target determines how `./do/test`, `./do/clean`, `./do/logs`, `./do/status`, `./do/metrics` and `./do/benchmark` behave.
 
 | Target | Where it runs | Notes |
 |---|---|---|
@@ -38,7 +38,7 @@ The default deployment target. `./do/deploy` provisions resources using the Sage
 
 The inference component model decouples compute provisioning from model deployment, allowing multiple models to share a single endpoint. Once the inference component reaches `InService` status, the endpoint is accessible via the SageMaker AI Runtime API for real-time inference requests.
 
-The generated `do/config` file stores the `INSTANCE_TYPE` and optionally `INFERENCE_AMI_VERSION` for controlling the CUDA driver version on the instance.
+The generated `do/config` file stores the `INSTANCE_TYPE` and optionally `INFERENCE_AMI_VERSION` for controlling the CUDA driver version on the instance. When `INFERENCE_AMI_VERSION` is unset, the AMI is resolved per instance family from the bundled copy of AWS's GPU driver table (`fleet-drivers.json`; see [Registries and Catalogs](dev/registries-and-catalogs.md)).
 
 After deployment, `./do/test` validates the endpoint by invoking inference through the inference component, `./do/logs` tails CloudWatch logs, and `./do/clean endpoint` tears down the inference component, endpoint, and endpoint configuration.
 
@@ -96,7 +96,7 @@ Prerequisites:
   Quick Install / CFT installs it), which provisions the `hyperpod-inference` service account in the target namespace
 - `kubectl` installed locally
 - IAM permissions for `sagemaker:DescribeCluster`, `eks:DescribeCluster`, and `sagemaker:DescribeEndpoint`
-- Sufficient node capacity (especially GPU nodes for LLM workloads)
+- Sufficient node capacity (especially GPU nodes for LLM workloads). Before applying, `./do/deploy` checks each node of the instance type for free GPUs **and** free pod slots (one for the serving pod, plus one for its Mountpoint-S3 pod when the model is mounted from S3). On a first deploy it stops before applying when no node has a free pod slot, and only warns when GPUs are short (the pod waits Pending). When a changed pod template cannot roll out, it stops and prints the `--surge-node` command, which temporarily adds one node (billed while it runs).
 
 ### Async Inference (`async-inference`)
 
@@ -105,13 +105,10 @@ For workloads with large payloads or long processing times (> 60s). `./do/deploy
 - Requests are submitted and return immediately with an output location
 - Results are written to S3 when processing completes
 - Optional SNS notifications on success/failure
-- Endpoint auto-scales to zero when idle (no cost when not in use)
+- Scale-to-zero is not available for async endpoints in v2; the endpoint keeps its instance count until you clean it up. See [Scale-to-Zero](scale-to-zero.md).
 
 ```bash
-ml-container-creator my-async-project \
-  --deployment-target=async-inference \
-  --async-s3-output-path=s3://my-bucket/async-output/ \
-  ...
+./do/deploy --target async-inference --async-output-path s3://my-bucket/async-output/
 ```
 
 ### Batch Transform (`batch-transform`)
@@ -311,6 +308,18 @@ A single project can hold active deployments on multiple targets at once. `DEPLO
 - **Switch focus:** if a deployment already exists for the requested target, `./do/deploy --target <mode>` switches focus without redeploying — handy for benchmarking the same model on, say, `realtime-inference` vs. `hyperpod-eks`.
 - **View all target states:** `./do/deploy --status` prints each target's status; `do/config` tracks per-target state in `DEPLOYMENT_TARGET_*_STATUS` vars.
 
+## Adding models to a live deployment
+
+Three additive verbs add a model to a running deployment. The source's artifact kind picks the verb and the target picks the load mechanism ([ADR-013](adr/ADR-013-additive-deploy-artifact-kind-contract.md)). All of them take the same sources: `--from-tune [technique]`, `--from-train [technique]`, `--from-weights <s3-uri>`, `--from-registry <arn>` (and `--from-hub <repo>` for `do/adapter`).
+
+| Verb | Accepts | `realtime-inference` | `hyperpod-eks` | `eks` |
+|---|---|---|---|---|
+| `do/adapter` | LoRA adapter | adapter inference component | vLLM hot-load | vLLM hot-load |
+| `do/add-ic` | full model | inference component | — | — |
+| `do/add-pod` | full model | — | second InferenceEndpointConfig | — |
+
+A verb on a target marked "—" exits with code 3 and names the verb to use. A full model on plain `eks` has no verb yet (planned post-2.0). `async-inference` and `batch-transform` have no additive verbs. The matrix is derived from the additive-deploy contract in `do/lib/script-contract.sh`; `test/unit/docs-inventory-drift.test.js` keeps this table in step with it. See [Fine-Tuning](fine-tuning.md) for the tune → adapter loop.
+
 ## Lifecycle Scripts Reference
 
 All generated projects include these `do/` scripts:
@@ -322,19 +331,24 @@ All generated projects include these `do/` scripts:
 | `./do/run` | Run container locally on port 8080 |
 | `./do/test` | Test local container or deployed endpoint |
 | `./do/validate` | Target-aware pre-deploy checks: right-sizing (GPU memory fit), config consistency, the cluster contract on `hyperpod-eks` / `eks`, and SageMaker payload shapes on SageMaker targets (after `bootstrap sync-schemas`) |
-| `./do/deploy` | Deploy to the configured deployment target. Flags: `--optimize` (run `do/benchmark --recommend --apply` before deploying), `--no-optimize` (skip optimization), `--force-ic` (force new IC even if one exists), `--force` (redeploy an already-deployed target), `--ignore-sizing` (proceed past a right-sizing block), `--dry-run` (resolved config + right-sizing preflight only; creates nothing) |
-| `./do/tune` | Fine-tune using SageMaker AI Managed Model Customization (serverless) |
-| `./do/train` | Custom training jobs with your own scripts and hyperparameters |
-| `./do/adapter` | LoRA adapter lifecycle (add, list, remove, update) |
-| `./do/add-ic` | Add an inference component to an existing endpoint |
+| `./do/deploy` | Deploy to the configured deployment target (`./do/deploy --help` lists every flag). Common: `--target <t>`, `--instance-type <t>`, `--force` (redeploy an already-deployed target), `--ignore-sizing` (proceed past a right-sizing block), `--dry-run` (resolved config + right-sizing preflight only; creates nothing), `--reconfigure` (re-prompt the active target's settings), `--status` (deployment state for all targets), `--allow-plaintext-secret` (explicit opt-out of the [plaintext-token refusal](secrets.md)). realtime-inference: `--optimize` / `--no-optimize`, `--force-ic [<name>]`, `--ic <name>`, `--scale-to-zero on\|off`, `--scale-max <n>` ([Scale-to-Zero](scale-to-zero.md)). hyperpod-eks: `--cluster-name`, `--namespace`, `--replicas`, `--gpu-count`, `--queue`, `--surge-node` |
+| `./do/tune` | Fine-tune using SageMaker AI Managed Model Customization (serverless; `--backend smtj`, the default) or on a HyperPod EKS cluster (`--backend hp-eks`) |
+| `./do/train` | Custom training jobs with your own scripts and hyperparameters (`--backend smtj`, the default, or `hp-eks`) |
+| `./do/adapter` | LoRA adapter lifecycle (add, list, remove, update, search, promote) |
+| `./do/add-ic` | realtime-inference: add an inference component (for example a full fine-tune) to the endpoint |
+| `./do/add-pod` | hyperpod-eks: serve a full fine-tune as a second InferenceEndpointConfig ([details](#serving-a-full-fine-tune-next-to-the-base-doadd-pod)) |
+| `./do/stage` | Pre-stage model weights from Hugging Face to S3 (SageMaker Processing Job) |
+| `./do/optimize` | Run SageMaker AI Inference Recommendations and apply a result (realtime-inference, hyperpod-eks); see [Optimize](optimize.md) |
+| `./do/evaluate` | Evaluate a deployed model or adapter with inference requests |
+| `./do/manifest` | Asset manifest helper (`add`, `delete`, `list`) |
 | `./do/benchmark` | Run latency and throughput benchmarks via SageMaker AI Benchmarking |
 | `./do/status` | Check endpoint and inference component status (IC copies as current/desired, plus a one-line pointer to the native metrics dashboard) |
 | `./do/metrics` | Serving-metrics readout over the last N minutes (`--window`, default 15): server-side TTFT / e2e p50/p99, queue, KV cache, GPU util, per-copy concurrency; skip notice on targets without a metrics store. See [Benchmarking](benchmarking.md#gpu-engine-metrics) |
 | `./do/logs` | Tail logs (CloudWatch for SageMaker targets, kubectl for hyperpod-eks / eks) |
-| `./do/clean <target>` | Clean up resources (local, ecr, endpoint/hyperpod, codebuild, all) |
+| `./do/clean [--target <t>] [scope]` | Clean up resources. realtime-inference scopes: `local`, `ecr`, `endpoint`, `reset-config`, `ic <name>`, `adapter <name>`, `codebuild`, `benchmark`, `all`; `hyperpod` / `eks` on the k8s targets (`./do/clean --help`). `./do/clean adapters` deletes this project's canonical adapters and fine-tunes from the core bucket on any target |
 | `./do/config` | Centralized configuration for all scripts (sourced, not executed) |
 | `./do/export` | Export the project: a reproduce-it CLI command (default), config JSON (`--json`), or a runnable Jupyter deploy notebook (`--notebook`) |
-| `./do/register` | Register the model/adapters to the SageMaker Model Package Group |
+| `./do/register` | Register the model/adapters to the SageMaker Model Package Group; `dataset`, `evaluator`, `prompt` subcommands |
 | `./do/ci` | CI pipeline integration (report, status, trigger, dashboard) |
 | `./do/submit` | Submit build to AWS CodeBuild (CodeBuild build target only) |
 | `./do/draft` | Configure speculative decoding for an active deployment (hyperpod-eks) |
@@ -401,7 +415,7 @@ or `NGC_API_KEY_ARN`, the notebook resolves them from AWS Secrets Manager at
 runtime; when it uses a plain token, the notebook reads it from an environment
 variable you set before running the cell.
 
-The notebook is generated for every supported deployment target. (The removed
+The notebook is generated for `realtime-inference`, `async-inference`, `batch-transform` and `hyperpod-eks` (not `eks`). (The removed
 `marketplace` config built no container and had no notebook — see
 [AWS Marketplace Model Packages (removed)](#aws-marketplace-model-packages-removed)
 below.) Open it in SageMaker Studio or any Jupyter
@@ -420,6 +434,7 @@ tell *why* a command stopped:
 | `1` | General error (including missing AWS credentials) |
 | `2` | Usage / argument error |
 | `3` | **Not supported for this deployment target** — the command doesn't apply to your current `DEPLOYMENT_TARGET`, or a required deployment/precondition isn't in place. The message names the supported targets. |
+| `4` | Precondition not met — for example the image is not pushed to ECR, the cluster contract fails, or the endpoint is not InService. The message names the fix. |
 | `5` | `do/deploy` only: deployed, but the opt-in [scale-to-zero](scale-to-zero.md) setup failed and was rolled back. The endpoint is up at a fixed floor. |
 
 Exit `3` is not a failure of the operation — it means the command couldn't start

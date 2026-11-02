@@ -1,7 +1,11 @@
-| Framework | Version | Base Image |
-|-----------|----------|----------|
-| [vLLM](https://docs.vllm.ai/en/latest/) | N/A | vllm/vllm-openai:v0.10.1 |
-| [SGLang](https://github.com/sgl-project/sglang) | 0.5.4.post1 | lmsysorg/sglang:v0.5.4.post1 |
-| [TensorRT-LLM](https://github.com/NVIDIA/TensorRT-LLM) | N/A | nvcr.io/nvidia/tensorrt-llm/release:1.2.0rc8 |
-| [LMI](https://docs.djl.ai/master/docs/serving/serving/docs/lmi/index.html) | N/A | 763104351884.dkr.ecr.us-east-1.amazonaws.com/djl-inference:0.32.0-lmi14.0.0-cu126 |
-| [DJL](https://djl.ai/) | N/A | deepjavalibrary/djl-serving:0.32.0-pytorch-cu126 |
+| Framework | Base image repository |
+|-----------|----------|
+| [vLLM](https://docs.vllm.ai/en/latest/) | `vllm/vllm-openai` |
+| [SGLang](https://github.com/sgl-project/sglang) | `lmsysorg/sglang` |
+| [TensorRT-LLM](https://github.com/NVIDIA/TensorRT-LLM) | `nvcr.io/nvidia/tensorrt-llm/release` |
+| [LMI](https://docs.djl.ai/master/docs/serving/serving/docs/lmi/index.html) | AWS DLC `djl-inference` (LMI) |
+| [DJL](https://djl.ai/) | `deepjavalibrary/djl-serving` |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) | AWS DLC `llama-cpp` (SageMaker server) |
+| [vLLM-Omni](https://github.com/vllm-project/vllm-omni) | `vllm/vllm-omni` (diffusors) |
+
+The catalogued image tags and their CUDA requirements live in `servers/lib/catalogs/model-servers.json`; the base-image-picker MCP server selects a compatible tag per instance family.

@@ -349,7 +349,7 @@ Exact matches take precedence over pattern matches.
 
 The Instance Accelerator Mapping stores hardware specifications for AWS instance types.
 
-**Location:** `servers/instance-recommender/catalogs/instances.json`
+**Location:** `servers/lib/catalogs/instances.json`
 
 **Schema:** `servers/lib/schemas/instance-accelerator-mapping-schema.json`
 
@@ -638,7 +638,7 @@ When submitting test results, include:
 ### Example 3: Adding New Instance Types
 
 ```javascript
-// servers/instance-recommender/catalogs/instances.json
+// servers/lib/catalogs/instances.json
 {
   "ml.inf2.xlarge": {
     "family": "inf2",

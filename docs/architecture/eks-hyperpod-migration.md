@@ -9,14 +9,22 @@ does not rediscover these the hard way.
 For the per-role IAM reference and the CDK adopted-role limitation, see
 [Bootstrap IAM Roles](../dev/bootstrap-iam-roles.md).
 
+!!! danger "`hyperpod` module is DEPRECATED (v2.0.0) — historical record"
+    HyperPod **cluster provisioning** via `bootstrap add-module hyperpod` is deprecated and
+    refuses to run (hidden from the interactive picker). Provision a HyperPod cluster via the
+    AWS SageMaker console (Quick Install) or the published CloudFormation templates instead;
+    the `hyperpod-eks` deploy target works normally against it. The `hyperpod` provisioning
+    steps on this page are a historical record and apply only to existing installs (or
+    `--force`). See [Bootstrap](../bootstrap.md) and [HyperPod Bootstrap](../hyperpod-bootstrap.md).
+
 ---
 
 ## TL;DR for a first-time user
 
 - `bootstrap add-module eks` stands up a vanilla EKS cluster you can deploy to with
   `./do/deploy --target eks`. **Vanilla-EKS users stop here.**
-- `bootstrap add-module hyperpod` layers the HyperPod cluster + Inference Operator on
-  top. The operator's control plane runs on a **CPU** floor (2 × `ml.c5.4xlarge`) — it
+- *(Historical — deprecated, see the banner above.)* `bootstrap add-module hyperpod`
+  layered the HyperPod cluster + Inference Operator on top. The operator's control plane runs on a **CPU** floor (2 × `ml.c5.4xlarge`) — it
   does **not** need a GPU. GPU compute for model serving is attached on demand as a
   separate instance group.
 - A fresh bootstrap on current code includes all the IAM fixes below. The manual
@@ -295,7 +303,7 @@ stack, so a recreate drops it — re-attach it after. Sequence:
    clears the stuck watcher; leaves `eks` intact).
 2. Confirm the add-on is gone (the teardown fix does this; else delete it manually, above)
    and the cluster is gone (`describe-cluster` → does-not-exist).
-3. `ml-container-creator bootstrap add-module hyperpod` — fresh cluster; wait for
+3. `ml-container-creator bootstrap add-module hyperpod` *(historical; deprecated, refused without `--force`)* — fresh cluster; wait for
    "✅ Cluster inference capability is enabled" and `describe-cluster … InferenceConfig`
    non-null.
 4. Re-attach the GPU group with `update-cluster` (full instance-group set: the CPU

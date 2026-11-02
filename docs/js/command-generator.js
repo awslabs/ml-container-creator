@@ -34,24 +34,27 @@
         { value: 'diffusors-vllm-omni', label: 'Diffusors - vLLM Omni' }
     ];
 
-    const DEPLOYMENT_TARGETS = [
-        { value: 'realtime-inference', label: 'Real-Time Inference' },
-        { value: 'async-inference', label: 'Async Inference' },
-        { value: 'batch-transform', label: 'Batch Transform' },
-        { value: 'hyperpod-eks', label: 'HyperPod EKS' }
-    ];
+    // Deployment targets are DERIVED: scripts/sync-command-generator.js writes them to
+    // docs/data/cli-manifest.json from templates/do/targets.d/<target>/manifest.json
+    // (ADR-008). No per-target list lives in this file.
+    let deploymentTargets = [];
 
     // Load catalogs
     async function loadCatalogs() {
         const base = document.querySelector('script[src*="command-generator"]').src.replace('/js/command-generator.js', '/data');
-        const [modelServers, modelSizes, instances, transformers, diffusors] = await Promise.all([
+        const [modelServers, modelSizes, instances, transformers, diffusors, cliManifest] = await Promise.all([
             fetch(`${base}/model-servers.json`).then(r => r.json()),
             fetch(`${base}/model-sizes.json`).then(r => r.json()),
             fetch(`${base}/instances.json`).then(r => r.json()),
             fetch(`${base}/popular-transformers.json`).then(r => r.json()),
-            fetch(`${base}/popular-diffusors.json`).then(r => r.json())
+            fetch(`${base}/popular-diffusors.json`).then(r => r.json()),
+            fetch(`${base}/cli-manifest.json`).then(r => r.json())
         ]);
         catalogs = { modelServers, modelSizes, instances: instances.catalog || instances, transformers, diffusors };
+        deploymentTargets = (cliManifest.deploymentTargets || []).map(t => ({ value: t.id, label: t.label || t.id }));
+        if (deploymentTargets.length && !deploymentTargets.find(t => t.value === state.deploymentTarget)) {
+            state.deploymentTarget = deploymentTargets[0].value;
+        }
     }
 
     // Get models list from catalogs
@@ -130,10 +133,10 @@
         cmd += ` \\\n  --deployment-config=${state.deploymentConfig}`;
         if (state.model) cmd += ` \\\n  --model-name=${state.model}`;
         if (state.instanceType) cmd += ` \\\n  --instance-type=${state.instanceType}`;
-        cmd += ` \\\n  --deployment-target=${state.deploymentTarget}`;
         if (!state.features.lora) cmd += ' \\\n  --enable-lora=false';
         if (!state.features.benchmark) cmd += ' \\\n  --include-benchmark=false';
         if (state.features.benchmark) {
+            // Seed the do/config BENCHMARK_* defaults; `--workload manual` uses them.
             cmd += ` \\\n  --benchmark-concurrency=${state.benchmark.concurrency}`;
             cmd += ` \\\n  --benchmark-input-tokens=${state.benchmark.inputTokens}`;
             cmd += ` \\\n  --benchmark-output-tokens=${state.benchmark.outputTokens}`;
@@ -187,7 +190,8 @@
 
         // Build & deploy
         lines.push(`cd ${state.projectName}`);
-        lines.push('./do/build && ./do/push && ./do/deploy');
+        // The target is chosen at deploy time (the generation-time target flag is deprecated).
+        lines.push(`./do/build && ./do/push && ./do/deploy --target ${state.deploymentTarget}`);
         lines.push('');
 
         // Additional ICs
@@ -226,9 +230,9 @@
                 const label = target === 'primary' ? 'Primary IC' : `IC ${target.replace('ic-', '')}`;
                 lines.push(`# === LoRA Adapters (${label}) ===`);
                 adapters.forEach(a => {
-                    let cmd = `./do/adapter add --name=${a.name} --path=${a.path}`;
-                    if (target !== 'primary') cmd += ` --ic=${target}`;
+                    const cmd = `./do/adapter add ${a.name} --from-weights ${a.path}`;
                     if (a.description) lines.push(`# ${a.description}`);
+                    if (target !== 'primary') lines.push('# do/adapter attaches to the base IC named in do/ic/default.conf');
                     lines.push(cmd);
                 });
                 lines.push('');
@@ -238,7 +242,7 @@
         // Benchmark
         if (state.features.benchmark) {
             lines.push('# === Benchmark ===');
-            lines.push('./do/benchmark');
+            lines.push('./do/benchmark --workload manual   # uses the BENCHMARK_* values above; or a named profile, e.g. --workload multi-turn-chat');
             lines.push('');
         }
 
@@ -290,7 +294,7 @@
                     </label>
                     <label>Deployment Target
                         <select id="mcc-target">
-                            ${DEPLOYMENT_TARGETS.map(t => `<option value="${t.value}" ${t.value === state.deploymentTarget ? 'selected' : ''}>${t.label}</option>`).join('')}
+                            ${deploymentTargets.map(t => `<option value="${t.value}" ${t.value === state.deploymentTarget ? 'selected' : ''}>${t.label}</option>`).join('')}
                         </select>
                     </label>
                     <label>Tensor Parallel Size <input type="number" id="mcc-tp" value="${state.server.tp}" min="1" max="8"></label>

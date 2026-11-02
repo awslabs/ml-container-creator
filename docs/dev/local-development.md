@@ -131,7 +131,6 @@ ml-container-creator my-project \
   --deployment-config=transformers-vllm \
   --model-name=Qwen/Qwen3-4B \
   --instance-type=ml.g5.xlarge \
-  --deployment-target=realtime-inference \
   --region=us-east-1 \
   --skip-prompts
 ```
@@ -258,11 +257,7 @@ cd servers/instance-sizer
 node test.js
 ```
 
-Or invoke a server directly with the MCP CLI:
-
-```bash
-ml-container-creator mcp query instance-sizer '{"framework": "transformers", "modelSizeGb": 8}'
-```
+There is no `mcp query` action (`mcp` supports add, init, list, get, remove). To call a server's tools interactively, point any MCP client at the server's stdio command (`node servers/instance-sizer/index.js`), or exercise it through its own test file as above.
 
 ### Debugging template rendering
 

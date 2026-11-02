@@ -38,6 +38,11 @@ All catalogs live in the centralized shared directory `servers/lib/catalogs/`. I
 | `triton-backends.json` | `servers/lib/catalogs/` | Triton backend configurations |
 | `regions.json` | `servers/lib/catalogs/` | AWS region availability |
 | `draft-models.json` | `servers/lib/catalogs/` | Speculative-decoding draft model catalog (keyed by HF model ID) |
+| `fleet-drivers.json` | `servers/lib/catalogs/` | GPU driver / CUDA per instance family and the per-family inference AMI lists (`resolveInferenceAmi()`) |
+| `model-arch-support.json` | `servers/lib/catalogs/` | Model architecture → minimum framework version (driver-aware image filtering) |
+| `bedrock-equivalents.json` | `servers/lib/catalogs/` | HF model ID → Bedrock model ID, written only by `pricing.py verify-bedrock` after a live check |
+| `pricing-snapshot.json` | `servers/lib/catalogs/` | Bundled Price List snapshot; the benchmark cost fallback when `pricing:GetProducts` is unavailable |
+| `tune-catalog.json` | `config/` | `do/tune` Supported Model Catalog, synced from the SageMaker AI model-customization docs (`./do/tune --list-models`) |
 
 Each catalog has a corresponding JSON schema in `servers/lib/schemas/` that defines the required fields and value constraints.
 
@@ -127,7 +132,7 @@ and by the `do/draft list` command.
 |------|----------|
 | Source catalog | `servers/lib/catalogs/draft-models.json` |
 | Schema | `servers/lib/schemas/draft-models.schema.json` |
-| Project-local copy | `<project>/.mlcc/draft-models.json` (written at `mcc generate` time) |
+| Project-local copy | `<project>/.mlcc/draft-models.json` (written at generation time) |
 
 ### Schema
 

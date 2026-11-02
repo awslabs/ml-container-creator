@@ -9,7 +9,7 @@ Measure LLM endpoint performance using NVIDIA AIPerf. On the SageMaker-endpoint 
 | Endpoint status | Must be `InService` (run `./do/deploy` first). Not applicable to `eks`, which has no SageMaker endpoint — it port-forwards the serving pod instead. |
 | Architecture | Transformers or Diffusors only (HTTP and Triton not supported) |
 | Deployment target | `realtime-inference` and `hyperpod-eks` (HyperPod EKS requires `ENDPOINT_NAME` written by `do/deploy` — set automatically after successful deployment). `eks` runs local AIPerf against the pod and needs `pip install aiperf` (see [Plain EKS](#plain-eks-local-aiperf)). |
-| Python dependencies | Installed automatically via `npm install` (see `requirements.txt`). The `eks` path additionally needs `aiperf` (`pip install aiperf`). |
+| Python dependencies | Install with `uv pip install -r requirements.txt` (`npm install` does not install them). The `eks` path additionally needs `aiperf` (`pip install aiperf`). |
 | AWS credentials | Must be configured for the deployment region |
 | Bootstrap | Recommended — provides the IAM role with benchmarking permissions and S3 bucket for results |
 
@@ -21,7 +21,6 @@ Generate a project with benchmarking enabled:
 ml-container-creator vllm-benchmark-demo \
   --deployment-config=transformers-vllm \
   --model-name=meta-llama/Llama-3.1-8B-Instruct \
-  --deployment-target=realtime-inference \
   --instance-type=ml.g5.2xlarge \
   --skip-prompts
 ```
@@ -39,12 +38,13 @@ Deploy and benchmark:
 ## Usage
 
 ```bash
-./do/benchmark --workload <name> [--status] [--ic <name>] [--adapter <name>] [--force] [--clean]
+./do/benchmark (--workload <name> | --dataset <name>) [--status] [--ic <name>] [--adapter <name>] [--force] [--clean]
 ```
 
 | Flag | Description |
 |---|---|
-| `--workload <name>` | **Required.** Workload profile from the workload-picker MCP server |
+| `--workload <name>` | Workload profile from the workload-picker catalog. `--workload` or `--dataset` is required to run a benchmark (`manual` uses the `BENCHMARK_*` values in `do/config`) |
+| `--dataset <name>` | Drive traffic from a registered dataset (BYOD) instead of synthetic prompts; supports `@v<N>` pinning and can be combined with `--workload` to reuse its concurrency profile |
 | `--status` | Check job status; if completed, download results and write to Athena |
 | `--ic <name>` | Benchmark a specific inference component (from `do/ic/<name>.conf`) |
 | `--adapter <name>` | Benchmark a specific LoRA adapter IC (from `do/adapters/<name>.conf`) |
@@ -57,6 +57,11 @@ Deploy and benchmark:
 | `--metric <name>` | (with `--recommend`) Metric to optimize (default: `output_token_throughput_tps`) |
 | `--no-bedrock` | (with `--recommend`) Skip Bedrock AI analysis even if available |
 | `--threshold <metric:pct>` | Set regression threshold per metric (repeatable, e.g. `throughput:5`) |
+| `--peak` | Show the best historical record for this config (Athena); optional `--workload <name> --metric <throughput\|ttft\|itl\|latency\|cost>` |
+| `--list` | List all runs for a model grouped by config key (Athena); filters: `--model <name\|family>`, `--workload`, `--sort <metric>`, `--limit <n>` (default 100), `--min-tp`, `--quantization`, `--max-model-len`, `--kv-cache-dtype`, `--exclude-instance`, `--include-instance` |
+| `--set-baseline [<job\|latest>]` / `--set-baseline --clear` | Pin (or clear) the run `--compare-baseline` compares against |
+| `--gpu-metrics` | Show GPU / engine efficiency signals from the most recent local run |
+| `--json` | Output comparison / recommendation results as JSON (for CI) |
 | `--json` | Output comparison/recommendation results as JSON (for CI integration) |
 
 ### IC Resolution
@@ -71,24 +76,17 @@ The benchmark targets a specific inference component:
 
 Benchmark parameters are resolved from named **workload profiles** served by the workload-picker MCP server. Each profile defines a realistic traffic pattern:
 
-| Workload | Concurrency | Input Tokens | Output Tokens | Streaming | Description |
-|---|---|---|---|---|---|
-| `multi-turn-chat` | 10 | 550 | 150 | ✅ | Multi-turn conversational workload |
-| `rag-document-qa` | 8 | 2048 | 256 | ✅ | RAG with long context retrieval |
-| `agent-tool-calling` | 4 | 800 | 100 | ❌ | Tool-calling agent (structured output) |
-| `long-context-scaling` | 2 | 8192 | 512 | ✅ | Long-context stress test |
-| `production-traffic-mix` | 16 | 1024 | 200 | ✅ | Simulated production traffic mix |
-| `shared-system-prompt` | 12 | 300 | 150 | ✅ | Short requests with shared system prompt |
+The profiles (token shape, streaming, and the concurrency levels a run sweeps) are listed in [MCP Servers — Available Workloads](mcp-configuration.md#available-workloads); the source of truth is `servers/workload-picker/catalogs/workload-profiles.json`.
 
 List available workloads:
 
-```bash
-# Via MCP (if workload-picker server is running)
-mcc mcp call workload-picker list_workloads
+Ask any MCP client connected to the bundled `workload-picker` server to call its `list_workloads` tool, or read the catalog directly:
 
-# Or inspect the catalog directly
-cat servers/workload-picker/workload-profiles.json
+```bash
+cat servers/workload-picker/catalogs/workload-profiles.json
 ```
+
+Running `./do/benchmark` with no `--workload` / `--dataset` also prints the available workload names.
 
 ### How Resolution Works
 
@@ -158,7 +156,7 @@ Default when no `--threshold` is specified: all four metrics at 10%.
 !!! note "Known limitation: `gpu_utilization_avg` column"
     `--compare-baseline` queries Athena for extended GPU metrics (utilization, KV cache,
     prefix cache hit rate). These columns are added to the Athena schema as part of the
-    enhanced benchmark metrics work (v1.7). On existing tables provisioned before v1.7,
+    enhanced benchmark metrics work. On existing tables provisioned before those columns were added,
     the query will emit a `⚠️ Athena query FAILED: COLUMN_NOT_FOUND: gpu_utilization_avg`
     caution but will continue — the comparison falls back to the four core metrics only.
     This is cosmetic and does not block the regression check. Run `mcc bootstrap update`
@@ -344,7 +342,7 @@ component copies as `current/desired`.
 | `queue_depth_running_avg` | DOUBLE | Average number of running requests (all pods) |
 | `metrics_source` | STRING | `cloudwatch_only` / `amp` / `engine_metrics_only` / `both` / `none` |
 
-These columns are `NULL` for benchmark runs on pre-v1.7 tables and for runs where no
+These columns are `NULL` for benchmark runs on tables that predate these columns and for runs where no
 source returned samples. Run `mcc bootstrap update` to migrate an existing Athena
 table — the CDK stack update adds the columns via Glue `UpdateTable` (idempotent).
 
@@ -518,7 +516,7 @@ HyperPod `describe-cluster` API), and such a row is labeled `engine_metrics_only
 `--recommend` queries your existing benchmark data in Athena to suggest proven optimal serving configurations. No live benchmarking required — results appear immediately if benchmark data exists for your model and instance.
 
 !!! note "Moved from `do/optimize`"
-    This feature was previously part of `do/optimize`. Since v1.4, Athena-backed recommendations live in `do/benchmark --recommend`, while `do/optimize` focuses exclusively on the SageMaker AI Inference Recommendations API.
+    This feature was previously part of `do/optimize`. Athena-backed recommendations now live in `do/benchmark --recommend`, while `do/optimize` focuses exclusively on the SageMaker AI Inference Recommendations API.
 
 ### Quick start
 

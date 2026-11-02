@@ -14,8 +14,11 @@ Configuration sources are applied in strict precedence order (highest to lowest)
 | 4 | CLI Config File | `--config` specified file | `--config=production.json` |
 | 5 | Custom Config File | `config/mcp.json` | Auto-discovered in current directory |
 | 6 | Package.json Section | `"ml-container-creator": {...}` | Project-specific defaults |
-| 7 | Generator Defaults | Built-in defaults | `awsRegion: "us-east-1"` |
-| 8 | Interactive Prompts | User input (fallback) | CLI prompts |
+| 7 | Bootstrap Config | `~/.ml-container-creator/config.json` | Active bootstrap profile (role ARN, region, buckets) |
+| 8 | Generator Defaults | Built-in defaults | `region: "us-east-1"` |
+| 9 | Interactive Prompts | User input (fallback) | CLI prompts |
+
+MCP servers are not a numbered level: their results are used as suggestions and choice lists in the prompts (see [MCP Servers](mcp-configuration.md)).
 
 Higher precedence sources override lower ones.
 
@@ -44,7 +47,7 @@ Parameters supported by MCC, organized by category. Each can be set via CLI flag
 
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
-| `deploymentConfig` | `--deployment-config` | enum (16 values) | — | Deployment configuration (e.g. http-flask, transformers-vllm, transformers-llama-cpp, triton-fil) (env: `ML_DEPLOYMENT_CONFIG`) |
+| `deploymentConfig` | `--deployment-config` (alias: `--backend`) | enum | — | Deployment configuration (e.g. http-flask, transformers-vllm, transformers-llama-cpp, triton-fil) (env: `ML_DEPLOYMENT_CONFIG`) |
 | `modelName` | `--model-name` | string | — | Model identifier (hf-org/model, s3://..., registry://...) (env: `ML_MODEL_NAME`) |
 | `framework` | `--framework` | enum: `sklearn`, `xgboost`, `tensorflow`, `transformers` | — | ~~ML framework~~ *(deprecated, use `--deploymentConfig` instead)* |
 | `modelFormat` | `--model-format` | string | — | Model serialization format (pkl, joblib, json, model, ubj, keras, h5, SavedModel) (env: `ML_MODEL_FORMAT`) |
@@ -53,11 +56,14 @@ Parameters supported by MCC, organized by category. Each can be set via CLI flag
 | `serverEnv` | `--server-env` | string | `[]` | Server env var, repeatable (e.g. SGLANG_MEM_FRACTION=0.9) |
 | `engineFeature` | `--engine-feature` | string | `[]` | Enable an engine-specific feature declared by the selected engine's plugin, `NAME=VALUE`, repeatable (e.g. `radix_attention=true` for SGLang, `rolling_batch_backend=vllm` for LMI). Resolved to the engine's real env var and validated against the plugin manifest. See [Serving Engine Capabilities](#serving-engine-capabilities). |
 
+!!! note "Two different `--backend` flags"
+    At generation time, `--backend <config>` is an alias for `--deployment-config` (e.g. `--backend transformers-vllm`). It is unrelated to `./do/train --backend` / `./do/tune --backend`, which pick the training compute (`smtj`, the default, or `hp-eks`).
+
 ### Infrastructure
 
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
-| `deploymentTarget` | `--deployment-target` | enum (6 values) | `realtime-inference` | Deployment target (realtime-inference, async-inference, batch-transform, hyperpod-eks, eks). `managed-inference` is accepted as a deprecated alias of realtime-inference (env: `ML_DEPLOYMENT_TARGET`) |
+| `deploymentTarget` | `--deployment-target` | enum | `realtime-inference` | ~~Deployment target~~ *(deprecated — choose the target at deploy time with `./do/deploy --target <t>`; `./do/deploy --help` lists the targets)*. Still accepted at generation, where it seeds `DEPLOYMENT_TARGET` in `do/config` (`batch-transform` also omits `do/tune`, `do/train` and `do/evaluate`) (env: `ML_DEPLOYMENT_TARGET`) |
 | `instanceType` | `--instance-type` | string | — | SageMaker instance type (e.g. ml.g5.xlarge, ml.m5.large) (env: `ML_INSTANCE_TYPE`) |
 | `region` | `--region` | string | `us-east-1` | AWS region (env: `ML_REGION`) |
 | `roleArn` | `--role-arn` | string | — | IAM role ARN for SageMaker execution (env: `ML_ROLE_ARN`) |
@@ -81,11 +87,11 @@ Parameters supported by MCC, organized by category. Each can be set via CLI flag
 
 ### Capacity & Serving
 
+Heterogeneous instance pools are a deploy-time choice, not a generation parameter: `./do/deploy --endpoint-strategy heterogeneous --instance-types ml.g5.xlarge,ml.g6.xlarge`.
+
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
-| `capacityReservationArn` | `--capacity-reservation-arn` | string | — | FTP/capacity reservation ARN for deploying on reserved capacity. Mutually exclusive with `instancePools`. |
-| `instancePools` | `--instance-pools` | JSON | — | Heterogeneous instance types with priority-based fallback. Mutually exclusive with `capacityReservationArn`. |
-| `serverEnv` | `--server-env` | string[] | — | Container environment variable overrides (e.g., `SM_VLLM_KV_CACHE_DTYPE=fp8`). Repeatable flag. |
+| `capacityReservationArn` | `--capacity-reservation-arn` | string | — | FTP/capacity reservation ARN for deploying on reserved capacity. |
 
 
 ### Inference Component
@@ -110,7 +116,7 @@ Parameters supported by MCC, organized by category. Each can be set via CLI flag
 
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
-| `hfToken` | `--hf-token` | string | — | HuggingFace token (or $HF_TOKEN for env var reference) |
+| `hfToken` | `--hf-token` | string | — | Plaintext HuggingFace token (not recommended: baked into the image; `do/deploy` refuses it without `--allow-plaintext-secret`). Prefer `--hf-token-arn` |
 | `hfTokenArn` | `--hf-token-arn` | string | — | HuggingFace token ARN from Secrets Manager (env: `ML_HF_TOKEN_ARN`) |
 | `ngcToken` | `--ngc-token` | string | — | NVIDIA NGC token (or $NGC_API_KEY for env var reference) |
 | `ngcTokenArn` | `--ngc-token-arn` | string | — | NVIDIA NGC token ARN from Secrets Manager (env: `ML_NGC_TOKEN_ARN`) |
@@ -153,7 +159,7 @@ Parameters supported by MCC, organized by category. Each can be set via CLI flag
 | `includeBenchmark` | `--include-benchmark` | boolean | `true` | Include `do/benchmark` script in the generated project (env: `ML_INCLUDE_BENCHMARK`). Disable with `--include-benchmark=false` |
 
 !!! note "Runtime resolution"
-    Benchmark parameters (concurrency, token counts, streaming, S3 paths) are **not** set at generation time. They are resolved at runtime by `do/benchmark --workload <name>` from the workload-picker MCP server and the bootstrap profile. See [Benchmarking](benchmarking.md) for workload profiles and the full runtime flow.
+    Benchmark parameters (concurrency, token counts, streaming, S3 paths) are resolved at runtime by `do/benchmark --workload <name>` from the workload-picker catalog and the bootstrap profile. The `--benchmark-*` generation flags (`--benchmark-concurrency`, `--benchmark-input-tokens`, ...) only seed the `BENCHMARK_*` defaults in `do/config`; a named workload overrides them, and `./do/benchmark --workload manual` uses them as-is. See [Benchmarking](benchmarking.md) for workload profiles and the full runtime flow.
 
 ### Testing
 
@@ -177,6 +183,7 @@ The `--deployment-config` flag bundles the architecture and model server into a 
 | `transformers-tensorrt-llm` | Transformers | TensorRT-LLM | LLM serving with TensorRT-LLM |
 | `transformers-lmi` | Transformers | LMI | LLM serving with Large Model Inference |
 | `transformers-djl` | Transformers | DJL | LLM serving with Deep Java Library |
+| `transformers-llama-cpp` | Transformers | llama.cpp | GGUF models, CPU or GPU |
 | `triton-fil` | Triton | FIL | Tree models (XGBoost, LightGBM) on Triton |
 | `triton-onnxruntime` | Triton | ONNX Runtime | ONNX models on Triton |
 | `triton-tensorflow` | Triton | TensorFlow | TensorFlow models on Triton |
@@ -245,8 +252,8 @@ Speculative decoding is configured at deploy time with `do/draft`, not a generat
 !!! info "S3 Model URIs"
     When the model identifier starts with `s3://`, MCC loads model weights directly from S3 instead of downloading from HuggingFace. This enables faster cold-start for pre-staged models. Example: `--model-name s3://my-bucket/models/gemma-4-31b/`
 
-!!! info "Runtime Profile Resolution (v0.12.0)"
-    Generated projects include `do/lib/profile.sh` which reads the active bootstrap profile (`~/.ml-container-creator/config.json`) at runtime. Values like S3 bucket names, account ID, and region are resolved from the profile — no need to regenerate when switching profiles. Scripts use `${_PROFILE[key]}` for profile values, with env var precedence: explicit env var > profile > default.
+!!! info "Runtime Profile Resolution"
+    Generated projects include `do/lib/profile.sh`, which loads the active bootstrap profile (`~/.ml-container-creator/config.json`) into `_PROFILE_<key>` shell variables at runtime (bash 3.2+, no associative arrays). Values like S3 bucket names, account ID, and region are resolved from the profile — no need to regenerate when switching profiles. Precedence: explicit env var > `_PROFILE_<key>` > default.
 
 
 !!! info "Lifecycle Variables in `do/config`"
@@ -272,7 +279,6 @@ Use command-line flags for non-interactive generation:
 ml-container-creator my-project \
   --deployment-config=http-flask \
   --model-format=pkl \
-  --deployment-target=realtime-inference \
   --instance-type=ml.m5.large \
   --skip-prompts
 ```
@@ -312,7 +318,6 @@ ml-container-creator --config=production.json --skip-prompts
   "modelFormat": "pkl",
   "includeSample": false,
   "includeTesting": true,
-  "deploymentTarget": "realtime-inference",
   "buildTarget": "codebuild",
   "instanceType": "ml.m5.large",
   "region": "us-east-1",
@@ -335,13 +340,21 @@ ml-container-creator --config=production.json --skip-prompts
 
 ## CLI Commands
 
-Beyond project generation, MCC provides configuration management commands:
+Beyond project generation, MCC provides these subcommands (`ml-container-creator --help` is the authoritative list):
 
 | Command | Description |
 |---------|-------------|
-| `ml-container-creator configure` | Interactive configuration file setup |
-| `ml-container-creator generate-empty-config` | Create an empty config file template |
+| `ml-container-creator bootstrap` | Set up modular AWS infrastructure (see [Bootstrap](bootstrap.md)) |
+| `ml-container-creator mcp` | Manage MCP servers (add, list, get, remove, init) |
+| `ml-container-creator secrets` | Manage secrets in AWS Secrets Manager (create, list, describe) |
+| `ml-container-creator hey` | Chat with the advisor |
+| `ml-container-creator prove` | Prove a configuration works end-to-end (generate → deploy → test → clean) |
+| `ml-container-creator import` | Generate an operational project from a running SageMaker endpoint |
+| `ml-container-creator update` | Update project configuration fields and regenerate only affected files |
+| `ml-container-creator regenerate` | Re-run generation from saved parameters with the current generator version |
 | `ml-container-creator help` | Show all options and examples |
+
+Any other first word is treated as the project name, so `ml-container-creator generate` creates a project called `generate`.
 
 ## HuggingFace Authentication
 
@@ -355,62 +368,54 @@ Authentication is required for:
 
 ### Providing Your Token
 
-**CLI option:**
+Store the token in AWS Secrets Manager and give MLCC the ARN. The serving container resolves the ARN at startup with the SageMaker execution role, so the value is never baked into the image or written to the SageMaker container `Environment`.
+
+**1. Store the token once:**
 
 ```bash
-ml-container-creator my-llm-project \
-  --deployment-config=transformers-vllm \
-  --model-name=meta-llama/Llama-3.1-8B-Instruct \
-  --hf-token='$HF_TOKEN' \
-  --skip-prompts
+ml-container-creator secrets create --type hf-token --name production --secret-value hf_***
 ```
 
-**Config file:**
+**2. Point MLCC at the ARN**, either for every project in the bootstrap profile:
 
-```json
-{
-  "deploymentConfig": "transformers-vllm",
-  "modelName": "meta-llama/Llama-3.1-8B-Instruct",
-  "hfToken": "$HF_TOKEN"
-}
+```bash
+mcc bootstrap add-secret hfToken arn:aws:secretsmanager:us-east-1:123456789012:secret:mlcc/hf-token/production-AbCdEf
 ```
 
-**Interactive prompt:** When you enter a custom model ID during generation, you will be prompted for a token. You can enter the token directly, reference `$HF_TOKEN`, or leave it empty for public models.
-
-### Secrets Manager Alternative
-
-For improved security, use AWS Secrets Manager instead of plaintext tokens. Pass an ARN instead of a literal value:
+or per project at generation time:
 
 ```bash
 ml-container-creator my-project \
   --deployment-config=transformers-vllm \
   --model-name=meta-llama/Llama-3.1-8B-Instruct \
-  --hf-token-arn=arn:aws:secretsmanager:us-east-1:123456789012:secret:mlcc/hf-token \
+  --hf-token-arn=arn:aws:secretsmanager:us-east-1:123456789012:secret:mlcc/hf-token/production-AbCdEf \
   --skip-prompts
 ```
 
-This resolves the token at build-time and runtime without baking it into the image. See [Secrets Management](secrets.md) for the full workflow, including creating and managing secrets.
+(config file key: `"hfTokenArn"`; `do/config` variable: `HF_TOKEN_ARN`). `do/build` resolves the ARN but does not pass the value into `docker build`; the container resolves it at startup. See [Secrets Management](secrets.md) for the full workflow.
+
+**Interactive prompt:** when you enter a custom model ID during generation, the CLI lists your existing `mlcc/hf-token/*` secrets so you can pick one, or leave it empty for public models.
+
+!!! warning "Plaintext tokens (not recommended)"
+    `--hf-token` (config key `hfToken`) still exists, but the value is baked into the Dockerfile as `ENV HF_TOKEN` and written to `do/config`. Anyone who can pull the image can read it. `./do/deploy` refuses a plaintext `HF_TOKEN` with no `HF_TOKEN_ARN` (exit 3) unless you pass `--allow-plaintext-secret`, which is the explicit opt-out.
 
 !!! note
     You cannot use both `--hf-token` and `--hf-token-arn` simultaneously. Choose one approach per project.
 
 ### Security
 
-Tokens are baked into the Docker image. Anyone with access to the image can extract the token via `docker inspect`.
-
-- Use `$HF_TOKEN` (environment variable reference) in config files and CI/CD pipelines instead of literal tokens.
+- Prefer the Secrets Manager ARN path above; rotate the token by updating the secret, with no rebuild.
 - Never commit tokens to version control.
 - Use read-only tokens with minimal permissions.
 - Rotate tokens periodically. Generate new ones at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
-- Consider using [Secrets Manager](secrets.md) for zero-knowledge images and automatic rotation.
 
 ### Troubleshooting Authentication
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | "Repository not found" or "Access denied" | Invalid token, expired token, or license not accepted | Verify token at huggingface.co; accept model license |
-| "HF_TOKEN environment variable not set" | `$HF_TOKEN` referenced but not exported | `export HF_TOKEN=hf_...` |
-| Container builds but fails at runtime | Model requires auth but no token provided | Rebuild with `--hf-token` |
+| `do/deploy` exits 3 on a plaintext token | `HF_TOKEN` set with no `HF_TOKEN_ARN` | Store the token in Secrets Manager and set the ARN (above), or `unset HF_TOKEN` if the model is public |
+| Container builds but fails at runtime | Model requires auth but no token provided | Store the token in Secrets Manager, set `HF_TOKEN_ARN` (or `mcc bootstrap add-secret hfToken <arn>`), then `./do/deploy --force` |
 
 ## Validation
 
@@ -469,7 +474,7 @@ Schema validation runs at two points:
 # JSON output for CI integration
 ./do/validate --format json
 
-# Include smart-mode validators (future MCP integration)
+# Include smart-mode advisory findings (live AWS lookups)
 ./do/validate --smart
 ```
 
@@ -529,72 +534,7 @@ Architecture compatibility validation checks whether your chosen model's `model_
 
 #### Syncing Architecture Data
 
-Populate the architecture registry by scraping model type lists from server GitHub repositories (vLLM, SGLang, TensorRT-LLM):
-
-```bash
-ml-container-creator registry sync-architectures
-```
-
-This fetches each server version's model registry source file, parses it for supported `model_type` values, and writes them into the `supportedModelTypes` field in `model-servers.json`.
-
-!!! note
-    `bootstrap` automatically runs `sync-architectures` as part of its post-setup chain. You only need to run it manually to pick up newly released server versions.
-
-#### Viewing Supported Architectures
-
-List supported architecture counts per server version:
-
-```bash
-ml-container-creator registry list-architectures
-```
-
-Output:
-
-```
-Model Architecture Support:
-
-  Server                Version      Architectures
-  ════════════════════  ═══════════  ═════════════
-  vllm                  0.6.3        85
-  vllm                  0.5.5        72
-  sglang                0.4.1        68
-  tensorrt-llm          0.15.0       45
-```
-
-Filter by server or show the full model type list:
-
-```bash
-ml-container-creator registry list-architectures --server vllm
-ml-container-creator registry list-architectures --verbose
-```
-
-#### Pre-Generation Compatibility Check
-
-Check a specific model's compatibility before generating a project:
-
-```bash
-ml-container-creator registry check meta-llama/Llama-3.1-8B-Instruct
-```
-
-Output:
-
-```
-🔍 Checking model: meta-llama/Llama-3.1-8B-Instruct
-
-   Fetching model config from HuggingFace...
-   Model type: llama
-
-   ✅ Compatible server versions:
-      • vllm 0.6.3
-      • vllm 0.5.5
-      • sglang 0.4.1
-      • tensorrt-llm 0.15.0
-
-   ⚠️  Potentially incompatible server versions:
-      • tensorrt-llm 0.12.0
-```
-
-This fetches the model's `config.json` from HuggingFace, extracts the `model_type`, and checks it against all server versions in the catalog.
+The architecture registry (`supportedModelTypes` in `model-servers.json`) is populated by the `bootstrap` post-setup chain (mcp init → sync-architectures → sync-schemas). It runs after `ml-container-creator bootstrap add <profile>` and again after `ml-container-creator bootstrap update`; `--skip-post-setup` skips it. There is no standalone `registry` command in v2 (`ml-container-creator registry …` would generate a project named `registry`).
 
 #### Generation-Time Warning
 
@@ -612,7 +552,7 @@ The `do/validate` script includes architecture compatibility as one of its cross
 
 ---
 
-## Deploy Mode (v1.2+)
+## Deploy Mode
 
 The `DEPLOY_MODE` variable in `do/config` controls how the project deploys its container image:
 

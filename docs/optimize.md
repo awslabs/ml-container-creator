@@ -292,7 +292,7 @@ from the realtime path:
   an MLCC bug. You'll still see a summary with status `FAILED`; use `--goal latency` or
   `--goal throughput` (without `--dataset`) to get recommendations for smaller models.
 
-**`STAGED_MODEL_PATH` missing after `mcc generate`**
+**`STAGED_MODEL_PATH` missing after generation**
 : `STAGED_MODEL_PATH` is written to `do/config` by `do/stage` at staging time, not at project
   generation time. After regenerating a project, re-run `./do/stage` to restore it, or
   manually re-add `export STAGED_MODEL_PATH="s3://..."` to `do/config`.

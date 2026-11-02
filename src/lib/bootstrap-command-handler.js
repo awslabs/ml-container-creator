@@ -1799,8 +1799,8 @@ export default class BootstrapCommandHandler {
 Bootstrap — Modular AWS Infrastructure Setup
 
 Provisions shared infrastructure via per-module CDK stacks. Each module
-(core, benchmark, registry, training, ci) is an independent CDK stack that
-can be added or removed independently.
+(listed under MODULES below) is an independent CDK stack that can be added
+or removed independently.
 
 USAGE:
   ml-container-creator bootstrap [subcommand] [options]

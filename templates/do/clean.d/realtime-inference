@@ -49,7 +49,8 @@ show_usage() {
     echo "  ic <name> - Delete a single inference component (does not touch the endpoint)"
 <% if (typeof enableLora !== 'undefined' && enableLora) { %>
     echo "  adapter <name> - Delete a single LoRA adapter (synonym for do/adapter remove)"
-    echo "  adapters       - Remove ALL LoRA adapters (keeps base IC and endpoint running)"
+    echo "  adapters       - Delete this project's canonical adapters/fine-tunes from the core bucket"
+    echo "                   (handled by do/clean on every target; add --force to skip the prompt)"
 <% } %>
     echo "  codebuild - Delete CodeBuild project, IAM role, and S3 source artifacts"
     echo "  all       - Perform all cleanup operations"
