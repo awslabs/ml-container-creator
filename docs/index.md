@@ -56,10 +56,10 @@ Every generated project includes 20+ `do/` lifecycle scripts:
 
 | Stage | Scripts | What They Do |
 |---|---|---|
-| **Build** | `build`, `push`, `submit` | Container image → Amazon ECR |
-| **Deploy** | `deploy`, `add-ic`, `status` | Model → SageMaker AI endpoint |
-| **Test** | `test`, `validate`, `benchmark` | Inference validation + performance |
-| **Iterate** | `tune`, `adapter`, `train` | Fine-tune + hot-swap adapters |
+| **Build** | `build`, `push`, `submit`, `stage` | Container image → Amazon ECR; model weights → S3 |
+| **Deploy** | `deploy`, `add-ic`, `add-pod`, `status`, `metrics` | Model → SageMaker AI endpoint or EKS cluster |
+| **Test** | `test`, `validate`, `benchmark`, `evaluate` | Inference validation, quality + performance |
+| **Iterate** | `tune`, `train`, `adapter`, `draft`, `optimize` | Fine-tune, hot-swap adapters, speculative decoding, recommendations |
 | **Operate** | `logs`, `clean`, `register`, `ci`, `export` | Monitoring + teardown + CI |
 
 Every project includes 20+ scripts total. See [Deployment & Inference](deployments.md) for the full script reference.
@@ -72,23 +72,26 @@ Every project includes 20+ scripts total. See [Deployment & Inference](deploymen
 
 | Architecture | Backends | Use Case |
 |---|---|---|
-| **Transformers** | vLLM, SGLang, TensorRT-LLM, LMI, DJL | Large language models |
+| **Transformers** | vLLM, SGLang, TensorRT-LLM, LMI, DJL, llama.cpp | Large language models |
 | **HTTP** | Flask, FastAPI | Predictive models (sklearn, XGBoost, TensorFlow) |
 | **Triton** | FIL, ONNX Runtime, TensorFlow, PyTorch, vLLM, TensorRT-LLM, Python | Multi-framework serving |
-| **Diffusors** | vLLM | Image generation |
+| **Diffusors** | vLLM-Omni | Image generation |
 
 ### Deployment Targets
 
+The target is chosen at deploy time: `./do/deploy --target <target>`.
+
 | Target | Description |
 |---|---|
-| **Managed Inference** | SageMaker AI real-time endpoints |
-| **Async Inference** | S3-based async processing with SNS notifications |
-| **Batch Transform** | S3-to-S3 dataset processing |
-| **HyperPod EKS** | Kubernetes on SageMaker AI HyperPod clusters |
+| **Real-Time Inference** (`realtime-inference`) | SageMaker AI real-time endpoints with inference components |
+| **Async Inference** (`async-inference`) | S3-based async processing with SNS notifications |
+| **Batch Transform** (`batch-transform`) | S3-to-S3 dataset processing |
+| **HyperPod EKS** (`hyperpod-eks`) | Kubernetes on an existing SageMaker AI HyperPod cluster (Inference Operator) |
+| **Plain EKS** (`eks`) | Bring-your-own EKS cluster (Deployment + Service + ConfigMap), no operator |
 
 ### Validated Models
 
-MCC ships a catalog of 22 model families with validated configurations spanning generation through fine-tuning and adapter serving. Validation coverage per model is tracked in the [Supported Models](supported-models.md) catalog — see each entry's status.
+MCC ships a catalog of models with known-good configurations spanning generation through fine-tuning and adapter serving. Validation status per model is tracked in the [Supported Models](supported-models.md) catalog — see each entry's status.
 
 Models NOT in the catalog still work — MCC generates projects for any HuggingFace model. You take on validation yourself.
 
@@ -96,16 +99,17 @@ Models NOT in the catalog still work — MCC generates projects for any HuggingF
 
 ## Intelligent Defaults (MCP Servers)
 
-Six bundled [Model Context Protocol](mcp-configuration.md) servers recommend configurations automatically:
+MCC bundles a set of [Model Context Protocol](mcp-configuration.md) servers that recommend configurations automatically. Highlights (the [MCP Servers](mcp-configuration.md) page covers every bundled server):
 
 | Server | What It Does |
 |---|---|
-| **instance-sizer** | Recommends instance types based on model size + framework |
+| **instance-sizer** | Recommends instance types from the model's size, architecture and served context |
 | **region-picker** | Finds regions with availability |
 | **base-image-picker** | Selects optimal base image for CUDA version |
 | **model-picker** | Discovers models from HuggingFace and S3 |
 | **hyperpod-cluster-picker** | Lists available HyperPod EKS clusters |
 | **endpoint-picker** | Discovers existing endpoints for attachment |
+| **workload-picker** | Named benchmark workload profiles for `do/benchmark --workload` |
 
 MCP is optional — MCC works without it. MCP just makes the defaults smarter.
 
@@ -119,7 +123,11 @@ MCP is optional — MCC works without it. MCP just makes the defaults smarter.
 | **[Supported Models](supported-models.md)** | Check if your model is validated end-to-end |
 | **[Configuration](configuration.md)** | CLI flags, env vars, config files, MCP, precedence |
 | **[Deployment & Inference](deployments.md)** | All deployment targets + full lifecycle scripts reference |
+| **[Bootstrap](bootstrap.md)** | One-time AWS infrastructure (modular CDK stacks) |
+| **[Secrets](secrets.md)** | Hugging Face / NGC tokens in AWS Secrets Manager |
 | **[Fine-Tuning](fine-tuning.md)** | Managed tuning, LoRA adapters, the iterate loop |
+| **[Custom Training](custom-training.md)** | Your own training code with `do/train` |
+| **[Scale-to-Zero](scale-to-zero.md)** | Idle real-time endpoints scaled to zero instances |
 | **[MCP Servers](mcp-configuration.md)** | Configure and extend the intelligent defaults |
 | **[CI Integration](ci-integration.md)** | Automated E2E validation + regression detection |
 | **[Benchmarking](benchmarking.md)** | Performance measurement with SageMaker AI Benchmarking |

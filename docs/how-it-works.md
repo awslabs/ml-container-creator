@@ -31,10 +31,10 @@ Configuration can come from interactive prompts, CLI flags, environment variable
 
 In interactive mode, the generator walks through five phases: model selection (deployment config + model name), serving configuration (target, profile, base image), infrastructure (region, instance type — derived from model via the instance-sizer), details (framework version, modules), and project settings (name, destination). The instance type is a derived value — once the model and base image are known, the instance-sizer computes VRAM requirements and recommends compatible instances automatically. In non-interactive mode (`--skip-prompts`), all values come from CLI flags or config files.
 
-The [Getting Started Guide](getting-started.md) has complete walkthroughs for both a predictive model (sklearn + Flask) and an LLM (SGLang), including the exact CLI commands and generated project structures.
+The [Getting Started Guide](getting-started.md) has complete walkthroughs for both a predictive model (sklearn + Flask) and an LLM (vLLM), including the exact CLI commands and generated project structures.
 
 !!! tip "Supported Models"
-    MCC validates 22 model + instance combinations end-to-end through the full lifecycle (build → deploy → test → tune → adapter → test). If your model is in the [Supported Models](supported-models.md) catalog, you're on a tested, proven path.
+    MCC catalogs model + instance combinations for the full lifecycle (build → deploy → test → tune → adapter → test). [Supported Models](supported-models.md) shows which entries have been validated end-to-end.
 
 ## Models
 
@@ -76,9 +76,8 @@ In interactive generation, the transformers model prompt auto-lists both the man
 
 ```json
 {
-  "framework": "transformers",
-  "modelName": "mistralai/Mistral-7B-Instruct-v0.2",
-  "modelServer": "sglang"
+  "deploymentConfig": "transformers-sglang",
+  "modelName": "mistralai/Mistral-7B-Instruct-v0.2"
 }
 ```
 
@@ -145,10 +144,13 @@ For CI/CD workflows, `./do/submit` creates a CodeBuild project that builds the i
 
 ## Endpoint Deployment
 
-Once a container is built and pushed to ECR, `./do/deploy` provisions the deployment target. MCC supports two targets:
+Once a container is built and pushed to ECR, `./do/deploy` provisions the deployment target (`./do/deploy --target <target>`; `./do/deploy --help` lists them):
 
-- **Managed Inference** (`realtime-inference`): SageMaker AI real-time endpoints via the Inference Components API. This is the default.
-- **HyperPod EKS** (`hyperpod-eks`): Kubernetes deployment on existing SageMaker AI HyperPod clusters.
+- **Real-Time Inference** (`realtime-inference`): SageMaker AI real-time endpoints via the Inference Components API. This is the default.
+- **Async Inference** (`async-inference`): SageMaker AI async endpoints with S3 output.
+- **Batch Transform** (`batch-transform`): SageMaker AI transform jobs, S3 to S3.
+- **HyperPod EKS** (`hyperpod-eks`): Kubernetes deployment on an existing SageMaker AI HyperPod cluster through the Inference Operator.
+- **Plain EKS** (`eks`): bring-your-own EKS cluster (Deployment + Service + ConfigMap), no operator.
 
 After deployment, `./do/test` validates the endpoint, `./do/logs` tails logs, and `./do/clean` tears down resources.
 
@@ -156,13 +158,13 @@ See [Deployment & Inference](deployments.md) for the full lifecycle script refer
 
 ## Architecture Overview
 
-The following diagram shows the end-to-end flow from model source through deployment. Items marked with * are on the roadmap.
+The following diagram shows the end-to-end flow from model source through deployment.
 
 ```mermaid
 flowchart TB
     subgraph sources["Model Sources"]
         local["Local Models<br/>.pkl, .joblib, .h5"]
-        s3["S3 Buckets*"]
+        s3["S3 Buckets"]
         hf["HuggingFace Hub<br/>LLMs, chat models"]
     end
 
@@ -173,7 +175,7 @@ flowchart TB
     end
 
     subgraph genai["Generative AI"]
-        gfw["Serving Framework<br/>vLLM, SGLang, TensorRT-LLM, LMI, DJL"]
+        gfw["Serving Framework<br/>vLLM, SGLang, TensorRT-LLM, LMI, DJL, llama.cpp"]
     end
 
     subgraph container["Container Build"]

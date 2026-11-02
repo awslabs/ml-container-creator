@@ -1,11 +1,11 @@
 # Supported Models
 
-MCC validates specific model + server + instance combinations end-to-end through the full lifecycle — generate, build, deploy, test, tune, and adapt. If your configuration is listed here, every step has been tested and proven to work.
+MCC catalogs specific model + server + instance combinations for the full lifecycle — generate, build, deploy, test, tune, and adapt. Entries marked ✅ Validated have been tested end-to-end.
 
 Models not listed below are still supported by MCC — the CLI generates projects for any HuggingFace model. You take on the validation responsibility for unlisted combinations.
 
-!!! warning "Validation In Progress"
-    The v1 validation sprint is actively running. Status indicators below reflect the **target state** — models are being validated sequentially starting with the smallest (CI tier). Check the [release notes](https://github.com/awslabs/ml-container-creator/releases) for the latest confirmed validations.
+!!! warning "Validation status"
+    Status indicators below reflect the v2.0 release: ✅ entries have been validated end-to-end; ⏳ entries are catalogued but not yet validated. Check the [release notes](https://github.com/awslabs/ml-container-creator/releases) for the latest confirmed validations.
 
 
 !!! tip "S3 Model URIs"
@@ -23,7 +23,7 @@ Models not listed below are still supported by MCC — the CLI generates project
 | Qwen/Qwen3-1.7B | 1.7B | ml.g5.xlarge | SFT, DPO | ⏳ Pending |
 | Qwen/Qwen3-4B | 4B | ml.g5.xlarge | SFT, DPO | ⏳ Pending |
 | Qwen/Qwen3-8B | 8B | ml.g5.xlarge | SFT, DPO | ⏳ Pending |
-| Qwen/Qwen3-14B | 14B | ml.g5.2xlarge | SFT, DPO | ⏳ Pending |
+| Qwen/Qwen3-14B | 14B | ml.g6e.xlarge | SFT, DPO | ⏳ Pending |
 | Qwen/Qwen3-32B | 32B | ml.g5.12xlarge | SFT, DPO, RLVR | ⏳ Pending |
 
 ### Qwen 2.5
@@ -31,7 +31,7 @@ Models not listed below are still supported by MCC — the CLI generates project
 | Model | Parameters | Instance | Tuning Techniques | Status |
 |---|---|---|---|---|
 | Qwen/Qwen2.5-7B-Instruct | 7B | ml.g5.xlarge | SFT, DPO | ⏳ Pending |
-| Qwen/Qwen2.5-14B-Instruct | 14B | ml.g5.2xlarge | SFT, DPO | ⏳ Pending |
+| Qwen/Qwen2.5-14B-Instruct | 14B | ml.g6e.xlarge | SFT, DPO | ⏳ Pending |
 | Qwen/Qwen2.5-32B-Instruct | 32B | ml.g5.12xlarge | SFT, DPO | ⏳ Pending |
 | Qwen/Qwen2.5-72B-Instruct | 72B | ml.g5.48xlarge | SFT, DPO, RLVR | ⏳ Pending |
 
@@ -53,7 +53,7 @@ Models not listed below are still supported by MCC — the CLI generates project
 |---|---|---|---|---|
 | deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B | 1.5B | ml.g5.xlarge | SFT, DPO, RLAIF, RLVR | ⏳ Pending |
 | deepseek-ai/DeepSeek-R1-Distill-Qwen-7B | 7B | ml.g5.xlarge | SFT, DPO, RLAIF, RLVR | ⏳ Pending |
-| deepseek-ai/DeepSeek-R1-Distill-Qwen-14B | 14B | ml.g5.2xlarge | SFT, DPO, RLAIF, RLVR | ⏳ Pending |
+| deepseek-ai/DeepSeek-R1-Distill-Qwen-14B | 14B | ml.g6e.xlarge | SFT, DPO, RLAIF, RLVR | ⏳ Pending |
 | deepseek-ai/DeepSeek-R1-Distill-Qwen-32B | 32B | ml.g5.12xlarge | SFT, DPO, RLAIF, RLVR | ⏳ Pending |
 | deepseek-ai/DeepSeek-R1-Distill-Llama-8B | 8B | ml.g5.xlarge | SFT, DPO, RLAIF, RLVR | ⏳ Pending |
 | deepseek-ai/DeepSeek-R1-Distill-Llama-70B | 70B | ml.g5.48xlarge | SFT, DPO, RLAIF, RLVR | ⏳ Pending |
@@ -98,6 +98,14 @@ TensorRT-LLM is supported by the generator. Requires NGC authentication for base
 
 AWS Large Model Inference is supported by the generator. Not yet in the automated validation matrix.
 
+### llama.cpp — Supported, Validation Pending
+
+`transformers-llama-cpp` serves GGUF models on CPU or GPU, with a tunable CPU/GPU layer split (`--engine-feature gpu_layers=-1` for full GPU offload). Not yet in the automated validation matrix.
+
+### vLLM-Omni — Diffusion / Multimodal
+
+`diffusors-vllm-omni` serves diffusion and any-to-any multimodal models. See [Configuration — Serving Engine Capabilities](configuration.md#serving-engine-capabilities).
+
 ---
 
 ## Instance Recommendations
@@ -105,7 +113,7 @@ AWS Large Model Inference is supported by the generator. Not yet in the automate
 | Model Size | Recommended Instance | GPUs | VRAM | Tensor Parallelism |
 |---|---|---|---|---|
 | ≤8B (bf16) | ml.g5.xlarge | 1 | 24 GB | 1 |
-| 8B–14B (bf16) | ml.g5.2xlarge | 1 | 24 GB | 1 |
+| 8B–14B (bf16) | ml.g6e.xlarge (or ml.g5.12xlarge, TP 4) | 1 | 48 GB | 1 |
 | 14B–32B (bf16) | ml.g5.12xlarge | 4 | 96 GB | 4 |
 | 32B–72B (bf16) | ml.g5.48xlarge | 8 | 192 GB | 8 |
 | 70B+ (AWQ 4-bit) | ml.g5.12xlarge | 4 | 96 GB | 4 |
@@ -204,10 +212,12 @@ ml-container-creator my-custom-model \
   --skip-prompts
 ```
 
+JumpStart model IDs (`jumpstart://…`) are refused at generation; use the Hugging Face model ID instead.
+
 For unlisted models:
 
 - ✅ Generation, build, push, and deploy will work if the model is compatible with the selected server
-- ⚠️ Instance sizing is based on the MCP instance-sizer heuristic — verify manually for custom models
+- ⚠️ Instance sizing reads the model's Hugging Face `config.json` and safetensors metadata (including a multimodal `text_config`) and budgets the KV cache for the served context; `./do/deploy --dry-run` runs the right-sizing preflight before anything is created
 - ⚠️ Fine-tuning with `do/tune` only works for models in the [Supported Model Catalog](https://docs.aws.amazon.com/sagemaker/latest/dg/model-customization-supported-models.html)
 - ⚠️ You take on validation responsibility — consider running `do/validate` before deploying
 
@@ -219,8 +229,8 @@ These configurations are planned for future validation:
 
 | Configuration | Status | Expected |
 |---|---|---|
-| SGLang (same 22 models) | Planned | Post-v1 |
-| g6 instance family (NVIDIA L4) | Planned | Post-v1 |
-| TensorRT-LLM (subset of models) | Planned | Post-v1 |
-| DPO/RLVR full technique coverage | Planned | Post-v1 |
+| SGLang (same models) | Planned | Post-2.0 |
+| g6 instance family (NVIDIA L4) | Planned | Post-2.0 |
+| TensorRT-LLM (subset of models) | Planned | Post-2.0 |
+| DPO/RLVR full technique coverage | Planned | Post-2.0 |
 | Diffusion models (FLUX, Stable Diffusion) | Temporarily removed | TBD |

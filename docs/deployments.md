@@ -417,6 +417,7 @@ tell *why* a command stopped:
 | `1` | General error (including missing AWS credentials) |
 | `2` | Usage / argument error |
 | `3` | **Not supported for this deployment target** — the command doesn't apply to your current `DEPLOYMENT_TARGET`, or a required deployment/precondition isn't in place. The message names the supported targets. |
+| `4` | Precondition not met — for example the image is not pushed to ECR, the cluster contract fails, or the endpoint is not InService. The message names the fix. |
 | `5` | `do/deploy` only: deployed, but the opt-in [scale-to-zero](scale-to-zero.md) setup failed and was rolled back. The endpoint is up at a fixed floor. |
 
 Exit `3` is not a failure of the operation — it means the command couldn't start

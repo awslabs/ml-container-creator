@@ -213,7 +213,7 @@ Each technique's output is tracked independently. You can tune with SFT, then tu
 
 ## Supported Models
 
-The following model families support managed customization via `do/tune`:
+The table below shows representative model families that support managed customization via `do/tune`. The catalog (`config/tune-catalog.json`) is synced from SageMaker AI and grows over time; it also includes newer families such as NVIDIA Nemotron 3, Gemma 4 and Ministral 3. `./do/tune --list-models` prints the current list:
 
 | Provider | Model Family | Sizes | Techniques |
 |---|---|---|---|
@@ -228,7 +228,7 @@ The following model families support managed customization via `do/tune`:
 | Meta | Llama 3.3 Instruct | 70B | SFT, DPO, RLAIF, RLVR |
 | OpenAI | GPT-OSS | 20B, 120B | SFT, DPO, RLAIF, RLVR |
 
-**26 models total** across 10 families. VLM (Vision-Language) models support SFT, RLAIF, and RLVR but not DPO.
+VLM (Vision-Language) models support SFT, RLAIF, and RLVR but not DPO.
 
 View the full catalog at any time:
 

@@ -14,8 +14,11 @@ Configuration sources are applied in strict precedence order (highest to lowest)
 | 4 | CLI Config File | `--config` specified file | `--config=production.json` |
 | 5 | Custom Config File | `config/mcp.json` | Auto-discovered in current directory |
 | 6 | Package.json Section | `"ml-container-creator": {...}` | Project-specific defaults |
-| 7 | Generator Defaults | Built-in defaults | `awsRegion: "us-east-1"` |
-| 8 | Interactive Prompts | User input (fallback) | CLI prompts |
+| 7 | Bootstrap Config | `~/.ml-container-creator/config.json` | Active bootstrap profile (role ARN, region, buckets) |
+| 8 | Generator Defaults | Built-in defaults | `region: "us-east-1"` |
+| 9 | Interactive Prompts | User input (fallback) | CLI prompts |
+
+MCP servers are not a numbered level: their results are used as suggestions and choice lists in the prompts (see [MCP Servers](mcp-configuration.md)).
 
 Higher precedence sources override lower ones.
 
@@ -44,7 +47,7 @@ Parameters supported by MCC, organized by category. Each can be set via CLI flag
 
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
-| `deploymentConfig` | `--deployment-config` | enum (16 values) | — | Deployment configuration (e.g. http-flask, transformers-vllm, transformers-llama-cpp, triton-fil) (env: `ML_DEPLOYMENT_CONFIG`) |
+| `deploymentConfig` | `--deployment-config` (alias: `--backend`) | enum | — | Deployment configuration (e.g. http-flask, transformers-vllm, transformers-llama-cpp, triton-fil) (env: `ML_DEPLOYMENT_CONFIG`) |
 | `modelName` | `--model-name` | string | — | Model identifier (hf-org/model, s3://..., registry://...) (env: `ML_MODEL_NAME`) |
 | `framework` | `--framework` | enum: `sklearn`, `xgboost`, `tensorflow`, `transformers` | — | ~~ML framework~~ *(deprecated, use `--deploymentConfig` instead)* |
 | `modelFormat` | `--model-format` | string | — | Model serialization format (pkl, joblib, json, model, ubj, keras, h5, SavedModel) (env: `ML_MODEL_FORMAT`) |
@@ -52,6 +55,9 @@ Parameters supported by MCC, organized by category. Each can be set via CLI flag
 | `modelEnv` | `--model-env` | string | `[]` | Model env var, repeatable (e.g. VLLM_TENSOR_PARALLEL_SIZE=4) |
 | `serverEnv` | `--server-env` | string | `[]` | Server env var, repeatable (e.g. SGLANG_MEM_FRACTION=0.9) |
 | `engineFeature` | `--engine-feature` | string | `[]` | Enable an engine-specific feature declared by the selected engine's plugin, `NAME=VALUE`, repeatable (e.g. `radix_attention=true` for SGLang, `rolling_batch_backend=vllm` for LMI). Resolved to the engine's real env var and validated against the plugin manifest. See [Serving Engine Capabilities](#serving-engine-capabilities). |
+
+!!! note "Two different `--backend` flags"
+    At generation time, `--backend <config>` is an alias for `--deployment-config` (e.g. `--backend transformers-vllm`). It is unrelated to `./do/train --backend` / `./do/tune --backend`, which pick the training compute (`smtj`, the default, or `hp-eks`).
 
 ### Infrastructure
 
@@ -86,7 +92,6 @@ Heterogeneous instance pools are a deploy-time choice, not a generation paramete
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
 | `capacityReservationArn` | `--capacity-reservation-arn` | string | — | FTP/capacity reservation ARN for deploying on reserved capacity. |
-| `serverEnv` | `--server-env` | string[] | — | Container environment variable overrides (e.g., `SM_VLLM_KV_CACHE_DTYPE=fp8`). Repeatable flag. |
 
 
 ### Inference Component
@@ -154,7 +159,7 @@ Heterogeneous instance pools are a deploy-time choice, not a generation paramete
 | `includeBenchmark` | `--include-benchmark` | boolean | `true` | Include `do/benchmark` script in the generated project (env: `ML_INCLUDE_BENCHMARK`). Disable with `--include-benchmark=false` |
 
 !!! note "Runtime resolution"
-    Benchmark parameters (concurrency, token counts, streaming, S3 paths) are **not** set at generation time. They are resolved at runtime by `do/benchmark --workload <name>` from the workload-picker MCP server and the bootstrap profile. See [Benchmarking](benchmarking.md) for workload profiles and the full runtime flow.
+    Benchmark parameters (concurrency, token counts, streaming, S3 paths) are resolved at runtime by `do/benchmark --workload <name>` from the workload-picker catalog and the bootstrap profile. The `--benchmark-*` generation flags (`--benchmark-concurrency`, `--benchmark-input-tokens`, ...) only seed the `BENCHMARK_*` defaults in `do/config`; a named workload overrides them, and `./do/benchmark --workload manual` uses them as-is. See [Benchmarking](benchmarking.md) for workload profiles and the full runtime flow.
 
 ### Testing
 
@@ -178,6 +183,7 @@ The `--deployment-config` flag bundles the architecture and model server into a 
 | `transformers-tensorrt-llm` | Transformers | TensorRT-LLM | LLM serving with TensorRT-LLM |
 | `transformers-lmi` | Transformers | LMI | LLM serving with Large Model Inference |
 | `transformers-djl` | Transformers | DJL | LLM serving with Deep Java Library |
+| `transformers-llama-cpp` | Transformers | llama.cpp | GGUF models, CPU or GPU |
 | `triton-fil` | Triton | FIL | Tree models (XGBoost, LightGBM) on Triton |
 | `triton-onnxruntime` | Triton | ONNX Runtime | ONNX models on Triton |
 | `triton-tensorflow` | Triton | TensorFlow | TensorFlow models on Triton |
@@ -246,8 +252,8 @@ Speculative decoding is configured at deploy time with `do/draft`, not a generat
 !!! info "S3 Model URIs"
     When the model identifier starts with `s3://`, MCC loads model weights directly from S3 instead of downloading from HuggingFace. This enables faster cold-start for pre-staged models. Example: `--model-name s3://my-bucket/models/gemma-4-31b/`
 
-!!! info "Runtime Profile Resolution (v0.12.0)"
-    Generated projects include `do/lib/profile.sh` which reads the active bootstrap profile (`~/.ml-container-creator/config.json`) at runtime. Values like S3 bucket names, account ID, and region are resolved from the profile — no need to regenerate when switching profiles. Scripts use `${_PROFILE[key]}` for profile values, with env var precedence: explicit env var > profile > default.
+!!! info "Runtime Profile Resolution"
+    Generated projects include `do/lib/profile.sh`, which loads the active bootstrap profile (`~/.ml-container-creator/config.json`) into `_PROFILE_<key>` shell variables at runtime (bash 3.2+, no associative arrays). Values like S3 bucket names, account ID, and region are resolved from the profile — no need to regenerate when switching profiles. Precedence: explicit env var > `_PROFILE_<key>` > default.
 
 
 !!! info "Lifecycle Variables in `do/config`"
@@ -468,7 +474,7 @@ Schema validation runs at two points:
 # JSON output for CI integration
 ./do/validate --format json
 
-# Include smart-mode validators (future MCP integration)
+# Include smart-mode advisory findings (live AWS lookups)
 ./do/validate --smart
 ```
 
@@ -546,7 +552,7 @@ The `do/validate` script includes architecture compatibility as one of its cross
 
 ---
 
-## Deploy Mode (v1.2+)
+## Deploy Mode
 
 The `DEPLOY_MODE` variable in `do/config` controls how the project deploys its container image:
 

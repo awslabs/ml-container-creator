@@ -306,6 +306,8 @@ _aws_preflight --verbose    # or: _aws_preflight  (silent)
 | `1` | General error |
 | `2` | Usage / argument error |
 | `3` | **Contract violation** — guard not met or target not supported |
+| `4` | Precondition not met — for example the image is not in ECR, the cluster contract fails, or the endpoint is not InService; the message names the fix |
+| `5` | `do/deploy` (realtime-inference): deployed, but scale-to-zero setup failed and was rolled back; the endpoint is up |
 
 Exit code 3 is reserved for contract violations. CI systems and the advisory agent use it to distinguish "script failed" from "script couldn't start because preconditions weren't met."
 
@@ -328,10 +330,11 @@ Warnings don't prevent the script from running. They surface in `agent-knowledge
 
 ## Current script registry
 
-The authoritative classification of all 25 `do/` scripts. This table is kept in
-sync with the shipped scripts by the conformance test
-(`test/unit/do-contract-conformance.test.js`, ADR-007), which fails if a script
-drifts from its contract.
+The classification of every shipped `do/` script. The source of truth is each
+script's `@mlcc-script` header block, validated by
+`test/unit/do-contract-conformance.test.js` (ADR-007).
+`test/unit/do-script-registry-docs.test.js` fails if this table drifts from those
+headers (a script added, removed, or re-classified without updating the row).
 
 | Script | Type | Guard | Lifecycle | Targets |
 |---|---|---|---|---|
@@ -355,8 +358,9 @@ drifts from its contract.
 | `do/clean` | deployment-centric | deployment-active | teardown | all |
 | `do/benchmark` | deployment-centric | deployment-active | post-deploy | all |
 | `do/optimize` | deployment-centric | deployment-active | post-deploy | realtime-inference, hyperpod-eks |
-| `do/adapter` | deployment-centric | deployment-active | post-deploy | realtime-inference, hyperpod-eks |
+| `do/adapter` | deployment-centric | deployment-active | post-deploy | realtime-inference, hyperpod-eks, eks |
 | `do/add-ic` | deployment-centric | deployment-active | post-deploy | realtime-inference |
+| `do/add-pod` | deployment-centric | deployment-active | post-deploy | hyperpod-eks |
 | `do/draft` | deployment-centric | deployment-active | post-deploy | hyperpod-eks |
 | `do/evaluate` | deployment-centric | deployment-active | post-deploy | all |
 | `do/register` | hybrid | none | publish | all |

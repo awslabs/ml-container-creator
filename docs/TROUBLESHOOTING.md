@@ -506,7 +506,7 @@ The agent (`ml-container-creator hey`) checks this automatically in its health r
 
 2. Or use base-image-picker with `instanceType` context — it automatically excludes incompatible versions:
    ```bash
-   ml-container-creator mcp add base-image-picker --bundled
+   ml-container-creator mcp --bundled add base-image-picker
    # During generation, base-image-picker filters by driver compatibility
    ```
 
