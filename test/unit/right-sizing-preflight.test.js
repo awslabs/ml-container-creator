@@ -10,7 +10,7 @@
  * deploy.d/<target> driver that records it ran, and stub aws / kubectl that
  * log every call — so "blocked" provably means "nothing created or applied".
  */
-import { describe, it, before, after } from 'mocha';
+import { describe, it, after } from 'mocha';
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, existsSync, mkdirSync, openSync, ftruncateSync, closeSync } from 'node:fs';
@@ -63,7 +63,7 @@ describe('Wave 8 — k8s drivers ask only for the rank value after the preflight
             assert.match(src, /right_sizing\.py" effective-lora-rank \$\{_[A-Z]+_RANK_QUIET\}/);
         });
         it(`deploy.d/${drv} honors --ignore-sizing (MLCC_IGNORE_SIZING) on the rank refusal`, () => {
-            assert.match(src, /MLCC_IGNORE_SIZING:-0\}" = "1" \]; then\n\s+echo "⚠️  --ignore-sizing: proceeding/);
+            assert.match(src, /MLCC_IGNORE_SIZING:-0\}" = "1" \]; then\n\s+echo "⚠️ {2}--ignore-sizing: proceeding/);
         });
     }
     it('do/deploy exports the preflight marker and the override for the drivers', () => {

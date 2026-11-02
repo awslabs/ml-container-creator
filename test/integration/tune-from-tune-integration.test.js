@@ -134,7 +134,7 @@ describe('Feature: managed-model-customization — --from-tune integration (Req 
         ['full-model', 'model'].forEach((t) => {
             it(`TUNE_OUTPUT_TYPE_LATEST=${t} resolves as full_model and the adapter gate refuses it (exit 3)`, () => {
                 const r = contractRun([
-                    "out=$(_resolve_additive_source from-tune '' n)", 'eval "$out"',
+                    'out=$(_resolve_additive_source from-tune \'\' n)', 'eval "$out"',
                     '_guard_artifact_kind "$RESOLVED_KIND" "$(_additive_accepts_kind adapter)" "use do/add-ic"'
                 ].join('\n'), { TUNE_OUTPUT_PATH_LATEST: 's3://b/m/', TUNE_OUTPUT_TYPE_LATEST: t });
                 assert.strictEqual(r.code, 3, r.stdout + r.stderr);
@@ -168,7 +168,7 @@ describe('Feature: managed-model-customization — --from-tune integration (Req 
         });
         it('a full-model tune output resolves and passes the add-ic gate', () => {
             const r = contractRun([
-                "out=$(_resolve_additive_source from-tune '' n \"$(_additive_accepts_kind add-ic)\")", 'eval "$out"',
+                'out=$(_resolve_additive_source from-tune \'\' n "$(_additive_accepts_kind add-ic)")', 'eval "$out"',
                 '_guard_artifact_kind "$RESOLVED_KIND" "$(_additive_accepts_kind add-ic)" "use do/adapter"',
                 'echo "URI=$RESOLVED_URI"'
             ].join('\n'), { TUNE_OUTPUT_PATH_LATEST: 's3://b/m/', TUNE_OUTPUT_TYPE_LATEST: 'model' });
@@ -178,7 +178,7 @@ describe('Feature: managed-model-customization — --from-tune integration (Req 
         it('an adapter tune output is refused by add-ic (ADR-013: a LoRA is not a full model)', () => {
             // Supersedes the pre-Wave-6 "add-ic works for both types" behavior (R6.1).
             const r = contractRun([
-                "out=$(_resolve_additive_source from-tune '' n)", 'eval "$out"',
+                'out=$(_resolve_additive_source from-tune \'\' n)', 'eval "$out"',
                 '_guard_artifact_kind "$RESOLVED_KIND" "$(_additive_accepts_kind add-ic)" "use do/adapter"'
             ].join('\n'), { TUNE_OUTPUT_PATH_LATEST: 's3://b/a/', TUNE_OUTPUT_TYPE_LATEST: 'adapter' });
             assert.strictEqual(r.code, 3);

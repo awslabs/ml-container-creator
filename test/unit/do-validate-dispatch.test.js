@@ -35,9 +35,9 @@ describe('Wave 8 — do/validate dispatcher (behavioral, bash 3.2)', function ()
         sb.write('do/lib/eks-contract.sh', readFileSync(join(DO_SRC, 'lib/eks-contract.sh')), 0o644);
         sb.write('.mlcc/instances.json', readFileSync(join(REPO, 'servers/lib/catalogs/instances.json')), 0o644);
         sb.write('do/config', [...configLines, ''].join('\n'), 0o644);
-        sb.write('bin/kubectl', `#!/bin/bash\necho "kubectl $*" >> "${sb.root}/calls.log"\n`
-            + (kubectlOk ? 'case "$1" in get) echo "csidriver.storage.k8s.io/s3.csi.aws.com";; esac\nexit 0\n'
-                : 'echo "The connection to the server was refused" >&2; exit 1\n'));
+        sb.write('bin/kubectl', `#!/bin/bash\necho "kubectl $*" >> "${sb.root}/calls.log"\n${
+            kubectlOk ? 'case "$1" in get) echo "csidriver.storage.k8s.io/s3.csi.aws.com";; esac\nexit 0\n'
+                : 'echo "The connection to the server was refused" >&2; exit 1\n'}`);
         sb.write('bin/aws', `#!/bin/bash\necho "aws $*" >> "${sb.root}/calls.log"\nexit 255\n`);
         // Hide any globally installed mcc so the probe finds the sandbox runner (or none).
         sb.write('bin/npm', '#!/bin/bash\necho /nonexistent-npm-root\n');
