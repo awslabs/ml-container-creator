@@ -280,7 +280,7 @@ program.configureHelp({
 
 program
     .command('bootstrap')
-    .description('Set up modular AWS infrastructure (core, benchmark, registry, training, ci)')
+    .description('Set up modular AWS infrastructure (per-module CDK stacks; `bootstrap --help` lists the modules)')
     .passThroughOptions()
     .argument('[action]', 'Bootstrap action (add, remove, add-module, remove-module, add-secret, status, use, list, scan, prune, update, migrate, sync-schemas, sync-model-families)')
     .argument('[args...]', 'Additional arguments')
