@@ -52,7 +52,10 @@ const HEAP_FLAG = '--max-old-space-size=8192';
 
 // node:test files that hit live network APIs. Repo-root-relative, POSIX paths.
 // Keep minimal and justified; the meta-guard checks every entry exists.
-export const NETWORK_DEPENDENT = [];
+export const NETWORK_DEPENDENT = [
+    // Wave 11 (R13.2): live `aws s3 cp` of the catalog's HP-EKS payload templates.
+    'test/unit/hp-payload-live-drift.test.js'
+];
 
 // Matches a static import, dynamic import, or require of 'node:test'.
 const NODE_TEST_IMPORT_RE = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)['"]node:test['"]/m;

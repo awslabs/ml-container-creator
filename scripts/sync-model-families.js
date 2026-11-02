@@ -224,6 +224,14 @@ function parseRecipes(hubContentDocument, modelName) {
             peft: String(recipe.Peft || recipe.peft || 'lora').toLowerCase() === 'lora' ? 'lora' : 'full',
             smtjOverrideParamsS3Uri: _normalizeS3Pointer(recipe.SmtjOverrideParamsS3Uri),
             hpEksOverrideParamsS3Uri: _normalizeS3Pointer(recipe.HpEksOverrideParamsS3Uri),
+            // Wave 11 (R9.3): the HP-EKS payload template (ConfigMap + workload) that
+            // do/tune --backend hp-eks renders; its workload `kind:` is synced below.
+            hpEksPayloadTemplateS3Uri: _normalizeS3Pointer(recipe.HpEksPayloadTemplateS3Uri),
+            // The catalog's hpEks pointers are keyed by the recipe's REAL PEFT mode.
+            // Live Hub data (2026-10-28) omits `Peft` on full-rank (fft) recipes, which
+            // the `peft` fallback above reads as 'lora'; when Peft is absent the
+            // AWS recipe name (`-fft` / `-lora`) decides instead.
+            hpEksPeft: _hpEksPeft(recipe),
             // BL180: the model this recipe belongs to — the SDK-specs fetcher needs it
             // to construct the technique's trainer and read its authoritative _specs.
             model: modelName || null
@@ -233,6 +241,19 @@ function parseRecipes(hubContentDocument, modelName) {
     return recipes;
 }
 
+/**
+ * PEFT key for a recipe's HP-EKS pointers: an explicit `Peft` wins (LORA → lora,
+ * anything else → full); without one, a `fft`/`full` token in the recipe name or
+ * payload URI means full-rank, else lora.
+ * @param {object} recipe - a Hub RecipeCollection entry
+ * @returns {'lora'|'full'}
+ */
+function _hpEksPeft(recipe) {
+    const explicit = recipe.Peft || recipe.peft;
+    if (explicit) return String(explicit).toLowerCase() === 'lora' ? 'lora' : 'full';
+    const hint = `${recipe.Name || ''} ${recipe.HpEksPayloadTemplateS3Uri || ''}`;
+    return /(^|[-_/])(fft|full)([-_.]|$)/i.test(hint) ? 'full' : 'lora';
+}
 /**
  * Normalize an override-params pointer: the Hub serializes an absent pointer as the
  * STRING "None" (seen live on MTRL's HpEksOverrideParamsS3Uri), so treat "None"/empty
@@ -321,11 +342,22 @@ function buildCatalogEntry(model, detail, recipes) {
 
     const techniques = {};
     for (const recipe of recipes) {
+        const prev = techniques[recipe.technique];
         techniques[recipe.technique] = {
             trainingTypes: recipe.trainingTypes,
             datasetFormat: recipe.datasetFormat,
             datasetSchema: recipe.datasetSchema
         };
+        // Wave 11 (R9.3): this model's HP-EKS payload pointers per PEFT variant
+        // (a technique usually has a lora and a full recipe).
+        const hpEks = { ...((prev && prev.hpEks) || {}) };
+        if (recipe.hpEksPayloadTemplateS3Uri) {
+            hpEks[recipe.hpEksPeft || recipe.peft] = {
+                payloadTemplate: recipe.hpEksPayloadTemplateS3Uri,
+                overrideParams: recipe.hpEksOverrideParamsS3Uri || null
+            };
+        }
+        if (Object.keys(hpEks).length > 0) techniques[recipe.technique].hpEks = hpEks;
     }
 
     return {
@@ -534,10 +566,45 @@ function _mapOverrideParamKnob(knob) {
  * @returns {boolean}
  */
 function _isSurfacedHyperparameter(name, knob, tagged) {
+    // Wave 11 (R9.3): the k8s override params tag `namespace` as a hyperparameter;
+    // it is MLCC's cluster placement (HP_NAMESPACE), never a training knob.
+    if (name === 'namespace') return false;
     if (tagged) return knob && knob.category === 'hyperparameter';
     return !MTRL_PLUMBING_DENYLIST.has(name);
 }
 
+/** Workload kinds do/tune --backend hp-eks knows how to gate (R9.1 / R9.2). */
+export const HP_EKS_WORKLOAD_KINDS = ['HyperPodPyTorchJob', 'RayJob'];
+/**
+ * Read the workload kind (the non-ConfigMap top-level `kind:`) from an HP-EKS
+ * payload template's text. Returns a HP_EKS_WORKLOAD_KINDS member or null.
+ * @param {string} text
+ * @returns {string|null}
+ */
+export function readWorkloadKind(text) {
+    if (typeof text !== 'string') return null;
+    for (const m of text.matchAll(/^kind:\s*([A-Za-z]+)\s*$/gm)) {
+        if (m[1] === 'ConfigMap') continue;
+        return HP_EKS_WORKLOAD_KINDS.includes(m[1]) ? m[1] : null;
+    }
+    return null;
+}
+/**
+ * Default payload-template fetcher: read-only `aws s3 cp <uri> -`.
+ * @param {string} [region]
+ * @returns {(uri: string) => Promise<string|null>}
+ */
+function _defaultFetchPayloadTemplate(region) {
+    return async function fetchTemplate(uri) {
+        try {
+            const args = ['s3', 'cp', uri, '-'];
+            if (region || process.env.AWS_REGION) args.push('--region', region || process.env.AWS_REGION);
+            return execFileSync('aws', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 60000 });
+        } catch {
+            return null;
+        }
+    };
+}
 /**
  * Build the synced `hyperparameters` block from a parsed override-params object.
  * @param {object} overrideParams - the override-params JSON (knob-name → entry)
@@ -591,6 +658,19 @@ function mergeSyncedIntoVariant(variant, syncedHyperparameters, syncedBlock) {
 export async function syncTuneDescriptors(recipes, opts = {}) {
     const tuneDir = opts.tuneDir || TUNE_D;
     const fetchOverrideParams = opts.fetchOverrideParams || _defaultFetchOverrideParams(opts.region);
+    const fetchPayloadTemplate = opts.fetchPayloadTemplate || _defaultFetchPayloadTemplate(opts.region);
+    // Wave 11 (R9.3): the hp-eks workload kind, read from the payload template. A
+    // failed fetch returns the PREVIOUS value (never regress).
+    const workloadKindFor = async (recipe, previous) => {
+        if (!recipe.hpEksPayloadTemplateS3Uri) return previous || null;
+        let text = null;
+        try {
+            text = await fetchPayloadTemplate(recipe.hpEksPayloadTemplateS3Uri);
+        } catch {
+            text = null;
+        }
+        return readWorkloadKind(text) || previous || null;
+    };
 
     let synced = 0;
     let skipped = 0;
@@ -628,6 +708,7 @@ export async function syncTuneDescriptors(recipes, opts = {}) {
         if (!variant) continue; // descriptor doesn't declare this variant
 
         const version = _versionFromOverrideParamsUri(smtjUri);
+        const prevHp = (variant._synced && variant._synced['hp-eks']) || null;
         // Idempotent: skip when the recorded smtj version is unchanged — UNLESS forced.
         // BL180 note: the version-skip keys off the recipe URI version, but the
         // AUTHORITATIVE source is now the SMTJ SDK's _specs (which can change even when
@@ -639,6 +720,15 @@ export async function syncTuneDescriptors(recipes, opts = {}) {
             && version
             && variant._synced && variant._synced.smtj
             && variant._synced.smtj.version === version) {
+            // The knob block is unchanged, but an hp-eks entry synced before Wave 11
+            // has no workload_kind yet: backfill just that (no knob refetch).
+            if (prevHp && !prevHp.workload_kind && recipe.hpEksPayloadTemplateS3Uri) {
+                const kind = await workloadKindFor(recipe, null);
+                if (kind) {
+                    prevHp.workload_kind = kind;
+                    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+                }
+            }
             skipped++;
             continue;
         }
@@ -669,6 +759,8 @@ export async function syncTuneDescriptors(recipes, opts = {}) {
                 from: recipe.hpEksOverrideParamsS3Uri,
                 version: _versionFromOverrideParamsUri(recipe.hpEksOverrideParamsS3Uri) || '0.0.0'
             };
+            const kind = await workloadKindFor(recipe, prevHp && prevHp.workload_kind);
+            if (kind) syncedBlock['hp-eks'].workload_kind = kind;
         }
 
         mergeSyncedIntoVariant(variant, hyperparameters, syncedBlock);
@@ -841,6 +933,7 @@ export async function syncModelFamilies(options = {}) {
             fetchOverrideParams: options.fetchOverrideParams,
             tuneDir: options.tuneDir,
             force: options.force,
+            fetchPayloadTemplate: options.fetchPayloadTemplate,
             region
         });
     }

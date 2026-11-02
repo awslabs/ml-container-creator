@@ -22,13 +22,13 @@
 import assert from 'node:assert';
 import { describe, it, beforeEach, afterEach } from 'mocha';
 import {
-    mkdtempSync, cpSync, readFileSync, rmSync, existsSync
+    mkdtempSync, cpSync, readFileSync, rmSync, existsSync, writeFileSync
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv/dist/2020.js';
-import { syncTuneDescriptors } from '../../scripts/sync-model-families.js';
+import { syncTuneDescriptors, readWorkloadKind } from '../../scripts/sync-model-families.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
@@ -246,5 +246,85 @@ describe('sync-tune-descriptors (tune-descriptor synced layer)', () => {
             assert.ok(arg.technique, 'recipe carries technique');
             assert.ok(arg.model, 'recipe carries model (needed to construct the SDK trainer)');
         }
+    });
+});
+
+describe('Wave 11 R9.3 — hp-eks workload_kind, namespace exclusion, catalog hpEks pointers', () => {
+    let tmp;
+    beforeEach(() => {
+        tmp = mkdtempSync(path.join(os.tmpdir(), 'mcc-tuned-w11-'));
+        cpSync(SRC_TUNE_D, tmp, { recursive: true });
+    });
+    afterEach(() => {
+        if (tmp && existsSync(tmp)) rmSync(tmp, { recursive: true, force: true });
+    });
+    const FIX = path.join(ROOT, 'test', 'fixtures', 'hp-eks');
+    const SFT_TEMPLATE = readFileSync(path.join(FIX, 'verl-sft-gemma-4-e4b-it-lora_payload_template_k8s_v2.0.9.yaml'), 'utf8');
+    // A RayJob-shaped template (structure only: ConfigMap first, workload second).
+    const RAY_TEMPLATE = '---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: x\n---\napiVersion: ray.io/v1\nkind: RayJob\nmetadata:\n  name: y\n';
+    const HP_RECIPES = [
+        { technique: 'sft', peft: 'lora', model: 'm', smtjOverrideParamsS3Uri: 's3://b/sft_override_params_sm_jobs_v91.0.0.json',
+            hpEksOverrideParamsS3Uri: 's3://b/sft_override_params_k8s_v91.0.0.json', hpEksPayloadTemplateS3Uri: 's3://b/sft_payload_template_k8s_v91.0.0.yaml' },
+        { technique: 'rlvr', peft: 'lora', model: 'm', smtjOverrideParamsS3Uri: 's3://b/rlvr_override_params_sm_jobs_v91.0.0.json',
+            hpEksOverrideParamsS3Uri: 's3://b/rlvr_override_params_k8s_v91.0.0.json', hpEksPayloadTemplateS3Uri: 's3://b/rlvr_payload_template_k8s_v91.0.0.yaml' },
+        { technique: 'mtrl', peft: 'lora', model: 'm', smtjOverrideParamsS3Uri: 's3://b/mtrl_override_params_sm_jobs_v91.0.0.json',
+            hpEksOverrideParamsS3Uri: null, hpEksPayloadTemplateS3Uri: null }
+    ];
+    const templates = (uri) => (uri.includes('rlvr') ? RAY_TEMPLATE : SFT_TEMPLATE);
+    const read = (t, v = 'lora') => JSON.parse(readFileSync(path.join(tmp, t, 'manifest.json'), 'utf8')).variants[v];
+    const knobs = {
+        learning_rate: { category: 'hyperparameter', type: 'number', default: 1e-4 },
+        namespace: { category: 'hyperparameter', type: 'string', default: 'default' }
+    };
+
+    it('records the template workload kind (captured live fixture → HyperPodPyTorchJob; RayJob shape → RayJob)', async () => {
+        const seen = [];
+        await syncTuneDescriptors(HP_RECIPES, {
+            fetchOverrideParams: async () => knobs, tuneDir: tmp,
+            fetchPayloadTemplate: async (uri) => { seen.push(uri); return templates(uri); }
+        });
+        assert.strictEqual(read('sft')._synced['hp-eks'].workload_kind, 'HyperPodPyTorchJob');
+        assert.strictEqual(read('rlvr')._synced['hp-eks'].workload_kind, 'RayJob');
+        assert.ok(!seen.some(u => u.includes('mtrl')), 'no hp-eks payload → nothing fetched');
+        assert.ok(!('hp-eks' in read('mtrl')._synced), 'MTRL has no hp-eks payload');
+        for (const t of ['sft', 'rlvr', 'mtrl']) {
+            const m = JSON.parse(readFileSync(path.join(tmp, t, 'manifest.json'), 'utf8'));
+            assert.ok(validate(m), `${t}: ${JSON.stringify(validate.errors)}`);
+        }
+    });
+
+    it('excludes `namespace` (MLCC placement) from the synced knobs', async () => {
+        await syncTuneDescriptors(HP_RECIPES, { fetchOverrideParams: async () => knobs, tuneDir: tmp, fetchPayloadTemplate: async (u) => templates(u) });
+        assert.ok('learning_rate' in read('sft').hyperparameters);
+        assert.ok(!('namespace' in read('sft').hyperparameters));
+    });
+
+    it('a failed template fetch keeps the previous workload_kind (never regress)', async () => {
+        await syncTuneDescriptors(HP_RECIPES, { fetchOverrideParams: async () => knobs, tuneDir: tmp, fetchPayloadTemplate: async (u) => templates(u) });
+        const bumped = HP_RECIPES.map(r => ({ ...r, smtjOverrideParamsS3Uri: r.smtjOverrideParamsS3Uri.replace('v91', 'v92') }));
+        await syncTuneDescriptors(bumped, { fetchOverrideParams: async () => knobs, tuneDir: tmp, fetchPayloadTemplate: async () => null });
+        assert.strictEqual(read('sft')._synced['hp-eks'].workload_kind, 'HyperPodPyTorchJob');
+    });
+
+    it('backfills workload_kind on an unchanged (version-skipped) descriptor', async () => {
+        // Start from a pre-Wave-11 descriptor (the shipped one may already carry a kind).
+        const mp = path.join(tmp, 'sft', 'manifest.json');
+        const pre = JSON.parse(readFileSync(mp, 'utf8'));
+        for (const v of Object.values(pre.variants)) {
+            if (v._synced && v._synced['hp-eks']) delete v._synced['hp-eks'].workload_kind;
+        }
+        writeFileSync(mp, JSON.stringify(pre, null, 2));
+        await syncTuneDescriptors(HP_RECIPES, { fetchOverrideParams: async () => knobs, tuneDir: tmp, fetchPayloadTemplate: async () => null });
+        assert.ok(!read('sft')._synced['hp-eks'].workload_kind);
+        const res = await syncTuneDescriptors(HP_RECIPES, { fetchOverrideParams: async () => knobs, tuneDir: tmp, fetchPayloadTemplate: async (u) => templates(u) });
+        assert.ok(res.skipped >= 1);
+        assert.strictEqual(read('sft')._synced['hp-eks'].workload_kind, 'HyperPodPyTorchJob');
+    });
+
+    it('readWorkloadKind ignores the ConfigMap and unknown kinds', () => {
+        assert.strictEqual(readWorkloadKind(SFT_TEMPLATE), 'HyperPodPyTorchJob');
+        assert.strictEqual(readWorkloadKind(RAY_TEMPLATE), 'RayJob');
+        assert.strictEqual(readWorkloadKind('kind: ConfigMap\n---\nkind: Deployment\n'), null);
+        assert.strictEqual(readWorkloadKind(null), null);
     });
 });

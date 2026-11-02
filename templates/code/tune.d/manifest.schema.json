@@ -22,6 +22,11 @@
           "type": "string",
           "pattern": "^\\d+\\.\\d+\\.\\d+$",
           "description": "The override-params object version (semver). The sync is a no-op when this is unchanged."
+        },
+        "workload_kind": {
+          "type": "string",
+          "enum": ["HyperPodPyTorchJob", "RayJob"],
+          "description": "Wave 11 (R9.3), hp-eks only: the workload kind of AWS's HP-EKS payload template, read by sync from the template's `kind:`. do/tune --backend hp-eks runs HyperPodPyTorchJob variants and refuses RayJob (needs KubeRay, post-2.0)."
         }
       }
     },

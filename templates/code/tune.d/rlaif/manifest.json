@@ -108,8 +108,8 @@
         "learning_rate": {
           "type": "number",
           "required": true,
-          "default": 1e-05,
-          "min": 1e-07,
+          "default": 0.00001,
+          "min": 1e-7,
           "max": 0.001,
           "step": 0.0001,
           "control": "number_input",
@@ -313,7 +313,8 @@
         },
         "hp-eks": {
           "from": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-7b-instruct-lora_override_params_k8s_v2.2.7.json",
-          "version": "2.2.7"
+          "version": "2.2.7",
+          "workload_kind": "RayJob"
         }
       }
     },

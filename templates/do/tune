@@ -39,6 +39,14 @@ POLL_INTERVAL=60
 ARG_TECHNIQUE=""
 ARG_DATASET=""
 ARG_TRAINING_TYPE="lora"
+# Wave 11 (R1.2, R9–R11): compute backend + the hp-eks (HyperPodPyTorchJob) knobs.
+ARG_BACKEND=""
+ARG_ADAPT_SHAPE=false
+ARG_RENDER_ONLY=false
+ARG_INSTANCE_GROUP=""
+ARG_STARTUP_TIMEOUT=""
+ARG_STALL_TIMEOUT=""
+TUNE_BACKEND_RESOLVED=""
 ARG_MODEL=""
 # BL128: technique-aware hyperparameter knobs are collected into SET_KNOBS as plain
 # "KNOB=VALUE" strings (an INDEXED array — NOT `declare -A`, which needs bash 4+; do/tune
@@ -183,6 +191,20 @@ _parse_args() {
             --status) ARG_STATUS=true; shift ;;
             --help|-h) ARG_HELP=true; shift ;;
             --dry-run) ARG_DRY_RUN=true; shift ;;
+            --adapt-shape) ARG_ADAPT_SHAPE=true; shift ;;
+            --render-only) ARG_RENDER_ONLY=true; shift ;;
+            --backend|--instance-group|--startup-timeout|--stall-timeout)
+                if [ -z "${2:-}" ] || [[ "${2}" == -* ]]; then
+                    echo "❌ $1 requires a value"
+                    exit 2
+                fi
+                case "$1" in
+                    --backend) ARG_BACKEND="$2" ;;
+                    --instance-group) ARG_INSTANCE_GROUP="$2" ;;
+                    --startup-timeout) ARG_STARTUP_TIMEOUT="$2" ;;
+                    --stall-timeout) ARG_STALL_TIMEOUT="$2" ;;
+                esac
+                shift 2 ;;
             --list-models) ARG_LIST_MODELS=true; shift ;;
             --list-datasets) ARG_LIST_DATASETS=true; shift ;;
             --source)
@@ -361,6 +383,13 @@ _show_help() {
     echo "Informational:"
     echo "  --help, -h            Show this help message"
     echo "  --dry-run             Validate inputs and show what would be submitted"
+    echo "  --backend <b>         smtj (default) or hp-eks (hyperpod-eks projects; SFT / DPO only):"
+    echo "                        run AWS's HP-EKS recipe as a HyperPodPyTorchJob on the cluster"
+    echo "  --adapt-shape         hp-eks, EXPERIMENTAL (AWS-unsupported): rewrite the recipe's"
+    echo "                        8-GPU/EFA (p4d/p5) shape to the instance group's allocatable"
+    echo "  --render-only         hp-eks: stage the data and write the patched manifest; apply nothing"
+    echo "  --instance-group <g>  hp-eks: pin the instance group"
+    echo "  --startup-timeout <s> / --stall-timeout <s>  hp-eks watcher limits (1200 / 1800)"
     echo "  --list-models         Print supported models, techniques, and training types"
     echo ""
     echo "Examples:"
@@ -1936,45 +1965,47 @@ _handle_completion() {
     local technique_upper
     technique_upper=$(echo "${ARG_TECHNIQUE}" | tr '[:lower:]' '[:upper:]')
 
-    # Resolve artifact path via Python helper
-    local resolve_args=(
-        --job-name "${job_name}"
-        --region "${AWS_REGION}"
-        --training-type "${ARG_TRAINING_TYPE}"
-    )
-    resolve_args+=(--model-package-group "${PROJECT_NAME}")
+    # Wave 11 (R5.3): an hp-eks run hands in the artifact it resolved from the
+    # job's S3 output (<artifact> <adapter|model>); the promotion + config writes
+    # below are then exactly the SMTJ ones.
+    local artifact_path="${2:-}" output_type="${3:-}" model_package_arn=""
+    if [ -z "${artifact_path}" ]; then
+        # Resolve artifact path via Python helper
+        local resolve_args=(
+            --job-name "${job_name}"
+            --region "${AWS_REGION}"
+            --training-type "${ARG_TRAINING_TYPE}"
+        )
+        resolve_args+=(--model-package-group "${PROJECT_NAME}")
 
-    local resolve_result
-    resolve_result=$(python3 "${HELPER_SCRIPT}" resolve "${resolve_args[@]}" 2>/dev/null) || {
-        echo "⚠️  Could not resolve output artifacts"
-        echo "   Check job output manually:"
-        echo "   python3 ${HELPER_SCRIPT} resolve --job-name ${job_name} --region ${AWS_REGION} --training-type ${ARG_TRAINING_TYPE}"
-        return 0
-    }
+        local resolve_result
+        resolve_result=$(python3 "${HELPER_SCRIPT}" resolve "${resolve_args[@]}" 2>/dev/null) || {
+            echo "⚠️  Could not resolve output artifacts"
+            echo "   Check job output manually:"
+            echo "   python3 ${HELPER_SCRIPT} resolve --job-name ${job_name} --region ${AWS_REGION} --training-type ${ARG_TRAINING_TYPE}"
+            return 0
+        }
 
-    # Check for error
-    local has_error
-    has_error=$(echo "${resolve_result}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if 'error' in d else 'no')" 2>/dev/null) || has_error="yes"
+        # Check for error
+        local has_error
+        has_error=$(echo "${resolve_result}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if 'error' in d else 'no')" 2>/dev/null) || has_error="yes"
 
-    if [ "${has_error}" = "yes" ]; then
-        local error_msg
-        error_msg=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',''))" 2>/dev/null) || error_msg=""
-        if [ -n "${error_msg}" ]; then
-            echo "   ⚠️  ${error_msg}"
+        if [ "${has_error}" = "yes" ]; then
+            local error_msg
+            error_msg=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',''))" 2>/dev/null) || error_msg=""
+            if [ -n "${error_msg}" ]; then
+                echo "   ⚠️  ${error_msg}"
+            fi
+            return 0
         fi
-        return 0
+
+        # Extract results
+        artifact_path=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('artifact_path',''))" 2>/dev/null) || artifact_path=""
+
+        output_type=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('output_type',''))" 2>/dev/null) || output_type=""
+
+        model_package_arn=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('model_package_arn','') or '')" 2>/dev/null) || model_package_arn=""
     fi
-
-    # Extract results
-    local artifact_path
-    artifact_path=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('artifact_path',''))" 2>/dev/null) || artifact_path=""
-
-    local output_type
-    output_type=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('output_type',''))" 2>/dev/null) || output_type=""
-
-    local model_package_arn
-    model_package_arn=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('model_package_arn','') or '')" 2>/dev/null) || model_package_arn=""
-
     # Display results
     echo "🎉 Customization complete!"
     echo ""
@@ -2147,6 +2178,315 @@ ADAPTER_CONF
 }
 
 
+# ══ Wave 11: do/tune --backend hp-eks (R9–R12; F4) ════════════════════════════
+# Runs AWS's own HP-EKS recipe (the Hub `HpEksPayloadTemplateS3Uri`, recorded per
+# model / technique / PEFT in the tune catalog) as a single-node HyperPodPyTorchJob,
+# rendered and patched by lib/python/hp_payload.py and watched by the shared
+# lib/python/hp_job.py substrate. The backend comes from the target descriptor's
+# compute_backends (smtj is the default everywhere, OQ-11.5).
+
+# _tune_variant — the descriptor / catalog variant key for --training-type.
+_tune_variant() {
+    case "${ARG_TRAINING_TYPE}" in
+        full*|fft) echo "full" ;;
+        *) echo "lora" ;;
+    esac
+}
+
+# _tune_resolve_backend — --backend > compute_backends[0]; refuses (exit 3) a
+# backend the target does not offer, naming the allowed set.
+_tune_resolve_backend() {
+    local _allowed _req
+    _allowed=$(python3 "${SCRIPT_DIR}/lib/python/target_manifest.py" compute_backends "${DEPLOYMENT_TARGET:-}" 2>/dev/null \
+        | tr -d '[]",') || _allowed=""
+    _allowed=$(echo ${_allowed})
+    _allowed="${_allowed:-smtj}"
+    _req="${ARG_BACKEND:-${_allowed%% *}}"
+    case " ${_allowed} " in
+        *" ${_req} "*) ;;
+        *)
+            _contract_violation "backend" \
+                "--backend ${_req} is not available for do/tune on ${DEPLOYMENT_TARGET:-<unset>}." \
+                "Allowed backends here: $(echo "${_allowed}" | sed 's/ /, /g') (default: ${_allowed%% *})."
+            ;;
+    esac
+    TUNE_BACKEND_RESOLVED="${_req}"
+    if [ "${_req}" != "hp-eks" ]; then
+        if [ "${ARG_ADAPT_SHAPE}" = true ] || [ "${ARG_RENDER_ONLY}" = true ] || [ -n "${ARG_INSTANCE_GROUP}" ]; then
+            echo "❌ --adapt-shape / --render-only / --instance-group need --backend hp-eks"
+            exit 2
+        fi
+    fi
+}
+
+# _hp_tune_gate — R9.1 / R9.2: only HyperPodPyTorchJob recipes run on hp-eks.
+_hp_tune_gate() {
+    local _kind
+    _kind=$(python3 "${SCRIPT_DIR}/lib/python/tune_manifest.py" hp_eks_workload_kind \
+        "${ARG_TECHNIQUE}" "$(_tune_variant)" 2>/dev/null) || _kind="unknown"
+    case "${_kind}" in
+        HyperPodPyTorchJob) return 0 ;;
+        RayJob)
+            _contract_violation "backend" \
+                "${ARG_TECHNIQUE} on --backend hp-eks is post-2.0: AWS's HP-EKS recipe for it is a RayJob, which needs KubeRay installed by the cluster owner (MLCC never installs it; ADR-012)." \
+                "Run it as a SageMaker training job: ./do/tune --technique ${ARG_TECHNIQUE} --dataset ... (no --backend hp-eks)."
+            ;;
+        "")
+            _contract_violation "backend" \
+                "AWS publishes no HP-EKS payload for ${ARG_TECHNIQUE} (${ARG_TRAINING_TYPE})." \
+                "Run it as a SageMaker training job: drop --backend hp-eks."
+            ;;
+        *)
+            _contract_violation "backend" \
+                "the ${ARG_TECHNIQUE} tune descriptor has no synced hp-eks workload kind." \
+                "Regenerate the project with a current ml-container-creator (its descriptors carry the kind)."
+            ;;
+    esac
+}
+
+# _hp_tune_json <json> <key> — one top-level / resolved.* field.
+_hp_tune_json() {
+    printf '%s' "$1" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except ValueError:
+    d = {}
+v = d.get(sys.argv[1], (d.get('resolved') or {}).get(sys.argv[1], ''))
+print('' if v is None else v)
+" "$2" 2>/dev/null || true
+}
+
+# _hp_tune_watch <sub> <job> — the shared watcher (main container: AWS's `pytorch`).
+_hp_tune_watch() {
+    python3 "${SCRIPT_DIR}/lib/python/hp_job.py" "$1" --job "$2" --namespace "${HP_NAMESPACE:-default}" \
+        --artifacts-bucket "${ARTIFACTS_S3_BUCKET:-}" --project "${PROJECT_NAME}" --kind tune \
+        --main-container pytorch --startup-timeout "${ARG_STARTUP_TIMEOUT:-1200}" \
+        --stall-timeout "${ARG_STALL_TIMEOUT:-1800}" --poll 60
+}
+
+# _hp_tune_complete <job> <watch-json> — resolve the adapter / model under the job's
+# S3 output and run the SAME promotion + TUNE_* writes as an SMTJ completion.
+_hp_tune_complete() {
+    local _job="$1" _out="$2" _prefix _bucket _keys _hit _type
+    _prefix=$(_hp_tune_json "${_out}" artifact_prefix)
+    _bucket="${_prefix#s3://}"
+    _bucket="${_bucket%%/*}"
+    _keys=$(aws s3 ls --recursive "${_prefix%/}/" --region "${AWS_REGION}" 2>/dev/null | awk '{print $4}') || _keys=""
+    _hit=$(printf '%s\n' "${_keys}" | grep '/adapter_config\.json$' | sort | tail -1 || true)
+    _type="adapter"
+    if [ -z "${_hit}" ]; then
+        _hit=$(printf '%s\n' "${_keys}" | grep '/config\.json$' | sort | tail -1 || true)
+        _type="model"
+    fi
+    if [ -z "${_hit}" ]; then
+        echo "⚠  No adapter_config.json / config.json under ${_prefix}; nothing to promote."
+        echo "   Inspect: aws s3 ls --recursive ${_prefix%/}/"
+        return 1
+    fi
+    JOB_NAME="${_job}"
+    _handle_completion "${_job}" "s3://${_bucket}/${_hit%/*}/" "${_type}"
+}
+
+# _hp_tune_after_watch <rc> <json> <job>
+_hp_tune_after_watch() {
+    local _state
+    _state=$(_hp_tune_json "$2" state)
+    case "${_state}" in
+        Succeeded) echo "✅ Tune job completed: $3"; _hp_tune_complete "$3" "$2" ;;
+        Running|Pending) echo "   🔄 ${_state}: $(_hp_tune_json "$2" reason)" ;;
+        *)
+            echo "❌ Tune job failed: $3"
+            echo "   Reason: $(_hp_tune_json "$2" reason)"
+            [ -n "$(_hp_tune_json "$2" precondition)" ] && echo "   $(_hp_tune_json "$2" precondition)"
+            echo "   Durable log: $(_hp_tune_json "$2" logs_uri)"
+            exit 2
+            ;;
+    esac
+}
+
+# _hp_tune_status — --status for an hp-eks tune job (one classify + act pass; a
+# finished job is deleted, a success not yet recorded is completed).
+_hp_tune_status() {
+    local _t_u _job _out _rc=0
+    _t_u=$(echo "${ARG_TECHNIQUE}" | tr '[:lower:]' '[:upper:]')
+    _job=$(eval echo "\${TUNE_JOB_NAME_${_t_u}:-}")
+    if [ -z "${_job}" ]; then
+        echo "📊 No ${ARG_TECHNIQUE} tune job tracked."
+        exit 0
+    fi
+    echo "📊 ${_job} (hp-eks, ${HP_NAMESPACE:-default})"
+    _out=$(_hp_tune_watch status "${_job}") || _rc=$?
+    _hp_tune_after_watch "${_rc}" "${_out}" "${_job}"
+    exit 0
+}
+
+_hp_tune_run() {
+    local _peft _ns _job _tmp _ptr _tmpl_uri _op_uri _shape _kind _t _e _input _crc=0 _cjson
+    _peft=$(_tune_variant)
+    _ns="${HP_NAMESPACE:-default}"
+    if [ -z "${HP_CLUSTER_NAME:-}" ]; then
+        echo "❌ HP_CLUSTER_NAME is not set (hp-eks runs on the project's HyperPod cluster)"
+        exit 1
+    fi
+    if [ -z "${ARTIFACTS_S3_BUCKET:-}" ]; then
+        echo "❌ The profile has no artifacts bucket (ARTIFACTS_S3_BUCKET): ml-container-creator bootstrap update --module training"
+        exit 1
+    fi
+    case "${STAGED_MODEL_PATH:-}" in
+        s3://*) ;;
+        *)
+            echo "❌ hp-eks tunes the base model from S3 and it is not staged: run ./do/stage first"
+            exit 3
+            ;;
+    esac
+    _ptr=$(python3 -c "
+import json, sys
+cat = json.load(open(sys.argv[1]))
+p = (((cat.get('models') or {}).get(sys.argv[2]) or {}).get('techniques') or {}).get(sys.argv[3], {}).get('hpEks', {}).get(sys.argv[4]) or {}
+if not p.get('payloadTemplate') or not p.get('overrideParams'):
+    sys.exit(3)
+print(p['payloadTemplate'], p['overrideParams'])
+" "${CATALOG_FILE}" "${RESOLVED_MODEL_ID}" "${ARG_TECHNIQUE}" "${_peft}" 2>/dev/null) || {
+        echo "❌ The tune catalog has no HP-EKS payload for ${RESOLVED_MODEL_ID} / ${ARG_TECHNIQUE} / ${_peft}"
+        echo "   Regenerate the project with a current ml-container-creator (the catalog records the pointers)."
+        exit 3
+    }
+    _tmpl_uri="${_ptr%% *}"
+    _op_uri="${_ptr##* }"
+    _job="$(echo "${PROJECT_NAME}" | tr '[:upper:]_' '[:lower:]-')-tune-${ARG_TECHNIQUE}-$(date +%Y%m%d-%H%M%S)"
+    _tmp="$(mktemp -d)"
+    if ! aws s3 cp --only-show-errors "${_tmpl_uri}" "${_tmp}/payload.yaml" --region "${AWS_REGION}" \
+        || ! aws s3 cp --only-show-errors "${_op_uri}" "${_tmp}/override.json" --region "${AWS_REGION}"; then
+        rm -rf "${_tmp}"
+        echo "❌ Could not fetch the HP-EKS recipe (${_tmpl_uri})"
+        exit 3
+    fi
+    _shape=$(python3 "${SCRIPT_DIR}/lib/python/hp_payload.py" shape --template "${_tmp}/payload.yaml") || {
+        rm -rf "${_tmp}"
+        exit 3
+    }
+    _kind=$(_hp_tune_json "${_shape}" kind)
+    if [ "${_kind}" != "HyperPodPyTorchJob" ]; then
+        rm -rf "${_tmp}"
+        echo "❌ The fetched recipe's workload is '${_kind}', not HyperPodPyTorchJob; refusing."
+        exit 3
+    fi
+    _t=$(_hp_tune_json "${_shape}" gpus)
+    _e=$(_hp_tune_json "${_shape}" efa)
+    # R10.2: the recipe's dataset format (SFT: messages; DPO: prompt/chosen/rejected).
+    if ! aws s3 cp --only-show-errors "${RESOLVED_DATASET_S3_URI}" "${_tmp}/in.jsonl" --region "${AWS_REGION}" \
+        || ! python3 "${SCRIPT_DIR}/lib/python/hp_payload.py" prepare-data --technique "${ARG_TECHNIQUE}" \
+            --in "${_tmp}/in.jsonl" --out "${_tmp}/train.jsonl" >/dev/null; then
+        rm -rf "${_tmp}"
+        echo "❌ The dataset could not be prepared for the HP-EKS recipe (see above)"
+        exit 3
+    fi
+    _input="s3://${ARTIFACTS_S3_BUCKET}/${PROJECT_NAME}/tune/${_job}/input/"
+
+    echo ""
+    echo "🔎 Cluster contract (hp-eks tune, read-only):"
+    local _contract_script _adapt=""
+    [ "${ARG_ADAPT_SHAPE}" = true ] && _adapt="--adapt-shape"
+    _contract_script=$(python3 "${SCRIPT_DIR}/lib/python/target_manifest.py" cluster_contract "${DEPLOYMENT_TARGET}" \
+        | python3 -c "import json,sys; print(json.load(sys.stdin).get('script',''))")
+    _cjson=$(python3 "${SCRIPT_DIR}/${_contract_script}" contract --verb tune --namespace "${_ns}" \
+        --project "${PROJECT_NAME}" --group "${ARG_INSTANCE_GROUP:-${TUNE_HP_INSTANCE_GROUP:-}}" \
+        --dataset "${_input}train.jsonl" --job "${_job}" --template-gpus "${_t}" --template-efa "${_e}" ${_adapt}) || _crc=$?
+    if [ "${_crc}" -eq 4 ] && [ "${ARG_DRY_RUN}" != true ]; then
+        rm -rf "${_tmp}"
+        echo "❌ The cluster contract has blocking findings (above); nothing was submitted."
+        exit 4
+    elif [ "${_crc}" -ne 0 ] && [ "${_crc}" -ne 4 ]; then
+        rm -rf "${_tmp}"
+        echo "❌ The cluster contract could not run (exit ${_crc})"
+        exit 1
+    fi
+    local _group _alloc _gefa _itype _vram _bytes _hp_args=()
+    _group=$(_hp_tune_json "${_cjson}" group)
+    _alloc=$(_hp_tune_json "${_cjson}" allocatable)
+    _gefa=$(_hp_tune_json "${_cjson}" efa)
+    _itype=$(_hp_tune_json "${_cjson}" instance_type)
+    if [ -z "${_group}" ] || [ -z "${_alloc}" ]; then
+        rm -rf "${_tmp}"
+        echo "❌ No GPU node could be chosen (see free-gpus above)."
+        exit 4
+    fi
+    _vram=$(python3 -c "
+import sys; sys.path.insert(0, sys.argv[1])
+import right_sizing
+print(right_sizing.gpu_memory_gib_for(sys.argv[2]) or '')" "${SCRIPT_DIR}/lib/python" "${_itype}" 2>/dev/null || true)
+    _bytes=$(python3 -c "
+import sys; sys.path.insert(0, sys.argv[1])
+import hp_job
+print(hp_job.s3_prefix_bytes(sys.argv[2]) or '')" "${SCRIPT_DIR}/lib/python" "${STAGED_MODEL_PATH}" 2>/dev/null || true)
+    [ -n "${_vram}" ] && _hp_args+=(--gpu-vram-gib "${_vram}")
+    [ -n "${_bytes}" ] && _hp_args+=(--model-bytes "${_bytes}")
+    [ "${ARG_ADAPT_SHAPE}" = true ] && _hp_args+=(--adapt-shape)
+    local _kv
+    for _kv in ${SET_KNOBS[@]+"${SET_KNOBS[@]}"}; do
+        _hp_args+=(--set "${_kv}")
+    done
+    local _values='{}'
+    [ -n "${MLFLOW_APP_ARN:-}" ] && _values="{\"mlflow_tracking_uri\": \"${MLFLOW_APP_ARN}\"}"
+    local _manifest="${_tmp}/manifest.json"
+    if ! python3 "${SCRIPT_DIR}/lib/python/hp_payload.py" render --template "${_tmp}/payload.yaml" \
+        --override-params "${_tmp}/override.json" --values-json "${_values}" --group "${_group}" \
+        --group-gpus "${_alloc}" --group-efa "${_gefa:-0}" --project "${PROJECT_NAME}" --job "${_job}" \
+        --namespace "${_ns}" --artifacts-bucket "${ARTIFACTS_S3_BUCKET}" --region "${AWS_REGION}" \
+        --max-runtime "${TUNE_MAX_RUNTIME:-86400}" --dataset-uri "${_input}" --model-uri "${STAGED_MODEL_PATH}" \
+        --technique "${ARG_TECHNIQUE}" --out "${_manifest}" ${_hp_args[@]+"${_hp_args[@]}"} >/dev/null; then
+        local _rr=$?
+        rm -rf "${_tmp}"
+        exit "${_rr}"
+    fi
+    echo ""
+    echo "📋 HyperPodPyTorchJob: ${_ns}/${_job}  (group ${_group}, recipe ${_tmpl_uri##*/})"
+    if [ "${ARG_DRY_RUN}" = true ]; then
+        echo ""
+        echo "🔍 Dry run — patched HP-EKS manifest (nothing uploaded or applied):"
+        cat "${_manifest}"
+        rm -rf "${_tmp}"
+        exit 0
+    fi
+    if ! aws s3 cp --only-show-errors "${_tmp}/train.jsonl" "${_input}train.jsonl" --region "${AWS_REGION}"; then
+        rm -rf "${_tmp}"
+        echo "❌ Could not upload the prepared dataset to ${_input}"
+        exit 1
+    fi
+    if [ "${ARG_RENDER_ONLY}" = true ]; then
+        local _keep="${SCRIPT_DIR}/.hp-tune-${_job}.json"
+        cp "${_manifest}" "${_keep}"
+        rm -rf "${_tmp}"
+        echo ""
+        echo "📝 Render only — data staged at ${_input}; manifest: ${_keep}"
+        echo "   Apply (cluster owner / attended run):"
+        echo "     kubectl create serviceaccount mlcc-train-sa -n ${_ns} --dry-run=client -o yaml | kubectl apply -f -"
+        echo "     kubectl apply -f ${_keep}"
+        echo "   Watch (deletes the job on any terminal state):"
+        echo "     python3 do/lib/python/hp_job.py watch --job ${_job} --namespace ${_ns} --artifacts-bucket ${ARTIFACTS_S3_BUCKET} --project ${PROJECT_NAME} --kind tune --main-container pytorch"
+        exit 0
+    fi
+    echo "🚀 Submitting to HyperPod EKS (${HP_CLUSTER_NAME})..."
+    if ! python3 "${SCRIPT_DIR}/lib/python/hp_job.py" submit --manifest "${_manifest}" --namespace "${_ns}" >/dev/null; then
+        rm -rf "${_tmp}"
+        echo "❌ kubectl apply failed (see above)"
+        exit 1
+    fi
+    rm -rf "${_tmp}"
+    local _t_u
+    _t_u=$(echo "${ARG_TECHNIQUE}" | tr '[:lower:]' '[:upper:]')
+    _update_config_var "TUNE_JOB_NAME_${_t_u}" "${_job}"
+    _update_config_var "TUNE_BACKEND_${_t_u}" "hp-eks"
+    if [ "${ARG_NO_WAIT}" = true ]; then
+        echo "   --no-wait: ./do/tune --technique ${ARG_TECHNIQUE} --status checks it (and releases the GPUs when done)."
+        exit 0
+    fi
+    local _out _rc=0
+    _out=$(_hp_tune_watch watch "${_job}") || _rc=$?
+    _hp_tune_after_watch "${_rc}" "${_out}" "${_job}"
+}
+
 # ── _dry_run() ────────────────────────────────────────────────────────────────
 # Validate all inputs and show what would be submitted without creating a job.
 _dry_run() {
@@ -2222,6 +2562,13 @@ if [ "${ARG_LIST_MODELS}" = true ]; then
 fi
 
 if [ "${ARG_STATUS}" = true ]; then
+    # Wave 11 (R6.3): an hp-eks job is watched by the shared HPPJ watcher.
+    if [ -n "${ARG_TECHNIQUE}" ]; then
+        _ST_T_U=$(echo "${ARG_TECHNIQUE}" | tr '[:lower:]' '[:upper:]')
+        if [ "$(eval echo "\${TUNE_BACKEND_${_ST_T_U}:-}")" = "hp-eks" ]; then
+            _hp_tune_status
+        fi
+    fi
     _show_status
 fi
 
@@ -2286,7 +2633,15 @@ _check_catalog_staleness
 _resolve_tune_model
 _validate_technique
 _validate_training_type
+# Wave 11 (R1.2, R9): resolve the compute backend from the target descriptor and
+# gate the hp-eks workload kind BEFORE the dataset preflight touches anything.
+_tune_resolve_backend
+[ "${TUNE_BACKEND_RESOLVED}" = "hp-eks" ] && _hp_tune_gate
 _validate_dataset
+if [ "${TUNE_BACKEND_RESOLVED}" = "hp-eks" ]; then
+    _hp_tune_run
+    exit $?
+fi
 
 # Check idempotency (may exit early if existing job is handled)
 if _check_idempotency; then

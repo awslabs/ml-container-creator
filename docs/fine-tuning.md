@@ -938,6 +938,47 @@ With `--no-transform` active, the pipeline still detects chat-format columns and
 !!! note "Pipeline ordering"
     The full staging pipeline runs in this order: **download** → **column rename** (`--column-map`) → **detect chat-format** → **flatten** → **type validation** → **write JSONL** → **upload to S3**. Column rename always happens before flatten, so `--column-map` and auto-flatten compose correctly.
 
+## Running on HyperPod EKS (`--backend hp-eks`)
+
+On a `hyperpod-eks` project, `do/tune --backend hp-eks` runs AWS's own HyperPod EKS recipe for
+the model (the Hub `HpEksPayloadTemplateS3Uri`, recorded in the tune catalog) as a single-node
+HyperPodPyTorchJob on your cluster. SageMaker training jobs stay the default.
+
+- **Techniques.** SFT and DPO only (their recipes are HyperPodPyTorchJobs). RLVR and RLAIF recipes
+  are RayJobs: they need KubeRay installed by the cluster owner and are post-2.0, so they're
+  refused with that reason. MTRL has no HP-EKS recipe at all.
+- **Prerequisites.** The same cluster contract and training identity as
+  [`do/train --backend hp-eks`](custom-training.md#hyperpod-eks-backend-backend-hp-eks), plus a
+  Bound `fsx-claim` PVC (the AWS recipes require it) and the base model staged to S3
+  (`./do/stage`).
+- **Always-on fixes.** MLCC renders the template itself (an unfilled placeholder is fatal) and
+  fixes what doesn't run as published on the current operator and image: the reserved
+  `JOB_NAME` env, a `SCRIPT_PATH` missing from the image, the config `.yaml` suffix, the per-job
+  log path, the instance-group `nodeSelector`, the ServiceAccount, `runPolicy`, scratch and the
+  S3 hand-off. Every patched site asserts its original value first; a moved site stops the run
+  with `template drift at <site>`.
+- **Data.** SFT `prompt`/`completion` rows are converted to the recipe's `messages` column; DPO
+  keeps `prompt`/`chosen`/`rejected`. Other formats are refused, never guessed.
+
+!!! warning "`--adapt-shape` is EXPERIMENTAL"
+    Every AWS HP-EKS recipe is written for 8 GPUs and 32 EFA interfaces (p4d / p5). On a smaller
+    instance group the run stops (exit 4) unless you pass `--adapt-shape`, which rewrites the
+    recipe's GPU and EFA counts to the group's allocatable, sets the per-GPU token budget to
+    `dataset_max_len` (override with `--set max_token_len_per_gpu=N`) and
+    `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. AWS does not support this shape; memory
+    headroom on 24 GB GPUs is about 1 GB for 8B-class models, and MLCC refuses when the bf16
+    weights exceed 90% of per-GPU memory.
+
+```bash
+./do/tune --technique sft --dataset <name> --backend hp-eks --adapt-shape
+./do/tune --technique sft --dataset <name> --backend hp-eks --adapt-shape --dry-run      # print only
+./do/tune --technique sft --dataset <name> --backend hp-eks --adapt-shape --render-only  # stage data + write the manifest
+./do/tune --technique sft --status
+```
+
+On success the adapter (or full model) found under `s3://<artifacts>/<project>/tune/<job>/output/`
+is promoted and the `TUNE_*` variables are written exactly as for a SageMaker training job.
+
 ## `do/tune` vs `do/train`
 
 ML Container Creator offers two paths for model customization:

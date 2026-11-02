@@ -244,12 +244,27 @@ def artifact_kind(technique: str, variant: str | None = None,
     return ak if isinstance(ak, str) else None
 
 
+def hp_eks_workload_kind(technique: str, variant: str | None = None,
+                         tune_dir: str | None = None) -> str:
+    """Wave 11 (R9.1): the workload kind of AWS's HP-EKS payload for this variant,
+    as synced from the template (`_synced["hp-eks"].workload_kind`). Returns "" when
+    AWS publishes no HP-EKS payload for the variant (no hp-eks entry, e.g. MTRL) and
+    "unknown" when the entry predates the sync of the kind."""
+    v = _resolve_variant(read_manifest(technique, tune_dir), variant)
+    hp = (v.get("_synced") or {}).get("hp-eks")
+    if not isinstance(hp, dict):
+        return ""
+    kind = hp.get("workload_kind")
+    return kind if isinstance(kind, str) and kind else "unknown"
+
+
 def _cli(argv: list[str]) -> int:
     if len(argv) < 2:
         print(
             "usage: tune_manifest.py <op> <technique> [variant]\n"
             "  ops: dataset_contract | required_dataset_fields | reward_model_style |\n"
-            "       prompt_shape | dataset_format | is_verified | artifact_kind",
+            "       prompt_shape | dataset_format | is_verified | artifact_kind |\n"
+            "       hp_eks_workload_kind",
             file=sys.stderr,
         )
         return 2
@@ -273,6 +288,8 @@ def _cli(argv: list[str]) -> int:
             print("true" if is_verified(technique, variant) else "false")
         elif op == "artifact_kind":
             print(artifact_kind(technique, variant) or "")
+        elif op == "hp_eks_workload_kind":
+            print(hp_eks_workload_kind(technique, variant))
         else:
             print(f"unknown op: {op}", file=sys.stderr)
             return 2

@@ -1,6 +1,6 @@
 {
   "version": "2026-05-27",
-  "lastSynced": "2026-10-21T20:59:21.975Z",
+  "lastSynced": "2026-10-28T16:08:03.262Z",
   "source": "https://docs.aws.amazon.com/sagemaker/latest/dg/model-customize-open-weight.html",
   "models": {
     "huggingface-llm-qwen2-5-7b-instruct": {
@@ -14,7 +14,17 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-7b-instruct-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-7b-instruct-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-7b-instruct-fft_payload_template_k8s_v1.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-7b-instruct-fft_override_params_k8s_v1.1.7.json"
+            }
+          }
         },
         "sft": {
           "trainingTypes": [
@@ -29,6 +39,16 @@
             "types": {
               "prompt": "string",
               "completion": "string"
+            }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_7b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.4.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_7b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.4.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_7b_instruct_seq4k_gpu_sft_fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_7b_instruct_seq4k_gpu_sft_fft_override_params_k8s_v1.2.5.json"
             }
           }
         },
@@ -48,6 +68,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_7b_seq4k_gpu_dpo_payload_template_k8s_v2.2.4.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_7b_seq4k_gpu_dpo_override_params_k8s_v2.2.4.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_7b_instruct_seq4k_gpu_dpo_fft_payload_template_k8s_v1.3.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_7b_instruct_seq4k_gpu_dpo_fft_override_params_k8s_v1.3.5.json"
+            }
           }
         },
         "rlvr": {
@@ -55,7 +85,17 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-7b-instruct-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-7b-instruct-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-7b-instruct-fft_payload_template_k8s_v1.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-7b-instruct-fft_override_params_k8s_v1.2.6.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -80,6 +120,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_14b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_14b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_14b_instruct_seq4k_gpu_sft_fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_14b_instruct_seq4k_gpu_sft_fft_override_params_k8s_v1.2.5.json"
+            }
           }
         },
         "dpo": {
@@ -98,6 +148,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_14b_seq4k_gpu_dpo_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_14b_seq4k_gpu_dpo_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_14b_instruct_seq4k_gpu_dpo_fft_payload_template_k8s_v1.3.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_14b_instruct_seq4k_gpu_dpo_fft_override_params_k8s_v1.3.5.json"
+            }
           }
         },
         "rlvr": {
@@ -105,14 +165,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-14b-instruct-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-14b-instruct-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-14b-instruct-fft_payload_template_k8s_v1.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-14b-instruct-fft_override_params_k8s_v1.2.6.json"
+            }
+          }
         },
         "rlaif": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-14b-instruct-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-14b-instruct-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-14b-instruct-fft_payload_template_k8s_v1.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-14b-instruct-fft_override_params_k8s_v1.2.7.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -128,7 +208,17 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-32b-instruct-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-32b-instruct-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-32b-instruct-fft_payload_template_k8s_v1.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-32b-instruct-fft_override_params_k8s_v1.1.7.json"
+            }
+          }
         },
         "sft": {
           "trainingTypes": [
@@ -143,6 +233,16 @@
             "types": {
               "prompt": "string",
               "completion": "string"
+            }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_32b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_32b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_32b_instruct_seq4k_gpu_sft_fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_32b_instruct_seq4k_gpu_sft_fft_override_params_k8s_v1.2.5.json"
             }
           }
         },
@@ -162,6 +262,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_32b_seq4k_gpu_dpo_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_32b_seq4k_gpu_dpo_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_32b_instruct_seq4k_gpu_dpo_fft_payload_template_k8s_v1.3.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_32b_instruct_seq4k_gpu_dpo_fft_override_params_k8s_v1.3.5.json"
+            }
           }
         },
         "rlvr": {
@@ -169,7 +279,17 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-32b-instruct-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-32b-instruct-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-32b-instruct-fft_payload_template_k8s_v1.3.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-32b-instruct-fft_override_params_k8s_v1.3.6.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -196,6 +316,12 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_72b_seq4k_gpu_dpo_payload_template_k8s_v2.2.4.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_72b_seq4k_gpu_dpo_override_params_k8s_v2.2.4.json"
+            }
           }
         },
         "sft": {
@@ -212,6 +338,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_72b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.4.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_72b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.4.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_72b_seq4k_gpu_sft_fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen2_5_72b_seq4k_gpu_sft_fft_override_params_k8s_v1.2.5.json"
+            }
           }
         },
         "rlaif": {
@@ -219,14 +355,26 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-72b-instruct-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-2-dot-5-72b-instruct-lora_override_params_k8s_v2.2.7.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-72b-instruct-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-2-dot-5-72b-instruct-lora_override_params_k8s_v2.2.7.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -242,14 +390,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-0-dot-6b-lora_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-0-dot-6b-lora_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-0-dot-6b-fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-0-dot-6b-fft_override_params_k8s_v1.2.5.json"
+            }
+          }
         },
         "rlaif": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-0-dot-6b-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-0-dot-6b-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-0-dot-6b-fft_payload_template_k8s_v1.1.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-0-dot-6b-fft_override_params_k8s_v1.1.6.json"
+            }
+          }
         },
         "sft": {
           "trainingTypes": [
@@ -264,6 +432,16 @@
             "types": {
               "prompt": "string",
               "completion": "string"
+            }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_0_dot_6b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_0_dot_6b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_0_dot_6b_seq4k_gpu_sft_fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_0_dot_6b_seq4k_gpu_sft_fft_override_params_k8s_v1.2.5.json"
             }
           }
         },
@@ -282,6 +460,16 @@
               "prompt": "string",
               "chosen": "string",
               "rejected": "string"
+            }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_0_dot_6b_seq4k_gpu_dpo_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_0_dot_6b_seq4k_gpu_dpo_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_0_dot_6b_seq4k_gpu_dpo_fft_payload_template_k8s_v1.3.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_0_dot_6b_seq4k_gpu_dpo_fft_override_params_k8s_v1.3.5.json"
             }
           }
         }
@@ -308,6 +496,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_1_dot_7b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_1_dot_7b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_1_dot_7b_seq4k_gpu_sft_fft_payload_template_k8s_v1.1.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_1_dot_7b_seq4k_gpu_sft_fft_override_params_k8s_v1.1.5.json"
+            }
           }
         },
         "dpo": {
@@ -326,6 +524,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_1_dot_7b_seq4k_gpu_dpo_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_1_dot_7b_seq4k_gpu_dpo_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_1_dot_7b_seq4k_gpu_dpo_fft_payload_template_k8s_v1.3.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_1_dot_7b_seq4k_gpu_dpo_fft_override_params_k8s_v1.3.5.json"
+            }
           }
         },
         "rlaif": {
@@ -333,14 +541,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-1-dot-7b-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-1-dot-7b-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-1-dot-7b-fft_payload_template_k8s_v1.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-1-dot-7b-fft_override_params_k8s_v1.1.7.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-1-dot-7b-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-1-dot-7b-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-1-dot-7b-fft_payload_template_k8s_v1.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-1-dot-7b-fft_override_params_k8s_v1.2.6.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -367,6 +595,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_4b_seq4k_gpu_dpo_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_4b_seq4k_gpu_dpo_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_4b_seq4k_gpu_dpo_fft_payload_template_k8s_v1.3.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_4b_seq4k_gpu_dpo_fft_override_params_k8s_v1.3.5.json"
+            }
           }
         },
         "sft": {
@@ -383,6 +621,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_4b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_4b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_4b_seq4k_gpu_sft_fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_4b_seq4k_gpu_sft_fft_override_params_k8s_v1.2.5.json"
+            }
           }
         },
         "rlaif": {
@@ -390,14 +638,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-4b-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-4b-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-4b-fft_payload_template_k8s_v1.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-4b-fft_override_params_k8s_v1.1.7.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-4b-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-4b-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-4b-fft_payload_template_k8s_v1.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-4b-fft_override_params_k8s_v1.2.6.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -413,7 +681,17 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-8b-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-8b-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-8b-fft_payload_template_k8s_v1.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-8b-fft_override_params_k8s_v1.1.7.json"
+            }
+          }
         },
         "sft": {
           "trainingTypes": [
@@ -428,6 +706,16 @@
             "types": {
               "prompt": "string",
               "completion": "string"
+            }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-8b-lora_payload_template_k8s_v2.1.1.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-8b-lora_override_params_k8s_v2.1.1.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_8b_seq4k_gpu_sft_fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_8b_seq4k_gpu_sft_fft_override_params_k8s_v1.2.5.json"
             }
           }
         },
@@ -447,6 +735,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_8b_seq4k_gpu_dpo_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_8b_seq4k_gpu_dpo_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_8b_seq4k_gpu_dpo_fft_payload_template_k8s_v1.3.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_8b_seq4k_gpu_dpo_fft_override_params_k8s_v1.3.5.json"
+            }
           }
         },
         "rlvr": {
@@ -454,7 +752,17 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-8b-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-8b-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-8b-fft_payload_template_k8s_v1.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-8b-fft_override_params_k8s_v1.2.6.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -481,6 +789,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_14b_seq4k_gpu_dpo_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_14b_seq4k_gpu_dpo_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_14b_seq4k_gpu_dpo_fft_payload_template_k8s_v1.3.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_14b_seq4k_gpu_dpo_fft_override_params_k8s_v1.3.5.json"
+            }
           }
         },
         "sft": {
@@ -497,6 +815,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_14b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_14b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_14b_seq4k_gpu_sft_fft_payload_template_k8s_v1.1.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_14b_seq4k_gpu_sft_fft_override_params_k8s_v1.1.5.json"
+            }
           }
         },
         "rlaif": {
@@ -504,14 +832,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-14b-lora_payload_template_k8s_v2.3.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-14b-lora_override_params_k8s_v2.3.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-14b-fft_payload_template_k8s_v1.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-14b-fft_override_params_k8s_v1.1.7.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-14b-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-14b-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-14b-fft_payload_template_k8s_v1.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-14b-fft_override_params_k8s_v1.2.6.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -536,6 +884,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_32b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_32b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_32b_seq4k_gpu_sft_fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_32b_seq4k_gpu_sft_fft_override_params_k8s_v1.2.5.json"
+            }
           }
         },
         "dpo": {
@@ -554,6 +912,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_32b_seq4k_gpu_dpo_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_32b_seq4k_gpu_dpo_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_32b_seq4k_gpu_dpo_fft_payload_template_k8s_v1.3.4.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_qwen3_32b_seq4k_gpu_dpo_fft_override_params_k8s_v1.3.4.json"
+            }
           }
         },
         "rlaif": {
@@ -561,14 +929,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-32b-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-32b-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-32b-fft_payload_template_k8s_v1.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-32b-fft_override_params_k8s_v1.1.7.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-32b-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-32b-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-32b-fft_payload_template_k8s_v1.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-32b-fft_override_params_k8s_v1.2.6.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -593,6 +981,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_llama_8b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_llama_8b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_llama_8b_seq4k_gpu_sft_fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_llama_8b_seq4k_gpu_sft_fft_override_params_k8s_v1.2.5.json"
+            }
           }
         },
         "dpo": {
@@ -611,6 +1009,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_llama_8b_seq4k_gpu_dpo_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_llama_8b_seq4k_gpu_dpo_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_llama_8b_seq4k_gpu_dpo_fft_payload_template_k8s_v1.3.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_llama_8b_seq4k_gpu_dpo_fft_override_params_k8s_v1.3.5.json"
+            }
           }
         },
         "rlaif": {
@@ -618,14 +1026,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-llama-8b-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-llama-8b-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-llama-8b-fft_payload_template_k8s_v1.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-llama-8b-fft_override_params_k8s_v1.1.7.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-llama-8b-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-llama-8b-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-llama-8b-fft_payload_template_k8s_v1.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-llama-8b-fft_override_params_k8s_v1.2.6.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -650,6 +1078,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_llama_70b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.4.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_llama_70b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.4.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_llama_70b_seq4k_gpu_sft_fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_llama_70b_seq4k_gpu_sft_fft_override_params_k8s_v1.2.5.json"
+            }
           }
         },
         "dpo": {
@@ -668,6 +1106,12 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_llama_70b_seq4k_gpu_dpo_payload_template_k8s_v2.2.4.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_llama_70b_seq4k_gpu_dpo_override_params_k8s_v2.2.4.json"
+            }
           }
         },
         "rlaif": {
@@ -675,14 +1119,26 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-llama-70b-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-llama-70b-lora_override_params_k8s_v2.2.7.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-llama-70b-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-llama-70b-lora_override_params_k8s_v2.2.6.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -709,6 +1165,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_1_dot_5b_seq4k_gpu_dpo_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_1_dot_5b_seq4k_gpu_dpo_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_1_dot_5b_seq4k_dpo_fft_payload_template_k8s_v1.3.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_1_dot_5b_seq4k_dpo_fft_override_params_k8s_v1.3.5.json"
+            }
           }
         },
         "sft": {
@@ -725,6 +1191,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_1_dot_5b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_1_dot_5b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_1_dot_5b_seq4k_gpu_sft_fft_payload_template_k8s_v1.1.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_1_dot_5b_seq4k_gpu_sft_fft_override_params_k8s_v1.1.5.json"
+            }
           }
         },
         "rlaif": {
@@ -732,14 +1208,30 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-1-dot-5b-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-1-dot-5b-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-1-dot-5b-fft_payload_template_k8s_v1.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-1-dot-5b-fft_override_params_k8s_v1.1.7.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-qwen-1-dot-5b-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-qwen-1-dot-5b-lora_override_params_k8s_v2.2.6.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -764,6 +1256,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_7b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_7b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_7b_seq4k_gpu_sft_fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_7b_seq4k_gpu_sft_fft_override_params_k8s_v1.2.5.json"
+            }
           }
         },
         "dpo": {
@@ -782,6 +1284,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_7b_seq4k_gpu_dpo_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_7b_seq4k_gpu_dpo_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_7b_seq4k_gpu_dpo_fft_payload_template_k8s_v1.3.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_7b_seq4k_gpu_dpo_fft_override_params_k8s_v1.3.5.json"
+            }
           }
         },
         "rlaif": {
@@ -789,14 +1301,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-7b-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-7b-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-7b-fft_payload_template_k8s_v1.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-7b-fft_override_params_k8s_v1.1.7.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-qwen-7b-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-qwen-7b-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-qwen-7b-fft_payload_template_k8s_v1.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-qwen-7b-fft_override_params_k8s_v1.2.6.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -821,6 +1353,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_14b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_14b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_14b_seq4k_gpu_sft_fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_14b_seq4k_gpu_sft_fft_override_params_k8s_v1.2.5.json"
+            }
           }
         },
         "dpo": {
@@ -839,6 +1381,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_14b_seq4k_gpu_dpo_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_14b_seq4k_gpu_dpo_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_14b_seq4k_gpu_dpo_fft_payload_template_k8s_v1.3.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_14b_seq4k_gpu_dpo_fft_override_params_k8s_v1.3.5.json"
+            }
           }
         },
         "rlaif": {
@@ -846,14 +1398,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-14b-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-14b-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-14b-fft_payload_template_k8s_v1.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-14b-fft_override_params_k8s_v1.1.7.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-qwen-14b-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-qwen-14b-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-qwen-14b-fft_payload_template_k8s_v1.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-qwen-14b-fft_override_params_k8s_v1.2.6.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -869,7 +1441,17 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-32b-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-32b-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-32b-fft_payload_template_k8s_v1.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-deepseek-r1-distilled-qwen-32b-fft_override_params_k8s_v1.1.7.json"
+            }
+          }
         },
         "sft": {
           "trainingTypes": [
@@ -884,6 +1466,16 @@
             "types": {
               "prompt": "string",
               "completion": "string"
+            }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_32b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_32b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_32b_seq4k_gpu_sft_fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_32b_seq4k_gpu_sft_fft_override_params_k8s_v1.2.5.json"
             }
           }
         },
@@ -903,6 +1495,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_32b_seq4k_gpu_dpo_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_32b_seq4k_gpu_dpo_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_32b_seq4k_gpu_dpo_fft_payload_template_k8s_v1.3.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_deepseek_r1_distilled_qwen_32b_seq4k_gpu_dpo_fft_override_params_k8s_v1.3.5.json"
+            }
           }
         },
         "rlvr": {
@@ -910,7 +1512,17 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-qwen-32b-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-qwen-32b-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-qwen-32b-fft_payload_template_k8s_v1.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-deepseek-r1-distilled-qwen-32b-fft_override_params_k8s_v1.2.6.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -926,14 +1538,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-1-8b-instruct-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-1-8b-instruct-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-1-8b-instruct-fft_payload_template_k8s_v1.1.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-1-8b-instruct-fft_override_params_k8s_v1.1.6.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-1-8b-instruct-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-1-8b-instruct-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-1-8b-instruct-fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-1-8b-instruct-fft_override_params_k8s_v1.2.5.json"
+            }
+          }
         },
         "sft": {
           "trainingTypes": [
@@ -948,6 +1580,16 @@
             "types": {
               "prompt": "string",
               "completion": "string"
+            }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-1-8b-instruct-g6-48xl-5k-tt-fft_payload_template_k8s_v1.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-1-8b-instruct-g6-48xl-5k-tt-fft_override_params_k8s_v1.0.2.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-1-8b-instruct-g6-48xl-11k-tt-lora_payload_template_k8s_v1.0.3.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-1-8b-instruct-g6-48xl-11k-tt-lora_override_params_k8s_v1.0.3.json"
             }
           }
         },
@@ -966,6 +1608,16 @@
               "prompt": "string",
               "chosen": "string",
               "rejected": "string"
+            }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-1-8b-instruct-p5-48xl-12k-tt-fft_payload_template_k8s_v2.0.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-1-8b-instruct-p5-48xl-12k-tt-fft_override_params_k8s_v2.0.5.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-1-8b-instruct-g5-48xl-6k-tt-lora_payload_template_k8s_v2.0.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-1-8b-instruct-g5-48xl-6k-tt-lora_override_params_k8s_v2.0.6.json"
             }
           }
         }
@@ -983,14 +1635,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-2-1b-instruct-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-2-1b-instruct-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-2-1b-instruct-fft_payload_template_k8s_v1.1.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-2-1b-instruct-fft_override_params_k8s_v1.1.6.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-2-1b-instruct-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-2-1b-instruct-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-2-1b-instruct-fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-2-1b-instruct-fft_override_params_k8s_v1.2.5.json"
+            }
+          }
         },
         "sft": {
           "trainingTypes": [
@@ -1005,6 +1677,16 @@
             "types": {
               "prompt": "string",
               "completion": "string"
+            }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-2-1b-instruct-g6-48xl-15k-tt-fft_payload_template_k8s_v1.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-2-1b-instruct-g6-48xl-15k-tt-fft_override_params_k8s_v1.0.2.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-2-1b-instruct-g6-48xl-17k-tt-lora_payload_template_k8s_v1.0.3.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-2-1b-instruct-g6-48xl-17k-tt-lora_override_params_k8s_v1.0.3.json"
             }
           }
         },
@@ -1023,6 +1705,16 @@
               "prompt": "string",
               "chosen": "string",
               "rejected": "string"
+            }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-2-1b-instruct-g5-48xl-8k-tt-lora_payload_template_k8s_v2.0.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-2-1b-instruct-g5-48xl-8k-tt-lora_override_params_k8s_v2.0.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-2-1b-instruct-g6-48xl-4k-tt-fft_payload_template_k8s_v2.0.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-2-1b-instruct-g6-48xl-4k-tt-fft_override_params_k8s_v2.0.5.json"
             }
           }
         }
@@ -1051,6 +1743,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-2-3b-instruct-g6-48xl-6k-tt-fft_payload_template_k8s_v2.0.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-2-3b-instruct-g6-48xl-6k-tt-fft_override_params_k8s_v2.0.5.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-2-3b-instruct-g5-48xl-6k-tt-lora_payload_template_k8s_v2.0.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-2-3b-instruct-g5-48xl-6k-tt-lora_override_params_k8s_v2.0.6.json"
+            }
           }
         },
         "sft": {
@@ -1067,6 +1769,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-2-3b-instruct-g6-48xl-6k-tt-lora_payload_template_k8s_v1.0.3.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-2-3b-instruct-g6-48xl-6k-tt-lora_override_params_k8s_v1.0.3.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-2-3b-instruct-g6-48xl-13k-tt-fft_payload_template_k8s_v1.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-2-3b-instruct-g6-48xl-13k-tt-fft_override_params_k8s_v1.0.2.json"
+            }
           }
         },
         "rlvr": {
@@ -1074,14 +1786,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-2-3b-instruct-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-2-3b-instruct-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-2-3b-instruct-fft_payload_template_k8s_v1.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-2-3b-instruct-fft_override_params_k8s_v1.2.5.json"
+            }
+          }
         },
         "rlaif": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-2-3b-instruct-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-2-3b-instruct-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-2-3b-instruct-fft_payload_template_k8s_v1.1.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-2-3b-instruct-fft_override_params_k8s_v1.1.6.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -1097,7 +1829,17 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-3-70b-instruct-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-3-70b-instruct-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-3-70b-instruct-fft_payload_template_k8s_v1.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-llama-3-dot-3-70b-instruct-fft_override_params_k8s_v1.1.7.json"
+            }
+          }
         },
         "sft": {
           "trainingTypes": [
@@ -1112,6 +1854,16 @@
             "types": {
               "prompt": "string",
               "completion": "string"
+            }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-3-70b-instruct-p5-48xl-8k-tt-fft_payload_template_k8s_v1.0.3.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-3-70b-instruct-p5-48xl-8k-tt-fft_override_params_k8s_v1.0.3.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-3-70b-instruct-p5-48xl-8k-tt-lora_payload_template_k8s_v1.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-llama-3-dot-3-70b-instruct-p5-48xl-8k-tt-lora_override_params_k8s_v1.0.2.json"
             }
           }
         },
@@ -1131,6 +1883,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-3-70b-instruct-p5-48xl-4k-tt-fft_payload_template_k8s_v1.0.3.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-3-70b-instruct-p5-48xl-4k-tt-fft_override_params_k8s_v1.0.3.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-3-70b-instruct-p4de-24xl-4k-tt-lora_payload_template_k8s_v1.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-llama-3-dot-3-70b-instruct-p4de-24xl-4k-tt-lora_override_params_k8s_v1.0.2.json"
+            }
           }
         },
         "rlvr": {
@@ -1138,7 +1900,17 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-3-70b-instruct-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-3-70b-instruct-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-3-70b-instruct-fft_payload_template_k8s_v1.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-llama-3-dot-3-70b-instruct-fft_override_params_k8s_v1.2.7.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -1165,6 +1937,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_gpt_oss_20b_seq4k_gpu_dpo_payload_template_k8s_v2.2.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_gpt_oss_20b_seq4k_gpu_dpo_override_params_k8s_v2.2.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_gpt_oss_20b_seq4k_gpu_dpo_fft_payload_template_k8s_v1.3.4.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_gpt_oss_20b_seq4k_gpu_dpo_fft_override_params_k8s_v1.3.4.json"
+            }
           }
         },
         "sft": {
@@ -1181,6 +1963,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_gpt_oss_20b_seq4k_gpu_sft_lora_payload_template_k8s_v2.3.3.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_gpt_oss_20b_seq4k_gpu_sft_lora_override_params_k8s_v2.3.3.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_gpt_oss_20b_seq4k_gpu_sft_fft_payload_template_k8s_v1.2.4.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_gpt_oss_20b_seq4k_gpu_sft_fft_override_params_k8s_v1.2.4.json"
+            }
           }
         },
         "rlaif": {
@@ -1188,14 +1980,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gpt-oss-20b-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gpt-oss-20b-lora_override_params_k8s_v2.2.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gpt-oss-20b-fft_payload_template_k8s_v1.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gpt-oss-20b-fft_override_params_k8s_v1.2.7.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gpt-oss-20b-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gpt-oss-20b-lora_override_params_k8s_v2.2.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gpt-oss-20b-fft_payload_template_k8s_v1.3.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gpt-oss-20b-fft_override_params_k8s_v1.3.6.json"
+            }
+          }
         },
         "mtrl": {
           "trainingTypes": [
@@ -1229,6 +2041,12 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_gpt_oss_120b_seq4k_gpu_dpo_payload_template_k8s_v2.2.4.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_gpt_oss_120b_seq4k_gpu_dpo_override_params_k8s_v2.2.4.json"
+            }
           }
         },
         "sft": {
@@ -1245,6 +2063,12 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_gpt_oss_120b_seq4k_gpu_sft_lora_payload_template_k8s_v2.2.4.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/llmft_gpt_oss_120b_seq4k_gpu_sft_lora_override_params_k8s_v2.2.4.json"
+            }
           }
         },
         "rlvr": {
@@ -1252,14 +2076,26 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gpt-oss-120b-lora_payload_template_k8s_v2.2.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gpt-oss-120b-lora_override_params_k8s_v2.2.6.json"
+            }
+          }
         },
         "rlaif": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gpt-oss-120b-lora_payload_template_k8s_v2.2.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gpt-oss-120b-lora_override_params_k8s_v2.2.7.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -1285,6 +2121,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-6-27b-lora_payload_template_k8s_v2.0.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-6-27b-lora_override_params_k8s_v2.0.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-6-27b-fft_payload_template_k8s_v2.0.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-6-27b-fft_override_params_k8s_v2.0.8.json"
+            }
           }
         },
         "rlaif": {
@@ -1292,14 +2138,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-6-27b-lora_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-6-27b-lora_override_params_k8s_v2.0.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-6-27b-fft_payload_template_k8s_v2.0.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-6-27b-fft_override_params_k8s_v2.0.8.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-6-27b-lora_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-6-27b-lora_override_params_k8s_v2.0.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-6-27b-fft_payload_template_k8s_v2.0.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-6-27b-fft_override_params_k8s_v2.0.8.json"
+            }
+          }
         },
         "dpo": {
           "trainingTypes": [
@@ -1316,6 +2182,16 @@
               "prompt": "string",
               "chosen": "string",
               "rejected": "string"
+            }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-6-27b-lora_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-6-27b-lora_override_params_k8s_v2.0.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-6-27b-fft_payload_template_k8s_v2.0.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-6-27b-fft_override_params_k8s_v2.0.8.json"
             }
           }
         },
@@ -1350,6 +2226,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-5-9b-lora_payload_template_k8s_v2.1.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-5-9b-lora_override_params_k8s_v2.1.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-5-9b-fft_payload_template_k8s_v2.1.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-5-9b-fft_override_params_k8s_v2.1.8.json"
+            }
           }
         },
         "rlvr": {
@@ -1357,14 +2243,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-5-9b-lora_payload_template_k8s_v2.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-5-9b-lora_override_params_k8s_v2.1.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-5-9b-fft_payload_template_k8s_v2.1.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-5-9b-fft_override_params_k8s_v2.1.8.json"
+            }
+          }
         },
         "rlaif": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-5-9b-lora_payload_template_k8s_v2.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-5-9b-lora_override_params_k8s_v2.1.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-5-9b-fft_payload_template_k8s_v2.1.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-5-9b-fft_override_params_k8s_v2.1.8.json"
+            }
+          }
         },
         "dpo": {
           "trainingTypes": [
@@ -1381,6 +2287,16 @@
               "prompt": "string",
               "chosen": "string",
               "rejected": "string"
+            }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-5-9b-lora_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-5-9b-lora_override_params_k8s_v2.0.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-5-9b-fft_payload_template_k8s_v2.0.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-5-9b-fft_override_params_k8s_v2.0.8.json"
             }
           }
         }
@@ -1399,14 +2315,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-5-4b-lora_payload_template_k8s_v2.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-5-4b-lora_override_params_k8s_v2.1.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-5-4b-fft_payload_template_k8s_v2.1.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-5-4b-fft_override_params_k8s_v2.1.8.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-5-4b-lora_payload_template_k8s_v2.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-5-4b-lora_override_params_k8s_v2.1.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-5-4b-fft_payload_template_k8s_v2.1.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-5-4b-fft_override_params_k8s_v2.1.8.json"
+            }
+          }
         },
         "sft": {
           "trainingTypes": [
@@ -1421,6 +2357,16 @@
             "types": {
               "prompt": "string",
               "completion": "string"
+            }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-5-4b-lora_payload_template_k8s_v2.1.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-5-4b-lora_override_params_k8s_v2.1.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-5-4b-fft_payload_template_k8s_v2.1.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-5-4b-fft_override_params_k8s_v2.1.8.json"
             }
           }
         },
@@ -1439,6 +2385,16 @@
               "prompt": "string",
               "chosen": "string",
               "rejected": "string"
+            }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-5-4b-fft_payload_template_k8s_v2.0.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-5-4b-fft_override_params_k8s_v2.0.8.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-5-4b-lora_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-5-4b-lora_override_params_k8s_v2.0.7.json"
             }
           }
         }
@@ -1466,6 +2422,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-5-27b-lora_payload_template_k8s_v2.1.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-5-27b-lora_override_params_k8s_v2.1.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-5-27b-fft_payload_template_k8s_v2.1.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-5-27b-fft_override_params_k8s_v2.1.8.json"
+            }
           }
         },
         "rlvr": {
@@ -1473,14 +2439,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-5-27b-lora_payload_template_k8s_v2.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-5-27b-lora_override_params_k8s_v2.1.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-5-27b-fft_payload_template_k8s_v2.1.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-5-27b-fft_override_params_k8s_v2.1.8.json"
+            }
+          }
         },
         "rlaif": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-5-27b-lora_payload_template_k8s_v2.1.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-5-27b-lora_override_params_k8s_v2.1.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-5-27b-fft_payload_template_k8s_v2.1.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-5-27b-fft_override_params_k8s_v2.1.8.json"
+            }
+          }
         },
         "dpo": {
           "trainingTypes": [
@@ -1497,6 +2483,16 @@
               "prompt": "string",
               "chosen": "string",
               "rejected": "string"
+            }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-5-27b-lora_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-5-27b-lora_override_params_k8s_v2.0.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-5-27b-fft_payload_template_k8s_v2.0.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-5-27b-fft_override_params_k8s_v2.0.8.json"
             }
           }
         }
@@ -1524,6 +2520,12 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-nemotron-3-super-120b-lora_payload_template_k8s_v2.0.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-nemotron-3-super-120b-lora_override_params_k8s_v2.0.6.json"
+            }
           }
         },
         "rlvr": {
@@ -1531,14 +2533,26 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-nemotron-3-super-120b-lora_payload_template_k8s_v1.1.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-nemotron-3-super-120b-lora_override_params_k8s_v1.1.5.json"
+            }
+          }
         },
         "rlaif": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-nemotron-3-super-120b-lora_payload_template_k8s_v1.1.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-nemotron-3-super-120b-lora_override_params_k8s_v1.1.5.json"
+            }
+          }
         },
         "dpo": {
           "trainingTypes": [
@@ -1555,6 +2569,12 @@
               "prompt": "string",
               "chosen": "string",
               "rejected": "string"
+            }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-nemotron-3-super-120b-lora_payload_template_k8s_v2.0.4.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-nemotron-3-super-120b-lora_override_params_k8s_v2.0.4.json"
             }
           }
         }
@@ -1582,6 +2602,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-nemotron-3-nano-30b-lora_payload_template_k8s_v2.0.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-nemotron-3-nano-30b-lora_override_params_k8s_v2.0.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-nemotron-3-nano-30b-fft_payload_template_k8s_v2.0.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-nemotron-3-nano-30b-fft_override_params_k8s_v2.0.5.json"
+            }
           }
         },
         "rlaif": {
@@ -1589,14 +2619,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-nemotron-3-nano-30b-lora_payload_template_k8s_v2.0.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-nemotron-3-nano-30b-lora_override_params_k8s_v2.0.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-nemotron-3-nano-30b-fft_payload_template_k8s_v2.0.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-nemotron-3-nano-30b-fft_override_params_k8s_v2.0.5.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-nemotron-3-nano-30b-lora_payload_template_k8s_v2.0.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-nemotron-3-nano-30b-lora_override_params_k8s_v2.0.5.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-nemotron-3-nano-30b-fft_payload_template_k8s_v2.0.5.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-nemotron-3-nano-30b-fft_override_params_k8s_v2.0.5.json"
+            }
+          }
         },
         "dpo": {
           "trainingTypes": [
@@ -1613,6 +2663,16 @@
               "prompt": "string",
               "chosen": "string",
               "rejected": "string"
+            }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-nemotron-3-nano-30b-fft_payload_template_k8s_v2.0.4.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-nemotron-3-nano-30b-fft_override_params_k8s_v2.0.4.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-nemotron-3-nano-30b-lora_payload_template_k8s_v2.0.4.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-nemotron-3-nano-30b-lora_override_params_k8s_v2.0.4.json"
             }
           }
         }
@@ -1642,6 +2702,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-gemma-4-e4b-it-lora_payload_template_k8s_v2.0.9.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-gemma-4-e4b-it-lora_override_params_k8s_v2.0.9.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-gemma-4-e4b-it-fft_payload_template_k8s_v2.0.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-gemma-4-e4b-it-fft_override_params_k8s_v2.0.6.json"
+            }
           }
         },
         "sft": {
@@ -1658,6 +2728,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-gemma-4-e4b-it-lora_payload_template_k8s_v2.0.9.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-gemma-4-e4b-it-lora_override_params_k8s_v2.0.9.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-gemma-4-e4b-it-fft_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-gemma-4-e4b-it-fft_override_params_k8s_v2.0.7.json"
+            }
           }
         },
         "rlvr": {
@@ -1665,14 +2745,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gemma-4-e4b-it-lora_payload_template_k8s_v2.0.9.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gemma-4-e4b-it-lora_override_params_k8s_v2.0.9.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gemma-4-e4b-it-fft_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gemma-4-e4b-it-fft_override_params_k8s_v2.0.7.json"
+            }
+          }
         },
         "rlaif": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gemma-4-e4b-it-lora_payload_template_k8s_v2.0.9.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gemma-4-e4b-it-lora_override_params_k8s_v2.0.9.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gemma-4-e4b-it-fft_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gemma-4-e4b-it-fft_override_params_k8s_v2.0.7.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -1700,6 +2800,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-gemma-4-31b-it-lora_payload_template_k8s_v2.0.9.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-gemma-4-31b-it-lora_override_params_k8s_v2.0.9.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-gemma-4-31b-it-fft_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-gemma-4-31b-it-fft_override_params_k8s_v2.0.7.json"
+            }
           }
         },
         "sft": {
@@ -1716,6 +2826,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-gemma-4-31b-it-lora_payload_template_k8s_v2.0.10.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-gemma-4-31b-it-lora_override_params_k8s_v2.0.10.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-gemma-4-31b-it-fft_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-gemma-4-31b-it-fft_override_params_k8s_v2.0.7.json"
+            }
           }
         },
         "rlaif": {
@@ -1723,14 +2843,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gemma-4-31b-it-lora_payload_template_k8s_v2.0.10.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gemma-4-31b-it-lora_override_params_k8s_v2.0.10.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gemma-4-31b-it-fft_payload_template_k8s_v2.0.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gemma-4-31b-it-fft_override_params_k8s_v2.0.8.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gemma-4-31b-it-lora_payload_template_k8s_v2.0.10.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gemma-4-31b-it-lora_override_params_k8s_v2.0.10.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gemma-4-31b-it-fft_payload_template_k8s_v2.0.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gemma-4-31b-it-fft_override_params_k8s_v2.0.8.json"
+            }
+          }
         },
         "mtrl": {
           "trainingTypes": [
@@ -1763,6 +2903,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-nemotron-3-5-lightning-30b-fft_payload_template_k8s_v2.0.1.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-nemotron-3-5-lightning-30b-fft_override_params_k8s_v2.0.1.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-nemotron-3-5-lightning-30b-lora_payload_template_k8s_v2.0.1.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-nemotron-3-5-lightning-30b-lora_override_params_k8s_v2.0.1.json"
+            }
           }
         },
         "dpo": {
@@ -1781,6 +2931,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-nemotron-3-5-lightning-30b-fft_payload_template_k8s_v2.0.1.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-nemotron-3-5-lightning-30b-fft_override_params_k8s_v2.0.1.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-nemotron-3-5-lightning-30b-lora_payload_template_k8s_v2.0.1.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-nemotron-3-5-lightning-30b-lora_override_params_k8s_v2.0.1.json"
+            }
           }
         },
         "rlvr": {
@@ -1788,14 +2948,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-nemotron-3-5-lightning-30b-fft_payload_template_k8s_v2.0.1.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-nemotron-3-5-lightning-30b-fft_override_params_k8s_v2.0.1.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-nemotron-3-5-lightning-30b-lora_payload_template_k8s_v2.0.1.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-nemotron-3-5-lightning-30b-lora_override_params_k8s_v2.0.1.json"
+            }
+          }
         },
         "rlaif": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-nemotron-3-5-lightning-30b-fft_payload_template_k8s_v2.0.1.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-nemotron-3-5-lightning-30b-fft_override_params_k8s_v2.0.1.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-nemotron-3-5-lightning-30b-lora_payload_template_k8s_v2.0.1.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-nemotron-3-5-lightning-30b-lora_override_params_k8s_v2.0.1.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -1823,6 +3003,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-8-27b-fft_payload_template_k8s_v2.0.3.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-8-27b-fft_override_params_k8s_v2.0.3.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-8-27b-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-qwen-3-dot-8-27b-lora_override_params_k8s_v2.0.2.json"
+            }
           }
         },
         "rlaif": {
@@ -1830,14 +3020,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-8-27b-fft_payload_template_k8s_v2.0.3.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-8-27b-fft_override_params_k8s_v2.0.3.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-8-27b-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-8-27b-lora_override_params_k8s_v2.0.2.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-8-27b-fft_payload_template_k8s_v2.0.3.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-8-27b-fft_override_params_k8s_v2.0.3.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-8-27b-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-8-27b-lora_override_params_k8s_v2.0.2.json"
+            }
+          }
         },
         "sft": {
           "trainingTypes": [
@@ -1852,6 +3062,16 @@
             "types": {
               "prompt": "string",
               "completion": "string"
+            }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-8-27b-fft_payload_template_k8s_v2.0.3.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-8-27b-fft_override_params_k8s_v2.0.3.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-8-27b-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-8-27b-lora_override_params_k8s_v2.0.2.json"
             }
           }
         }
@@ -1870,14 +3090,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-6-35b-a3b-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-6-35b-a3b-fft_override_params_k8s_v2.0.2.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-6-35b-a3b-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-qwen-3-dot-6-35b-a3b-lora_override_params_k8s_v2.0.2.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-6-35b-a3b-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-6-35b-a3b-fft_override_params_k8s_v2.0.2.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-6-35b-a3b-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-qwen-3-dot-6-35b-a3b-lora_override_params_k8s_v2.0.2.json"
+            }
+          }
         },
         "sft": {
           "trainingTypes": [
@@ -1892,6 +3132,16 @@
             "types": {
               "prompt": "string",
               "completion": "string"
+            }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-6-35b-a3b-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-6-35b-a3b-lora_override_params_k8s_v2.0.2.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-6-35b-a3b-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-qwen-3-dot-6-35b-a3b-fft_override_params_k8s_v2.0.2.json"
             }
           }
         }
@@ -1919,6 +3169,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-ministral-3-8b-instruct-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-ministral-3-8b-instruct-lora_override_params_k8s_v2.0.2.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-ministral-3-8b-instruct-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-ministral-3-8b-instruct-fft_override_params_k8s_v2.0.2.json"
+            }
           }
         },
         "dpo": {
@@ -1937,6 +3197,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-ministral-3-8b-instruct-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-ministral-3-8b-instruct-fft_override_params_k8s_v2.0.2.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-ministral-3-8b-instruct-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-ministral-3-8b-instruct-lora_override_params_k8s_v2.0.2.json"
+            }
           }
         },
         "rlvr": {
@@ -1944,14 +3214,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-ministral-3-8b-instruct-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-ministral-3-8b-instruct-fft_override_params_k8s_v2.0.2.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-ministral-3-8b-instruct-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-ministral-3-8b-instruct-lora_override_params_k8s_v2.0.2.json"
+            }
+          }
         },
         "rlaif": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-ministral-3-8b-instruct-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-ministral-3-8b-instruct-fft_override_params_k8s_v2.0.2.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-ministral-3-8b-instruct-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-ministral-3-8b-instruct-lora_override_params_k8s_v2.0.2.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -1977,6 +3267,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-ministral-3-3b-instruct-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-ministral-3-3b-instruct-lora_override_params_k8s_v2.0.2.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-ministral-3-3b-instruct-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-ministral-3-3b-instruct-fft_override_params_k8s_v2.0.2.json"
+            }
           }
         },
         "dpo": {
@@ -1995,6 +3295,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-ministral-3-3b-instruct-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-ministral-3-3b-instruct-lora_override_params_k8s_v2.0.2.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-ministral-3-3b-instruct-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-ministral-3-3b-instruct-fft_override_params_k8s_v2.0.2.json"
+            }
           }
         },
         "rlvr": {
@@ -2002,14 +3312,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-ministral-3-3b-instruct-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-ministral-3-3b-instruct-lora_override_params_k8s_v2.0.2.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-ministral-3-3b-instruct-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-ministral-3-3b-instruct-fft_override_params_k8s_v2.0.2.json"
+            }
+          }
         },
         "rlaif": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-ministral-3-3b-instruct-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-ministral-3-3b-instruct-lora_override_params_k8s_v2.0.2.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-ministral-3-3b-instruct-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-ministral-3-3b-instruct-fft_override_params_k8s_v2.0.2.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -2037,6 +3367,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-ministral-3-14b-instruct-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-ministral-3-14b-instruct-fft_override_params_k8s_v2.0.2.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-ministral-3-14b-instruct-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-ministral-3-14b-instruct-lora_override_params_k8s_v2.0.2.json"
+            }
           }
         },
         "sft": {
@@ -2053,6 +3393,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-ministral-3-14b-instruct-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-ministral-3-14b-instruct-fft_override_params_k8s_v2.0.2.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-ministral-3-14b-instruct-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-ministral-3-14b-instruct-lora_override_params_k8s_v2.0.2.json"
+            }
           }
         },
         "rlvr": {
@@ -2060,14 +3410,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-ministral-3-14b-instruct-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-ministral-3-14b-instruct-fft_override_params_k8s_v2.0.2.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-ministral-3-14b-instruct-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-ministral-3-14b-instruct-lora_override_params_k8s_v2.0.2.json"
+            }
+          }
         },
         "rlaif": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-ministral-3-14b-instruct-fft_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-ministral-3-14b-instruct-fft_override_params_k8s_v2.0.2.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-ministral-3-14b-instruct-lora_payload_template_k8s_v2.0.2.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-ministral-3-14b-instruct-lora_override_params_k8s_v2.0.2.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -2093,6 +3463,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-gemma-4-26b-it-fft_payload_template_k8s_v2.0.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-gemma-4-26b-it-fft_override_params_k8s_v2.0.8.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-gemma-4-26b-it-lora_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-gemma-4-26b-it-lora_override_params_k8s_v2.0.7.json"
+            }
           }
         },
         "dpo": {
@@ -2111,6 +3491,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-gemma-4-26b-a4b-it-lora_payload_template_k8s_v2.0.6.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-gemma-4-26b-a4b-it-lora_override_params_k8s_v2.0.6.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-gemma-4-26b-a4b-it-fft_payload_template_k8s_v2.0.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-gemma-4-26b-a4b-it-fft_override_params_k8s_v2.0.8.json"
+            }
           }
         },
         "rlaif": {
@@ -2118,14 +3508,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gemma-4-26b-it-fft_payload_template_k8s_v2.0.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gemma-4-26b-it-fft_override_params_k8s_v2.0.8.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gemma-4-26b-it-lora_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-gemma-4-26b-it-lora_override_params_k8s_v2.0.7.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gemma-4-26b-it-fft_payload_template_k8s_v2.0.8.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gemma-4-26b-it-fft_override_params_k8s_v2.0.8.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gemma-4-26b-it-lora_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-gemma-4-26b-it-lora_override_params_k8s_v2.0.7.json"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -2151,6 +3561,16 @@
               "prompt": "string",
               "completion": "string"
             }
+          },
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-muse-glimmer-30b-fft_payload_template_k8s_v2.0.3.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-muse-glimmer-30b-fft_override_params_k8s_v2.0.3.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-muse-glimmer-30b-lora_payload_template_k8s_v2.0.3.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-sft-muse-glimmer-30b-lora_override_params_k8s_v2.0.3.json"
+            }
           }
         },
         "dpo": {
@@ -2169,6 +3589,16 @@
               "chosen": "string",
               "rejected": "string"
             }
+          },
+          "hpEks": {
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-muse-glimmer-30b-lora_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-muse-glimmer-30b-lora_override_params_k8s_v2.0.7.json"
+            },
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-muse-glimmer-30b-fft_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-dpo-muse-glimmer-30b-fft_override_params_k8s_v2.0.7.json"
+            }
           }
         },
         "rlaif": {
@@ -2176,14 +3606,34 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-muse-glimmer-30b-fft_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-muse-glimmer-30b-fft_override_params_k8s_v2.0.7.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-muse-glimmer-30b-lora_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlaif-muse-glimmer-30b-lora_override_params_k8s_v2.0.7.json"
+            }
+          }
         },
         "rlvr": {
           "trainingTypes": [
             "lora"
           ],
           "datasetFormat": "default-rlvr",
-          "datasetSchema": {}
+          "datasetSchema": {},
+          "hpEks": {
+            "full": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-muse-glimmer-30b-fft_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-muse-glimmer-30b-fft_override_params_k8s_v2.0.7.json"
+            },
+            "lora": {
+              "payloadTemplate": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-muse-glimmer-30b-lora_payload_template_k8s_v2.0.7.yaml",
+              "overrideParams": "s3://jumpstart-cache-prod-us-west-2/recipes/verl-grpo-rlvr-muse-glimmer-30b-lora_override_params_k8s_v2.0.7.json"
+            }
+          }
         }
       },
       "goldenPath": false
