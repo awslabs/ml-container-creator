@@ -172,7 +172,7 @@ async function callMcpTool(serverName, toolName, toolArgs, opts = {}) {
  *
  * @returns {Promise<{single: object[], multi: object[], estimatedVram?: number, sizingMessage?: string}>}
  */
-async function getInstanceRecommendations(modelName, _region, deploymentTarget, projectDir) {
+async function getInstanceRecommendations(modelName, _region, deploymentTarget, projectDir, servingEngine) {
     if (!modelName) return { single: [], multi: [] };
 
     const result = await callMcpTool('instance-sizer', 'get_instance_recommendation', {
@@ -180,7 +180,10 @@ async function getInstanceRecommendations(modelName, _region, deploymentTarget, 
         limit: 40,
         context: {
             deploymentTarget: deploymentTarget || 'realtime-inference',
-            ...(projectDir ? { projectDir } : {})
+            ...(projectDir ? { projectDir } : {}),
+            // BL240: the serving engine selects the default served context
+            // (max_model_len) the sizer budgets KV cache for.
+            ...(servingEngine ? { backend: servingEngine } : {})
         }
     }, { timeout: 60000 });
 
@@ -465,9 +468,9 @@ function resolveDeployInferenceAmi(config, instanceTypes, imageAmi) {
 
 // ── Instance type prompt with split display ──────────────────────────────────
 
-async function promptInstanceType(modelName, region, strategy, deploymentTarget, projectDir) {
+async function promptInstanceType(modelName, region, strategy, deploymentTarget, projectDir, servingEngine) {
     const spinner = ora('Querying instance-sizer...').start();
-    const { single, multi, estimatedVram, sizingMessage } = await getInstanceRecommendations(modelName, region, deploymentTarget, projectDir);
+    const { single, multi, estimatedVram, sizingMessage } = await getInstanceRecommendations(modelName, region, deploymentTarget, projectDir, servingEngine);
     const totalRecs = single.length + multi.length;
     if (totalRecs > 0) {
         spinner.succeed(`${totalRecs} recommendation(s)`);
@@ -659,7 +662,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType, 
                 if (selected === '__custom__') {
                     answers.smai_endpoint_name = await input({ message: 'Endpoint name:' });
                     // Custom endpoint — need instance type
-                    answers.instance_type = await promptInstanceType(modelName, region, 'new', target, projectDir);
+                    answers.instance_type = await promptInstanceType(modelName, region, 'new', target, projectDir, config.MODEL_SERVER);
                 } else {
                     answers.smai_endpoint_name = selected;
                     // Instance type comes from the endpoint — no sizer needed
@@ -675,10 +678,10 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType, 
                     default: `${projectName}-ep`
                 });
                 // No endpoint found — need instance type
-                answers.instance_type = await promptInstanceType(modelName, region, 'new', target, projectDir);
+                answers.instance_type = await promptInstanceType(modelName, region, 'new', target, projectDir, config.MODEL_SERVER);
             }
         } else {
-            answers.instance_type = await promptInstanceType(modelName, region, answers.endpoint_strategy, target, projectDir);
+            answers.instance_type = await promptInstanceType(modelName, region, answers.endpoint_strategy, target, projectDir, config.MODEL_SERVER);
         }
     } else {
         answers.instance_type = config.INSTANCE_TYPE;
@@ -796,7 +799,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType, 
                 }
             } else {
                 // No cluster info available — fall back to sizer
-                answers.instance_type = await promptInstanceType(modelName, region, null, target, projectDir);
+                answers.instance_type = await promptInstanceType(modelName, region, null, target, projectDir, config.MODEL_SERVER);
             }
         }
 
@@ -916,7 +919,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType, 
                 }
             } else {
                 // No cluster selected (ambient kubectl) or no groups — generic sizer.
-                answers.instance_type = await promptInstanceType(modelName, region, null, target, projectDir);
+                answers.instance_type = await promptInstanceType(modelName, region, null, target, projectDir, config.MODEL_SERVER);
             }
         } else if (preInstanceType) {
             answers.instance_type = preInstanceType;

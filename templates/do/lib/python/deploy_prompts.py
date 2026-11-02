@@ -41,12 +41,18 @@ def get_instance_recommendation(
     model_name: str,
     precision: str = "float16",
     project_dir: str | None = None,
+    engine: str | None = None,
 ) -> str | None:
     """Get instance type recommendation, trying MCP first then built-in heuristic.
 
     Attempts to use MCP instance-sizer for the recommendation. If MCP is
-    unavailable or returns no result, falls back to the built-in heuristic
-    in instance_sizer.py.
+    unavailable (no client, timeout, malformed reply), falls back to the
+    built-in heuristic in instance_sizer.py.
+
+    If the sizer answers but makes no sized recommendation (BL237
+    ``sizingUnavailable``, or nothing fits), its message is printed to stderr
+    and None is returned so the caller asks for the instance type
+    (--instance-type) — a heuristic guess is NOT substituted (BL241).
 
     A warning is printed to stderr (not stdout) when falling back, to avoid
     polluting the JSON answer output contract.
@@ -56,23 +62,41 @@ def get_instance_recommendation(
         precision: Data type string (e.g. "float16", "int8").
         project_dir: Absolute path to the project dir. Passed to the instance-sizer
             so it can check .mlcc/model-sizes.json for locally-registered models.
+        engine: Serving engine (MODEL_SERVER, serve.d name). Selects the default
+            served context the KV cache is budgeted for (BL240).
 
     Returns:
-        SageMaker instance type string (e.g. "ml.g6.xlarge"), or None if
-        neither MCP nor the built-in heuristic can determine a recommendation.
+        SageMaker instance type string (e.g. "ml.g6.xlarge"), or None if the
+        sizer made no recommendation or neither MCP nor the built-in heuristic
+        can determine one.
 
     Validates: Requirements FR-2.4, FR-10.1, FR-10.2, FR-10.4
     """
     client = discover_mcp()
 
     if client is not None:
-        result = mcp_recommend_instance(client, model_name, precision, project_dir=project_dir)
+        engine_kw = {"engine": engine} if engine else {}
+        result = mcp_recommend_instance(
+            client, model_name, precision, project_dir=project_dir, **engine_kw
+        )
         if result is not None:
-            return result.get("instance_type")
+            if result.get("instance_type"):
+                return result["instance_type"]
+            message = result.get("message") or (
+                f"instance-sizer made no recommendation for {model_name}."
+            )
+            print(
+                f"\u26a0\ufe0f  {message}\n   Enter an instance type, or pass --instance-type <ml.instance>.",
+                file=sys.stderr,
+            )
+            return None
 
     # MCP unavailable or returned None — fall back to built-in heuristic
     print(_MCP_FALLBACK_WARNING, file=sys.stderr)
-    return instance_sizer.recommend_for_model(model_name, precision)
+    # engine is passed only when known (keeps the 2-arg call shape otherwise).
+    return instance_sizer.recommend_for_model(
+        model_name, precision, **({"engine": engine} if engine else {})
+    )
 
 
 def get_endpoints(region: str) -> list[str]:
@@ -428,7 +452,10 @@ def prompt_instance_type(
     recommendation: str | None = None
     if model_name:
         project_dir = os.environ.get("MLCC_PROJECT_DIR") or None
-        recommendation = get_instance_recommendation(model_name, "float16", project_dir=project_dir)
+        recommendation = get_instance_recommendation(
+            model_name, "float16", project_dir=project_dir,
+            engine=config_vars.get("MODEL_SERVER") or None,
+        )
 
     # Use recommendation as default, falling back to provided default
     effective_default = recommendation or default or ""
@@ -947,7 +974,10 @@ def prompt_instance_types(config_vars: dict[str, str]) -> str:
     recommendation: str | None = None
     if model_name:
         project_dir = os.environ.get("MLCC_PROJECT_DIR") or None
-        recommendation = get_instance_recommendation(model_name, "float16", project_dir=project_dir)
+        recommendation = get_instance_recommendation(
+            model_name, "float16", project_dir=project_dir,
+            engine=config_vars.get("MODEL_SERVER") or None,
+        )
 
     # Pre-add recommended instance as first entry
     if recommendation:

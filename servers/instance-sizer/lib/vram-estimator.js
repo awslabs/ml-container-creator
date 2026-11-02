@@ -32,6 +32,8 @@ const DEFAULT_MAX_SEQUENCE_LENGTH = 4096;
 const DEFAULT_BATCH_SIZE = 1;
 const OVERHEAD_FACTOR = 0.1;
 const MIN_USEFUL_CONTEXT_LEN = 2048;
+// KV-cache heuristic: bytes per parameter at DEFAULT_MAX_SEQUENCE_LENGTH, batch 1.
+const KV_CACHE_FACTOR = 0.05;
 
 const KV_CACHE_DTYPE_BYTES = {
     'auto': 2,      // fp16/bf16
@@ -84,7 +86,7 @@ const estimateKvCache = (parameterCount, maxSequenceLength, batchSize) => {
     // This gives ~5% of raw param count in bytes at default seq length and batch=1
     // For 7B params: 7e9 × 0.05 = 350MB at seq=4096, batch=1
     // Scales linearly with sequence length and batch size
-    const kvBytes = parameterCount * (seqLength / DEFAULT_MAX_SEQUENCE_LENGTH) * batch * 0.05;
+    const kvBytes = parameterCount * (seqLength / DEFAULT_MAX_SEQUENCE_LENGTH) * batch * KV_CACHE_FACTOR;
     return kvBytes;
 };
 
@@ -97,7 +99,8 @@ const estimateKvCache = (parameterCount, maxSequenceLength, batchSize) => {
  * @param {number} modelInfo.parameterCount - Total parameters (e.g., 7_000_000_000)
  * @param {string} modelInfo.dtype - Data type: 'float32', 'float16', 'bfloat16', 'int8', 'int4'
  * @param {string} [modelInfo.quantization] - Quantization method: 'awq', 'gptq', 'bnb-4bit', 'bnb-8bit'
- * @param {number} [modelInfo.maxSequenceLength] - Max context length (affects KV cache)
+ * @param {number} [modelInfo.maxSequenceLength] - Served context length the KV cache is budgeted for
+ *   (callers pass the SERVED context, see served-context.js — not the model's native maximum)
  * @param {number} [modelInfo.batchSize] - Expected concurrent batch size
  * @returns {{ vramGb: number, breakdown: { weightsGb: number, kvCacheGb: number, overheadGb: number }, confidence: string, source: string }}
  */
@@ -259,5 +262,6 @@ export {
     DEFAULT_BATCH_SIZE,
     OVERHEAD_FACTOR,
     MIN_USEFUL_CONTEXT_LEN,
+    KV_CACHE_FACTOR,
     BYTES_IN_GB
 };
