@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-11-02T15:44:38.297Z",
-  "version": "1.9.1",
+  "generatedAt": "2026-11-02T18:39:54.874Z",
+  "version": "2.0.0",
   "cliOptions": [
     {
       "flag": "--backend",
