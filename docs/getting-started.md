@@ -401,4 +401,4 @@ cd my-model
 
 This skips the Dockerfile/build/push steps entirely — saving 10-20 minutes on first deployment. The resolved DLC image is CUDA-driver-compatible with your chosen instance type.
 
-See [Configuration: DLC-Direct Mode](configuration.md#dlc-direct-mode---no-build) for details and limitations.
+See [Configuration: DLC-Direct Mode](configuration.md#dlc-direct-mode-no-build) for details and limitations.

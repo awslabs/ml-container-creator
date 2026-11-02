@@ -216,7 +216,7 @@ they forward only args the running engine actually accepts. If you see junk
 This applies to SGLang too (`SGLANG_*` → `sglang serve`). The
 model-server-version MCP is **not** at fault — it selects the image correctly;
 the issue is purely serve-script arg harvesting. Full mechanism + a
-troubleshooting matrix: [Serving Engine Arguments & Version Troubleshooting](dev/registries-and-catalogs.md#serving-engine-arguments--version-troubleshooting).
+troubleshooting matrix: [Serving Engine Arguments & Version Troubleshooting](dev/registries-and-catalogs.md#serving-engine-arguments-version-troubleshooting).
 
 ### Model File Not Found
 

@@ -290,7 +290,7 @@ supported by both vLLM and SGLang) along with every alternative. You can then wi
 
 The catalog lives at `servers/lib/catalogs/draft-models.json`. Add draft models by
 appending entries there (see
-[Registries and Catalogs — draft-models.json](dev/registries-and-catalogs.md#draft-modelsjson)).
+[Registries and Catalogs — draft-models.json](dev/registries-and-catalogs.md#draft-model-catalog-draft-modelsjson)).
 
 ### endpoint-picker
 

@@ -352,7 +352,7 @@ The required format differs by technique family:
 - **SFT / DPO** — **JSONL** (one JSON object per line). `do/tune` validates the first
   10 lines before submitting.
 - **RLVR / RLAIF** — **Parquet** in verl's 5-field schema (see
-  [Managed RL dataset format](#managed-rl-dataset-format-rlvr--rlaif) below). The
+  [Managed RL dataset format](#managed-rl-dataset-format-rlvr-rlaif) below). The
   managed RL trainer's loader is parquet-only; a JSONL file fails in-container with
   `ArrowInvalid: Parquet magic bytes not found`. `do/tune` enforces parquet for these
   techniques in preflight and skips the JSONL line-check.
@@ -1164,7 +1164,7 @@ For **SFT/DPO**, `do/tune` validates the first 10 JSONL lines. Check that:
 The error message shows the first malformed line and the expected format.
 
 For **RLVR/RLAIF**, the dataset must be **parquet** in the verl 5-field schema (see
-[Managed RL dataset format](#managed-rl-dataset-format-rlvr--rlaif)). Common failures,
+[Managed RL dataset format](#managed-rl-dataset-format-rlvr-rlaif)). Common failures,
 all caught in preflight or early in the job:
 
 - `do/tune` refuses a non-parquet RL dataset before submitting (fail-loud guard).

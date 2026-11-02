@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Status
 
-Accepted — proposed (spec: `.kiro/specs/bl-engine-aware-k8s-config/`).
+Accepted — implemented (spec: `.kiro/specs/bl-engine-aware-k8s-config/`).
 
 ## Context
 

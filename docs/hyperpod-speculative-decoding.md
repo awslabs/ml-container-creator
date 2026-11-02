@@ -7,7 +7,7 @@ decoding on HyperPod EKS for both vLLM and SGLang serve images.
 The recommended way to configure it is the **`do/draft`** command, which manages the
 `HP_SPECULATIVE_*` configuration for you, validates engine/algorithm compatibility, and
 can redeploy in one step. Manual `HP_SPECULATIVE_*` editing is still supported and is
-documented under [Advanced / manual configuration](#advanced--manual-configuration).
+documented under [Advanced / manual configuration](#advanced-manual-configuration).
 
 !!! note "realtime-inference uses a different path"
     `do/draft` targets **HyperPod EKS only** (`DEPLOYMENT_TARGET=hyperpod-eks`). For the
@@ -242,7 +242,7 @@ mapped automatically from the user-facing `HP_SPECULATIVE_ALGORITHM` value.
 | **No S3 draft URIs** | `HP_SPECULATIVE_MODEL` must be a HuggingFace model ID. `s3://` URIs are rejected by `do/draft set` and at container startup with a clear error. Stage to HF Hub or use a local path inside the container image instead. |
 | **Draft model must be compatible** | The draft model architecture must match the target model's hidden size and vocabulary. Most published EAGLE/draft models are tied to a specific target model family (see the catalog's `target_model` / `target_arch`). |
 | **ngram / medusa are vLLM-only** | SGLang does not support `ngram` or `medusa` speculative decoding. |
-| **Startup flag, not hot-loadable** | Any change requires a serving-container restart. On single-node HyperPod EKS this means clean + redeploy to avoid a GPU resource deadlock (see [`--deploy`](#the---deploy-flag-and-why-it-cleans-first)). |
+| **Startup flag, not hot-loadable** | Any change requires a serving-container restart. On single-node HyperPod EKS this means clean + redeploy to avoid a GPU resource deadlock (see [`--deploy`](#the-deploy-flag-and-why-it-cleans-first)). |
 | **HyperPod EKS only** | `do/draft` and the `HP_SPECULATIVE_*` path are specific to the HyperPod EKS deployment target. The `realtime-inference` target uses `do/optimize --apply` instead. |
 
 ---
