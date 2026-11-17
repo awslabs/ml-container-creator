@@ -105,6 +105,153 @@ def _resolve_hf_token(region, secret_name=None):
     return os.environ.get("HF_TOKEN")
 
 
+def _iter_source_records(local_path):
+    """Yield source records from a downloaded data file (parquet or jsonl/json)."""
+    if local_path.endswith((".parquet", ".parq")):
+        import pyarrow.parquet as pq
+        table = pq.read_table(local_path)
+        for batch in table.to_batches():
+            for row in batch.to_pylist():
+                yield row
+    else:
+        import json as json_mod
+        with open(local_path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    yield json_mod.loads(line)
+
+
+def _stage_rl_verl(args, dataset_id, org, name, split, data_files, hf_token,
+                   s3_prefix, technique):
+    """Produce verl 5-field PARQUET for a managed-RL technique (rlvr/rlaif) and upload
+    it to a channel-pure `<s3_prefix>/data/` subprefix (ODP-2). Returns
+    (s3_uri, num_records) where s3_uri is the `data/` subprefix (the training channel).
+
+    The source records (parquet or jsonl) are transformed row-by-row into the verl
+    schema by tune_producer_rl (prompt kept as a message LIST — NOT flattened —
+    reward_model.style derived from the descriptor, flat ground-truth lifted into the
+    nested struct), then asserted conformant before AND after write.
+    """
+    from huggingface_hub import hf_hub_download
+    import boto3
+    import tempfile
+
+    import tune_producer_rl
+
+    s3_client = boto3.client("s3", region_name=args.region)
+    column_map = _parse_column_map(getattr(args, "column_map", None))
+    take_limit = getattr(args, "take", None)
+    # Channel-pure subprefix: parquet lands here, the _dataset.json sidecar does NOT.
+    data_prefix = f"{s3_prefix}/data"
+
+    total = 0
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for data_file in data_files:
+            local_path = hf_hub_download(
+                repo_id=dataset_id, filename=data_file, repo_type="dataset",
+                token=hf_token, local_dir=tmpdir,
+            )
+
+            remaining = None if take_limit is None else max(0, take_limit - total)
+            if remaining == 0:
+                break
+
+            base = os.path.splitext(os.path.basename(data_file))[0]
+            out_path = os.path.join(tmpdir, f"{base}.verl.parquet")
+            written = tune_producer_rl.produce_verl_parquet(
+                _iter_source_records(local_path),
+                technique=technique, out_path=out_path,
+                column_map=column_map, take=remaining,
+            )
+            # Post-write conformance assert (Requirement 4.5).
+            tune_producer_rl.assert_parquet_conforms(out_path, technique=technique)
+
+            s3_key = f"{data_prefix}/{base}.parquet"
+            s3_client.upload_file(out_path, args.output_bucket, s3_key)
+            total += written
+
+    if total == 0:
+        _error_exit(
+            f"Produced 0 verl rows for {dataset_id} (technique {technique}). "
+            "The source dataset yielded no usable records."
+        )
+
+    print(
+        f"\u2705 Produced {total} verl 5-field parquet rows for {technique} "
+        f"\u2192 s3://{args.output_bucket}/{data_prefix}/ (message-list prompt, "
+        "nested reward_model). The _dataset.json sidecar stays OUTSIDE this channel.",
+        file=sys.stderr,
+    )
+    # The training channel is the clean `data/` subprefix (prefix form, trailing slash).
+    s3_uri = f"s3://{args.output_bucket}/{data_prefix}/"
+    return s3_uri, total
+
+
+def _normalize_json_array_to_jsonl(local_path, data_file, json_mod):
+    """BL179: normalize a single-JSON-ARRAY (or wrapped) ``.json`` file to JSONL.
+
+    Some HF datasets ship a ``.json`` that is one JSON document — a top-level
+    array ``[ {...}, {...} ]`` or a ``{"data"|"rows"|"examples"|"train": [...]}``
+    wrapper — rather than line-delimited JSONL. The JSONL staging path reads
+    line-by-line (``json.loads`` per line) and dies on a leading ``[`` with
+    "Expecting value: line 1 column 2 (char 1)". This detects that shape and
+    rewrites the file to JSONL (one object per line), returning the (possibly
+    new) ``(local_path, data_file)`` to continue with.
+
+    A genuine JSONL file (first non-space char ``{`` followed by newline-delimited
+    objects) is left UNTOUCHED — we only rewrite when the whole file parses as a
+    single JSON value that yields a list of records. Non-``.json`` files
+    (``.jsonl``/``.ndjson``) are left untouched. Best-effort: if the file is not
+    valid single-document JSON (i.e. it really is JSONL), we return it unchanged
+    and let the existing per-line path handle it.
+    """
+    # Only consider .json (NOT .jsonl / .ndjson — those are line-delimited by name).
+    base = os.path.basename(local_path)
+    if base.endswith(".jsonl") or base.endswith(".ndjson"):
+        return local_path, data_file
+
+    # Peek the first non-whitespace byte; a JSONL file starts with '{' then a
+    # newline-delimited stream, so a single-doc rewrite only applies when the file
+    # parses as ONE json value. Try a full json.load; on failure assume real JSONL.
+    try:
+        with open(local_path, "r", encoding="utf-8", errors="replace") as f:
+            head = f.read(64).lstrip()
+            if not head or head[0] not in "[{":
+                return local_path, data_file
+        with open(local_path, "r", encoding="utf-8", errors="replace") as f:
+            doc = json_mod.load(f)
+    except (ValueError, OSError):
+        # Not a single JSON document → it is (or is treated as) JSONL. Leave it.
+        return local_path, data_file
+
+    # Extract the record list: a bare array, or a common wrapper key.
+    if isinstance(doc, list):
+        records = doc
+    elif isinstance(doc, dict):
+        records = None
+        for key in ("data", "rows", "examples", "train", "instances"):
+            if isinstance(doc.get(key), list):
+                records = doc[key]
+                break
+        if records is None:
+            # A single object that is itself one record → wrap as a 1-row dataset.
+            records = [doc]
+    else:
+        # A scalar top-level JSON value is not a dataset — leave it for the
+        # downstream validator to reject with its own message.
+        return local_path, data_file
+
+    jsonl_path = os.path.splitext(local_path)[0] + ".from_array.jsonl"
+    with open(jsonl_path, "w", encoding="utf-8") as out_f:
+        for rec in records:
+            out_f.write(json_mod.dumps(rec, ensure_ascii=False) + "\n")
+    print(f"\u2139\ufe0f  Converted single-JSON-array file '{os.path.basename(data_file)}' "
+          f"({len(records)} records) to JSONL for staging (BL179).", file=sys.stderr)
+    new_data_file = os.path.splitext(data_file)[0] + ".from_array.jsonl"
+    return jsonl_path, new_data_file
+
+
 def cmd_stage_hf(args):
     """Download HF dataset to S3 using huggingface_hub.
 
@@ -190,6 +337,31 @@ def cmd_stage_hf(args):
             s3_prefix = f"{args.project_name}/datasets/{org}/{name}/{split}"
         num_records = 0
         empty_field_counts = {}
+        # The actual S3 key of the LAST file uploaded. The returned s3_uri MUST be
+        # derived from this — not re-computed from the original repo filename — so a
+        # file whose name changed during staging (BL179 `.json` → `.from_array.jsonl`
+        # normalization, or `.parquet` → `.jsonl` conversion) is registered at the key
+        # that actually exists. Deriving the URI from `data_files[0]` instead recorded
+        # a non-existent `.json`/`.parquet` key, which later 404'd the native AI
+        # Registry create (and the content-hash step), so the dataset never appeared
+        # in Studio Assets though the S3 sidecar made it look registered.
+        uploaded_s3_key = None
+
+        # ── BL129: managed-RL (verl) Producer branch ────────────────────────────
+        # For rlvr/rlaif the managed trainer runs verl's RLHFDataset, which reads the
+        # train channel as PARQUET in the 5-field row schema (prompt as a message
+        # LIST, nested reward_model struct) — the OPPOSITE of the jsonl + flatten
+        # path below. Produce verl parquet into a channel-pure `data/` subprefix (so
+        # the _dataset.json sidecar co-located at the dataset prefix is NOT in the
+        # training channel — ODP-2) and return that subprefix as the dataset s3_uri.
+        import tune_producer_rl
+        if tune_producer_rl.is_managed_rl_verl(technique):
+            rl_s3_uri, rl_num_records = _stage_rl_verl(
+                args, dataset_id, org, name, split, data_files, hf_token,
+                s3_prefix, technique,
+            )
+            _output({"s3_uri": rl_s3_uri, "num_records": rl_num_records})
+            return
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Schema divergence check (skip for single file)
@@ -284,6 +456,7 @@ def cmd_stage_hf(args):
                             )
                         s3_key = f"{s3_prefix}/{jsonl_filename}"
                         s3_client.upload_file(jsonl_path, args.output_bucket, s3_key)
+                        uploaded_s3_key = s3_key
 
                     except ImportError:
                         _error_exit(
@@ -296,6 +469,17 @@ def cmd_stage_hf(args):
                     column_map = _parse_column_map(getattr(args, 'column_map', None))
                     technique = getattr(args, 'technique', 'sft')
                     no_transform = getattr(args, 'no_transform', False)
+
+                    # BL179: some HF datasets ship a `.json` file that is a SINGLE
+                    # JSON ARRAY (e.g. [ {...}, {...} ]) or a {"data": [...]} wrapper,
+                    # NOT line-delimited JSONL. The code below reads the file
+                    # LINE-BY-LINE (json.loads per line), which fails on a leading
+                    # "[" with 'Expecting value: line 1 column 2 (char 1)'. Normalize
+                    # such a file to JSONL in place so the rest of this branch
+                    # (validate/map/flatten/take/count/upload) works unchanged. A real
+                    # JSONL file is left untouched.
+                    local_path, data_file = _normalize_json_array_to_jsonl(
+                        local_path, data_file, json_mod)
 
                     chat_columns = {}
                     with open(local_path, "r", encoding="utf-8", errors="replace") as f:
@@ -377,13 +561,20 @@ def cmd_stage_hf(args):
 
                     s3_key = f"{s3_prefix}/{os.path.basename(data_file)}"
                     s3_client.upload_file(local_path, args.output_bucket, s3_key)
+                    uploaded_s3_key = s3_key
 
-        first_file = data_files[0]
-        if first_file.endswith(".parquet"):
-            output_filename = os.path.splitext(os.path.basename(first_file))[0] + ".jsonl"
+        # Derive the returned URI from the key actually uploaded (handles any
+        # name change during staging). Fall back to the original-filename logic
+        # only if, somehow, nothing was uploaded.
+        if uploaded_s3_key:
+            s3_uri = f"s3://{args.output_bucket}/{uploaded_s3_key}"
         else:
-            output_filename = os.path.basename(first_file)
-        s3_uri = f"s3://{args.output_bucket}/{s3_prefix}/{output_filename}"
+            first_file = data_files[0]
+            if first_file.endswith(".parquet"):
+                output_filename = os.path.splitext(os.path.basename(first_file))[0] + ".jsonl"
+            else:
+                output_filename = os.path.basename(first_file)
+            s3_uri = f"s3://{args.output_bucket}/{s3_prefix}/{output_filename}"
 
         if num_records > 0 and empty_field_counts:
             for field, count in empty_field_counts.items():

@@ -63,14 +63,13 @@ ml-container-creator/
 │       ├── Dockerfile              # Main Dockerfile (http + transformers)
 │       ├── do/                     # do-framework lifecycle scripts
 │       ├── code/                   # Model serving code
-│       ├── deploy/                 # Legacy wrapper scripts
 │       ├── triton/                 # Triton-specific Dockerfile + model repo
 │       ├── diffusors/              # Diffusors-specific Dockerfile + serve
 │       ├── hyperpod/               # K8s manifests for HyperPod EKS
 │       ├── sample_model/           # Abalone sample model training
 │       └── test/                   # Test script templates
 ├── servers/                        # Bundled MCP servers
-│   ├── instance-recommender/       # Instance type recommendations
+│   ├── instance-sizer/             # Instance sizing (VRAM / KV budget)
 │   ├── region-picker/              # AWS region suggestions
 │   ├── base-image-picker/          # Base image catalog + selection
 │   │   └── catalogs/               # model-servers.json, triton-backends.json, ...

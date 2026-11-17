@@ -33,7 +33,6 @@ import RegistryLoader from './registry-loader.js';
 import { runPrompts } from '../prompt-adapter.js';
 import McpQueryRunner from './mcp-query-runner.js';
 import SecretsPromptRunner from './secrets-prompt-runner.js';
-import CudaResolver from './cuda-resolver.js';
 import { isMarketplaceConfig, isMarketplaceModelName, refuseMarketplaceAndExit } from './marketplace-refusal.js';
 import { engineFeature } from './serve-manifest-reader.js';
 import { isKnownBackend as isTritonBackend, isLlm as tritonIsLlm, modelFormats as tritonModelFormats } from './triton-backend-reader.js';
@@ -93,7 +92,6 @@ export default class PromptRunner {
         this._runPrompts = promptFn || runPrompts;
         this.mcpQueryRunner = new McpQueryRunner(this);
         this.secretsPromptRunner = new SecretsPromptRunner(this);
-        this.cudaResolver = new CudaResolver(this);
     }
 
     // ── Sub-object delegations (backward compat for tests) ──────────
@@ -115,7 +113,6 @@ export default class PromptRunner {
     _promptSecretSelection(...args) { return this.secretsPromptRunner._promptSecretSelection(...args); }
     _promptPlaintextEntry(...args) { return this.secretsPromptRunner._promptPlaintextEntry(...args); }
     _promptPlaintextFallback(...args) { return this.secretsPromptRunner._promptPlaintextFallback(...args); }
-    _promptCudaVersion(...args) { return this.cudaResolver._promptCudaVersion(...args); }
 
     /**
      * Runs all prompting phases and returns combined answers
@@ -196,7 +193,9 @@ export default class PromptRunner {
         const modelFormatPreviousAnswers = {
             ...frameworkAnswers,
             ...engineAnswers,
-            ...(this._mcpModelChoices ? { _mcpModelChoices: this._mcpModelChoices } : {})
+            ...(this._mcpModelChoices ? { _mcpModelChoices: this._mcpModelChoices } : {}),
+            ...(this._mcpModelCapabilities ? { _mcpModelCapabilities: this._mcpModelCapabilities } : {}),
+            ...(this._mcpModelMeta ? { _mcpModelMeta: this._mcpModelMeta } : {})
         };
         const modelFormatAnswers = await this._runPhase(
             modelFormatPrompts, 
@@ -292,20 +291,12 @@ export default class PromptRunner {
         // Requirements: 4.2-4.5 — Check model architecture compatibility after base image selection
         this._checkModelArchitectureCompatibility(baseImageAnswers, frameworkAnswers);
 
-        // Extract CUDA version from selected base image for CUDA/AMI auto-resolution
-        const selectedBaseImageCuda = this._extractCudaFromBaseImage(baseImageAnswers);
-
         // FR-1.5: Async/batch prompts removed from generation (handled at deploy time)
         const asyncAnswers = {};
         const batchTransformAnswers = {};
 
-        // 3e. CUDA/AMI auto-resolution — pass null for instanceType since it's no longer known at generation time
-        const cudaAnswer = await this.cudaResolver._promptCudaVersion(
-            null, // instanceType not known at generation time (FR-1.2)
-            frameworkAnswers.framework,
-            null, // frameworkVersion not yet known in Phase 3
-            selectedBaseImageCuda // base image CUDA version for intersection
-        );
+        // 3e. InferenceAmiVersion is resolved at deploy time from the instance
+        // family (BL209: deploy-config-builder.js -> image-filter resolveInferenceAmi).
 
         // FR-1.4: HyperPod prompts removed from generation (handled at deploy time)
         const hyperPodAnswers = {};
@@ -323,12 +314,6 @@ export default class PromptRunner {
             ...hyperPodAnswers,
             ...buildAnswers
         };
-
-        // Apply CUDA resolution to infra answers
-        if (cudaAnswer) {
-            infraAnswers._selectedCudaVersion = cudaAnswer.cudaVersion;
-            infraAnswers._resolvedInferenceAmiVersion = cudaAnswer.inferenceAmiVersion;
-        }
 
         // ══════════════════════════════════════════════════════════════════════
         // Phase 4 — Details (framework version, model profile, modules)
@@ -545,17 +530,6 @@ export default class PromptRunner {
             combinedAnswers.sizerMaxModelLen = this._sizerMaxModelLen;
         }
 
-        // Apply CUDA version selection → inference AMI override
-        if (combinedAnswers._resolvedInferenceAmiVersion) {
-            combinedAnswers.inferenceAmiVersion = combinedAnswers._resolvedInferenceAmiVersion;
-        }
-        if (combinedAnswers._selectedCudaVersion) {
-            combinedAnswers.selectedCudaVersion = combinedAnswers._selectedCudaVersion;
-        }
-        // Clean up internal fields
-        delete combinedAnswers._resolvedInferenceAmiVersion;
-        delete combinedAnswers._selectedCudaVersion;
-
         // Handle custom AWS region
         if (combinedAnswers.customAwsRegion) {
             combinedAnswers.awsRegion = combinedAnswers.customAwsRegion;
@@ -768,34 +742,6 @@ export default class PromptRunner {
         return null;
     }
 
-    /**
-     * Extract CUDA version from the selected base image.
-     * Looks at the MCP base image metadata for accelerator.version or labels.cuda_version.
-     * @param {object} baseImageAnswers - Answers from the base image prompt
-     * @returns {string|null} CUDA version string (e.g., "12.1") or null
-     * @private
-     */
-    _extractCudaFromBaseImage(baseImageAnswers) {
-        if (!this._mcpBaseImageChoices) return null;
-
-        const selectedImage = baseImageAnswers.baseImage || baseImageAnswers.customBaseImage;
-        if (!selectedImage) return null;
-
-        // Find the matching entry in the MCP choices
-        const matchingChoice = this._mcpBaseImageChoices.find(c => c.value === selectedImage);
-        if (!matchingChoice) return null;
-
-        // Try to extract CUDA version from the choice metadata
-        // The formatImageChoices function stores labels in the choice object
-        if (matchingChoice._meta?.labels?.cuda_version) {
-            return matchingChoice._meta.labels.cuda_version;
-        }
-        if (matchingChoice._meta?.accelerator?.version) {
-            return matchingChoice._meta.accelerator.version;
-        }
-
-        return null;
-    }
 
     /**
      * Check model architecture compatibility against the selected base image.

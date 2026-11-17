@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — in progress (Wave 2)
+Accepted — in progress
 
 ## Context
 
@@ -12,7 +12,7 @@ Each is an independent stdio MCP server that the CLI spawns via
 base images, models, endpoints, …). They were authored one at a time by AI
 agents, and each `index.js` re-implements the same server skeleton.
 
-Measured duplication across the 14 servers (from the Wave 2 Task 1 audit):
+Measured duplication across the 14 servers (from the server-scaffold audit):
 
 | Scaffold element | Servers with it | Notes |
 |---|---:|---|
@@ -81,13 +81,13 @@ Design points, driven by the audit:
 
 ### Scope
 
-Wave 2 migrates all 14 servers onto the factory (Task 3: region/model/base-image
-as the reference trio; Task 4: the remaining 11), deletes the duplicated
+This change migrates all 14 servers onto the factory (the reference trio
+region/model/base-image first, then the remaining 11), deletes the duplicated
 `loadCatalog`/`log`/main-guard/Bedrock plumbing, and reconciles
 `package.json` `files` and `scripts/validate-servers.js`. Each migrated server
 and the factory carry a conforming module header
 (`docs/architecture/module-header-convention.md`), clearing the `servers/lib/`
-header-lint warnings introduced in Wave 1.
+header-lint warnings.
 
 ## Consequences
 

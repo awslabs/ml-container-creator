@@ -157,52 +157,48 @@ class TestImportContractRoundTrip:
         assert reconstructed["PROJECT_NAME"] == SAMPLE_CONFIG["project_name"]
 
     def test_roundtrip_via_mocked_sagemaker_api(self, capsys):
-        """Full round-trip through mocked SageMaker create + describe APIs.
+        """Full round-trip through the mocked registration path.
 
-        Simulates the complete flow:
-        1. cmd_register_model → calls ModelPackage.create with metadata
-        2. ModelPackage.get → returns the stored metadata
+        Since BL164, cmd_register_model registers the full model THROUGH the
+        MLflow bridge (SageMaker auto-creates the Model Package from the MLflow
+        version); the import metadata travels as the version's tags. So:
+        1. cmd_register_model → mlcc_mlflow.register_via_bridge(tags=metadata)
+        2. The bridge copies those tags onto the Model Package → read back as-is
         3. Reconstruct config → verify completeness
         """
         args = _make_register_args()
 
-        # Capture what metadata gets passed to ModelPackage.create
+        # Capture the metadata handed to the bridge
         captured_metadata = {}
 
         mock_mpg = MagicMock()
         mock_mpg.model_package_group_arn = (
             "arn:aws:sagemaker:us-west-2:123456789012:model-package-group/my-llm-project"
         )
-
-        mock_pkg = MagicMock()
-        mock_pkg.model_package_arn = (
-            "arn:aws:sagemaker:us-west-2:123456789012:model-package/my-llm-project/1"
-        )
-
-        def fake_model_package_create(**kwargs):
-            captured_metadata.update(kwargs.get("customer_metadata_properties", {}))
-            return mock_pkg
-
         mock_resources = MagicMock()
         mock_resources.ModelPackageGroup.create.return_value = mock_mpg
-        mock_resources.ModelPackage.create.side_effect = fake_model_package_create
 
-        # Simulate describe (get) returning the stored metadata
-        mock_describe_pkg = MagicMock()
-        mock_describe_pkg.customer_metadata_properties = None  # Will be set after create
-        mock_describe_pkg.model_package_arn = mock_pkg.model_package_arn
-        mock_describe_pkg.model_approval_status = "Approved"
-        mock_describe_pkg.model_package_description = "gpu-vllm on ml.g5.2xlarge"
+        def fake_register_via_bridge(**kwargs):
+            captured_metadata.update(kwargs.get("tags") or {})
+            return {
+                "registered_model_name": "my-llm-project",
+                "version": 1,
+                "sagemaker_model_package_arn": (
+                    "arn:aws:sagemaker:us-west-2:123456789012:model-package/my-llm-project-abc123/1"
+                ),
+            }
 
-        with patch.object(_register_helper, "_check_sagemaker_core"):
-            with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}):
-                # Step 1: Register model
-                with pytest.raises(SystemExit) as exc_info:
-                    _register_helper.cmd_register_model(args)
-                assert exc_info.value.code == 0
+        with patch("register_model._check_sagemaker_core"), \
+             patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}), \
+             patch("mlcc_mlflow._mlflow_configured", return_value=True), \
+             patch("mlcc_mlflow.register_via_bridge", side_effect=fake_register_via_bridge):
+            # Step 1: Register model
+            with pytest.raises(SystemExit) as exc_info:
+                _register_helper.cmd_register_model(args)
+            assert exc_info.value.code == 0
 
         # Step 2: Verify metadata was captured during registration
-        assert len(captured_metadata) > 0, "No metadata was passed to ModelPackage.create"
+        assert len(captured_metadata) > 0, "No metadata was passed to register_via_bridge"
 
         # Step 3: Simulate querying the version back
         # (In production, ModelPackage.get returns customer_metadata_properties as-is)
@@ -285,19 +281,26 @@ class TestImportContractRoundTrip:
         # It starts with the original prefix
         assert reconstructed["MODEL_NAME"].startswith("organization/")
 
-    def test_roundtrip_empty_optional_fields_stored_as_empty_strings(self):
-        """Optional fields with no value are stored as empty strings, not omitted."""
+    def test_roundtrip_empty_optional_fields_are_omitted(self):
+        """Optional fields with no value are OMITTED, not stored as "".
+
+        SageMaker CreateModelPackage rejects a zero-length CustomerMetadataProperties
+        value, so _truncate_metadata drops empty entries (register_model.py). On
+        import an absent key means "not set", same as an empty do/config var.
+        """
         args = _make_register_args(
             model_format="",
             generator_version="",
         )
         metadata = _build_metadata(args)
 
-        # Empty fields are present as empty strings
-        assert "modelFormat" in metadata
-        assert metadata["modelFormat"] == ""
-        assert "generatorVersion" in metadata
-        assert metadata["generatorVersion"] == ""
+        assert "modelFormat" not in metadata
+        assert "generatorVersion" not in metadata
+        assert all(v != "" for v in metadata.values())
+        # The non-empty required fields are still there
+        reconstructed = _reconstruct_config_from_metadata(metadata)
+        assert "MODEL_FORMAT" not in reconstructed
+        assert reconstructed["DEPLOYMENT_CONFIG"] == SAMPLE_CONFIG["deployment_config"]
 
     def test_roundtrip_generator_version_informational(self):
         """generatorVersion is stored but not mapped to a do/config variable."""

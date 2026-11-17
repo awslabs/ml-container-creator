@@ -307,6 +307,27 @@ class TestSubprocessTransport:
         assert call_kwargs[1]["timeout"] == MCP_CALL_TIMEOUT
 
     @patch("subprocess.Popen")
+    def test_subprocess_sends_bare_tool_name_and_unwraps_envelope(self, mock_popen: MagicMock) -> None:
+        """BL241: the spawned server registers "recommend", not "instance-sizer/recommend";
+        its tools/call result envelope is unwrapped to the tool payload."""
+        payload = {"values": {"instanceType": "ml.g5.xlarge"}}
+        response = json.dumps({
+            "jsonrpc": "2.0", "id": 1,
+            "result": {"content": [{"type": "text", "text": json.dumps(payload)}]},
+        })
+        mock_proc = MagicMock()
+        mock_proc.communicate.return_value = (response, "")
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        config = {"mcpServers": {"instance-sizer": {"command": "node", "args": ["index.js"]}}}
+        client = MCPClient(transport="subprocess", server_config=config)
+
+        assert call_tool(client, "instance-sizer/recommend", {"model": "m"}) == payload
+        sent = json.loads(mock_proc.communicate.call_args[1]["input"])
+        assert sent["params"]["name"] == "recommend"
+
+    @patch("subprocess.Popen")
     def test_subprocess_timeout_returns_none(self, mock_popen: MagicMock) -> None:
         """FR-10.4: Subprocess timeout (>10s) returns None."""
         mock_proc = MagicMock()
@@ -395,6 +416,14 @@ class TestJSONRPCHelpers:
         """Invalid JSON returns None."""
         assert _parse_jsonrpc_response("not json {{{") is None
 
+    def test_parse_tool_error_envelope_returns_none(self) -> None:
+        """An MCP isError tool result (e.g. "Tool ... not found") returns None."""
+        raw = json.dumps({
+            "jsonrpc": "2.0", "id": 1,
+            "result": {"content": [{"type": "text", "text": "MCP error -32602: Tool x not found"}], "isError": True},
+        })
+        assert _parse_jsonrpc_response(raw) is None
+
     def test_parse_no_result_key_returns_none(self) -> None:
         """Response without result key returns None."""
         raw = json.dumps({"jsonrpc": "2.0", "id": 1})
@@ -420,20 +449,32 @@ class TestTimeoutConstant:
 # ---------------------------------------------------------------------------
 
 
+def _sizer_response(
+    instance_type: str | None,
+    gpu_count: int | str | None = 1,
+    choices: list[str] | None = None,
+    **metadata: object,
+) -> dict:
+    """A get_instance_recommendation payload in the shape servers/instance-sizer/
+    index.js returns (pinned against the live server by
+    test/unit/sizer-python-client-contract.test.js)."""
+    recs = [{"instanceType": instance_type, "gpuCount": gpu_count}] if instance_type else []
+    return {
+        "values": {"instanceType": instance_type},
+        "choices": {"instanceType": choices if choices is not None else ([instance_type] if instance_type else [])},
+        "metadata": {"recommendations": recs, **metadata},
+    }
+
+
 class TestMCPRecommendInstance:
-    """Verify the mcp_recommend_instance wrapper for instance-sizer/recommend."""
+    """Verify the mcp_recommend_instance wrapper for instance-sizer/recommend (BL241)."""
 
     def test_returns_instance_type_on_success(self) -> None:
-        """Successful MCP call returns instance_type in result dict."""
+        """values.instanceType is the recommendation; choices are the alternatives."""
         mock_data = {
-            "instance-sizer/recommend": {
-                "instance_type": "ml.g5.xlarge",
-                "gpu_count": 1,
-                "instances": [
-                    {"instance_type": "ml.g5.xlarge", "gpu_count": 1},
-                    {"instance_type": "ml.g5.2xlarge", "gpu_count": 1},
-                ],
-            }
+            "instance-sizer/recommend": _sizer_response(
+                "ml.g5.xlarge", 1, choices=["ml.g5.xlarge", "ml.g5.2xlarge"]
+            )
         }
         client = MCPClient(transport="mock", mock_responses=mock_data)
 
@@ -441,7 +482,18 @@ class TestMCPRecommendInstance:
         assert result is not None
         assert result["instance_type"] == "ml.g5.xlarge"
         assert result["gpu_count"] == 1
-        assert len(result["instances"]) == 2
+        assert result["instances"] == ["ml.g5.xlarge", "ml.g5.2xlarge"]
+        assert result["sizing_unavailable"] is False
+
+    def test_reads_server_envelope(self) -> None:
+        """The MCP tools/call envelope (content[0].text JSON) is unwrapped."""
+        payload = _sizer_response("ml.g6.xlarge")
+        mock_data = {
+            "instance-sizer/recommend": {"content": [{"type": "text", "text": json.dumps(payload)}]}
+        }
+        # Real transports unwrap the envelope in _parse_jsonrpc_response.
+        raw = json.dumps({"jsonrpc": "2.0", "id": 1, "result": mock_data["instance-sizer/recommend"]})
+        assert _parse_jsonrpc_response(raw) == payload
 
     def test_returns_none_on_mcp_failure(self) -> None:
         """When MCP call returns None (timeout/error), returns None."""
@@ -451,55 +503,63 @@ class TestMCPRecommendInstance:
         result = mcp_recommend_instance(client, "bert-base-uncased", "float16")
         assert result is None
 
-    def test_returns_none_when_instance_type_missing(self) -> None:
-        """If response lacks instance_type field, returns None."""
-        mock_data = {
-            "instance-sizer/recommend": {
-                "gpu_count": 1,
-                "instances": [],
-            }
-        }
+    def test_returns_none_when_not_a_sizer_response(self) -> None:
+        """A reply without values.instanceType is malformed → None (heuristic fallback)."""
+        mock_data = {"instance-sizer/recommend": {"instance_type": "ml.g5.xlarge", "gpu_count": 1}}
         client = MCPClient(transport="mock", mock_responses=mock_data)
 
         result = mcp_recommend_instance(client, "bert-base-uncased", "float16")
         assert result is None
 
-    def test_returns_none_when_instance_type_empty_string(self) -> None:
-        """If response has empty instance_type, returns None."""
+    def test_sizing_unavailable_surfaces_message_without_recommendation(self) -> None:
+        """BL237: an unsizable model yields no recommendation plus the server's
+        message; the unfiltered list is NOT a recommendation."""
+        msg = 'Cannot size "org/x": ... pass --instance-type <ml.instance> explicitly'
         mock_data = {
             "instance-sizer/recommend": {
-                "instance_type": "",
-                "gpu_count": 1,
+                "values": {"instanceType": None},
+                "choices": {"instanceType": ["ml.g5.xlarge", "ml.g6.xlarge"]},
+                "metadata": {"sizingUnavailable": True, "error": msg, "warning": msg},
             }
         }
         client = MCPClient(transport="mock", mock_responses=mock_data)
 
-        result = mcp_recommend_instance(client, "bert-base-uncased", "float16")
-        assert result is None
+        result = mcp_recommend_instance(client, "org/x", "float16")
+        assert result is not None
+        assert result["instance_type"] is None
+        assert result["sizing_unavailable"] is True
+        assert result["message"] == msg
+        assert "gpu_count" not in result
+
+    def test_sized_but_nothing_fits_surfaces_error(self) -> None:
+        """A sized model that fits nowhere: no recommendation, server error surfaced."""
+        mock_data = {
+            "instance-sizer/recommend": _sizer_response(
+                None, error="No catalog instance has enough GPU memory ... --instance-type"
+            )
+        }
+        client = MCPClient(transport="mock", mock_responses=mock_data)
+
+        result = mcp_recommend_instance(client, "org/huge", "float16")
+        assert result is not None
+        assert result["instance_type"] is None
+        assert result["sizing_unavailable"] is False
+        assert "--instance-type" in result["message"]
 
     def test_handles_response_without_optional_fields(self) -> None:
-        """Response with only instance_type (no gpu_count, no instances) works."""
-        mock_data = {
-            "instance-sizer/recommend": {
-                "instance_type": "ml.g6.xlarge",
-            }
-        }
+        """values.instanceType alone (no choices/metadata) works."""
+        mock_data = {"instance-sizer/recommend": {"values": {"instanceType": "ml.g6.xlarge"}}}
         client = MCPClient(transport="mock", mock_responses=mock_data)
 
         result = mcp_recommend_instance(client, "distilbert-base", "float16")
         assert result is not None
         assert result["instance_type"] == "ml.g6.xlarge"
         assert "gpu_count" not in result
-        assert "instances" not in result
+        assert result["instances"] == []
 
     def test_gpu_count_converted_to_int(self) -> None:
-        """gpu_count is always returned as int, even if response has string."""
-        mock_data = {
-            "instance-sizer/recommend": {
-                "instance_type": "ml.g5.12xlarge",
-                "gpu_count": "4",
-            }
-        }
+        """gpu_count (from the top recommendation) is always an int."""
+        mock_data = {"instance-sizer/recommend": _sizer_response("ml.g5.12xlarge", "4")}
         client = MCPClient(transport="mock", mock_responses=mock_data)
 
         result = mcp_recommend_instance(client, "llama-70b", "int8")
@@ -507,20 +567,23 @@ class TestMCPRecommendInstance:
         assert result["gpu_count"] == 4
         assert isinstance(result["gpu_count"], int)
 
-    def test_passes_model_and_precision_as_arguments(self) -> None:
-        """Verify correct arguments are passed to the MCP tool call."""
-        mock_data = {
-            "instance-sizer/recommend": {
-                "instance_type": "ml.g5.xlarge",
-            }
-        }
-        client = MCPClient(transport="mock", mock_responses=mock_data)
+    @patch("mcp_client.call_tool")
+    def test_passes_model_precision_and_context_as_arguments(self, mock_call: MagicMock) -> None:
+        """model / precision / context.projectDir / context.backend are forwarded."""
+        mock_call.return_value = _sizer_response("ml.g5.xlarge")
+        client = MCPClient(transport="mock", mock_responses={})
 
-        # With mock transport, we can't directly verify arguments passed,
-        # but we can verify the function doesn't error with various inputs
-        result = mcp_recommend_instance(client, "meta-llama/Llama-2-13b-hf", "int4")
-        assert result is not None
-        assert result["instance_type"] == "ml.g5.xlarge"
+        result = mcp_recommend_instance(
+            client, "meta-llama/Llama-2-13b-hf", "int4", project_dir="/p", engine="vllm"
+        )
+        assert result is not None and result["instance_type"] == "ml.g5.xlarge"
+        _, tool, args = mock_call.call_args[0]
+        assert tool == "instance-sizer/recommend"
+        assert args == {
+            "model": "meta-llama/Llama-2-13b-hf",
+            "precision": "int4",
+            "context": {"projectDir": "/p", "backend": "vllm"},
+        }
 
     @patch("mcp_client._call_subprocess")
     def test_timeout_returns_none(self, mock_subprocess: MagicMock) -> None:
@@ -533,18 +596,14 @@ class TestMCPRecommendInstance:
         result = mcp_recommend_instance(client, "llama-7b", "float16")
         assert result is None
 
-    def test_returns_none_when_instance_type_not_string(self) -> None:
-        """If instance_type is not a string (e.g. int), returns None."""
-        mock_data = {
-            "instance-sizer/recommend": {
-                "instance_type": 12345,
-                "gpu_count": 1,
-            }
-        }
+    def test_non_string_instance_type_is_no_recommendation(self) -> None:
+        """A non-string values.instanceType is not a usable recommendation."""
+        mock_data = {"instance-sizer/recommend": {"values": {"instanceType": 12345}}}
         client = MCPClient(transport="mock", mock_responses=mock_data)
 
         result = mcp_recommend_instance(client, "bert-base-uncased", "float16")
-        assert result is None
+        assert result is not None
+        assert result["instance_type"] is None
 
 
 # ---------------------------------------------------------------------------

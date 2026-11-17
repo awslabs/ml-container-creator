@@ -40,36 +40,148 @@ from typing import Any
 # Metadata extraction
 # ---------------------------------------------------------------------------
 
-def _estimate_params_from_config(config: dict[str, Any]) -> int | None:
-    """Estimate parameter count from architecture dimensions (dense models)."""
-    hidden = config.get("hidden_size")
-    layers = config.get("num_hidden_layers")
-    if hidden and layers:
-        return hidden * layers * 12
+# Sub-config keys under which multimodal / composite HF configs nest the
+# language-model dimensions (e.g. Qwen3_5ForConditionalGeneration keeps
+# hidden_size / num_hidden_layers / max_position_embeddings / dtype under
+# "text_config"). MUST mirror NESTED_TEXT_CONFIG_KEYS in
+# servers/instance-sizer/lib/model-resolver.js — enforced by
+# test/unit/hf-size-extraction-conformance.test.js.
+NESTED_TEXT_CONFIG_KEYS = ("text_config", "llm_config", "language_config")
+
+# Presence of any of these means mixture-of-experts: the dense formula does not apply.
+_MOE_CONFIG_KEYS = ("num_experts", "num_local_experts", "n_routed_experts", "moe_num_experts")
+
+# safetensors dtype tags (HF Hub API "safetensors.parameters") -> estimator dtype names.
+_SAFETENSORS_DTYPE_MAP = {
+    "BF16": "bfloat16",
+    "F16": "float16",
+    "F32": "float32",
+    "I8": "int8",
+    "U8": "int8",
+    "F8_E4M3": "int8",
+    "F8_E5M2": "int8",
+}
+
+
+def _nested_text_config(config: dict[str, Any]) -> dict[str, Any] | None:
+    for key in NESTED_TEXT_CONFIG_KEYS:
+        sub = config.get(key)
+        if isinstance(sub, dict):
+            return sub
     return None
 
 
-def _extract_from_hf_config(config: dict[str, Any]) -> dict[str, Any]:
-    """Extract sizing metadata from a HuggingFace config.json."""
-    param_count = config.get("num_parameters") or _estimate_params_from_config(config)
-    architecture = (config.get("architectures") or ["unknown"])[0]
-    dtype = config.get("torch_dtype") or "float16"
-    max_ctx = config.get("max_position_embeddings") or 4096
-    num_layers = config.get("num_hidden_layers")
-    num_kv_heads = config.get("num_key_value_heads") or config.get("num_attention_heads")
-    hidden_size = config.get("hidden_size")
-    num_attn_heads = config.get("num_attention_heads")
-    head_dim = config.get("head_dim") or (
+def _config_field(config: dict[str, Any], key: str) -> Any:
+    """Read a field from the top level, falling back to the nested text config."""
+    value = config.get(key)
+    if value is not None:
+        return value
+    sub = _nested_text_config(config)
+    if sub is not None:
+        return sub.get(key)
+    return None
+
+
+def _estimate_params_from_config(config: dict[str, Any]) -> int | None:
+    """Estimate parameter count of a DENSE transformer from config dimensions.
+
+    layers * 12 * hidden^2 + vocab * hidden (x2 when embeddings are untied).
+    Last resort only; returns None for mixture-of-experts configs.
+    """
+    hidden = _config_field(config, "hidden_size")
+    layers = _config_field(config, "num_hidden_layers")
+    if not hidden or not layers:
+        return None
+    if any(_config_field(config, k) for k in _MOE_CONFIG_KEYS):
+        return None
+    vocab = _config_field(config, "vocab_size") or 0
+    tied = _config_field(config, "tie_word_embeddings") is True
+    return layers * 12 * hidden * hidden + vocab * hidden * (1 if tied else 2)
+
+
+def _normalize_dtype(raw: Any) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    v = raw.lower()
+    if v.startswith("torch."):
+        v = v[len("torch."):]
+    if v in ("bfloat16", "bf16"):
+        return "bfloat16"
+    if v in ("float16", "fp16", "half"):
+        return "float16"
+    if v in ("float32", "fp32", "float"):
+        return "float32"
+    return None
+
+
+def _dominant_safetensors_dtype(safetensors: Any) -> str | None:
+    params = safetensors.get("parameters") if isinstance(safetensors, dict) else None
+    if not isinstance(params, dict):
+        return None
+    best, best_count = None, -1
+    for tag, count in params.items():
+        if isinstance(count, (int, float)) and count > best_count and tag in _SAFETENSORS_DTYPE_MAP:
+            best, best_count = _SAFETENSORS_DTYPE_MAP[tag], count
+    return best
+
+
+def _extract_from_hf_config(
+    config: dict[str, Any],
+    hub_info: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Extract sizing metadata from a HuggingFace config.json (+ Hub API metadata).
+
+    Parameter-count precedence (source recorded in "parameterCountSource"):
+      1. Hub API safetensors.total (read from the published weight headers)
+      2. config num_parameters
+      3. dense-transformer estimate from config dimensions (never for MoE)
+    Fields that cannot be derived are omitted, never guessed — in particular
+    maxPositionEmbeddings is NOT defaulted to 4096 (that default used to be
+    written for every multimodal model, whose context lives in text_config).
+    MUST stay in sync with extractFromHuggingFaceConfig() in
+    servers/instance-sizer/lib/model-resolver.js (conformance-tested).
+    """
+    config = config or {}
+    safetensors = (hub_info or {}).get("safetensors")
+    total = safetensors.get("total") if isinstance(safetensors, dict) else None
+
+    param_count: int | None = None
+    param_source: str | None = None
+    if isinstance(total, (int, float)) and total > 0:
+        param_count, param_source = int(total), "huggingface-safetensors-metadata"
+    elif _config_field(config, "num_parameters"):
+        param_count, param_source = _config_field(config, "num_parameters"), "config.num_parameters"
+    else:
+        estimated = _estimate_params_from_config(config)
+        if estimated:
+            param_count, param_source = estimated, "config-dimension-estimate"
+
+    architectures = config.get("architectures") or ((hub_info or {}).get("config") or {}).get("architectures")
+    architecture = (architectures or ["unknown"])[0]
+    dtype = (
+        _normalize_dtype(_config_field(config, "torch_dtype"))
+        or _normalize_dtype(_config_field(config, "dtype"))
+        or _dominant_safetensors_dtype(safetensors)
+        or "float16"
+    )
+    max_ctx = _config_field(config, "max_position_embeddings")
+    num_layers = _config_field(config, "num_hidden_layers")
+    hidden_size = _config_field(config, "hidden_size")
+    num_attn_heads = _config_field(config, "num_attention_heads")
+    num_kv_heads = _config_field(config, "num_key_value_heads") or num_attn_heads
+    head_dim = _config_field(config, "head_dim") or (
         (hidden_size // num_attn_heads) if hidden_size and num_attn_heads else None
     )
 
     entry: dict[str, Any] = {
         "architecture": architecture,
         "defaultDtype": dtype,
-        "maxPositionEmbeddings": max_ctx,
     }
+    if max_ctx:
+        entry["maxPositionEmbeddings"] = max_ctx
     if param_count:
         entry["parameterCount"] = param_count
+        entry["parameterCountSource"] = param_source
     if num_layers:
         entry["numLayers"] = num_layers
     if num_kv_heads:
@@ -78,6 +190,24 @@ def _extract_from_hf_config(config: dict[str, Any]) -> dict[str, Any]:
         entry["headDim"] = head_dim
 
     return entry
+
+
+def _fetch_hub_info(model_id: str, hf_token: str | None = None) -> dict[str, Any] | None:
+    """Fetch the HF Hub model API record (carries safetensors parameter counts).
+
+    The API is public even for gated repos, so this works where config.json 401s.
+    """
+    try:
+        import urllib.request
+        url = f"https://huggingface.co/api/models/{model_id}"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "ml-container-creator/catalog-registration",
+            **({"Authorization": f"Bearer {hf_token}"} if hf_token else {}),
+        })
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())
+    except Exception:
+        return None
 
 
 def _fetch_config_from_s3(staged_uri: str, model_id: str) -> dict[str, Any] | None:
@@ -217,13 +347,20 @@ def _model_key_pattern(model_id: str) -> str:
 
 
 def _is_already_registered(catalog: dict[str, Any], model_id: str) -> bool:
-    """Return True if the model (or a glob pattern matching it) is already in the catalog."""
+    """Return True if the model is already in the catalog WITH a usable size.
+
+    An entry without a parameterCount (written by older versions for
+    multimodal configs) cannot size the model, so it is treated as absent and
+    re-registered.
+    """
     models = catalog.get("models", {})
     if isinstance(models, dict):
-        for pattern in models:
+        for pattern, entry in models.items():
             base = pattern.rstrip("*")
             if model_id == pattern or model_id.startswith(base):
-                return True
+                count = entry.get("parameterCount") if isinstance(entry, dict) else None
+                if isinstance(count, (int, float)) and count > 0:
+                    return True
     return False
 
 
@@ -265,14 +402,23 @@ def register_model(
         hf_config = _fetch_config_from_hf(model_id, hf_token)
         if hf_config:
             source = "HuggingFace"
+    # Authoritative parameter count: HF Hub safetensors metadata.
+    hub_info = _fetch_hub_info(model_id, hf_token)
 
-    if not hf_config:
+    if not hf_config and not hub_info:
         if verbose:
             print(f"   ⚠️  Could not fetch config.json — skipping catalog registration.")
             print(f"      Instance recommendations for {model_id!r} will show all GPU instances.")
         return False
 
-    entry = _extract_from_hf_config(hf_config)
+    entry = _extract_from_hf_config(hf_config or {}, hub_info)
+    if "parameterCount" not in entry:
+        # Do not cache an entry that cannot size the model — it would shadow
+        # later discovery. The instance-sizer reports "cannot size" instead.
+        if verbose:
+            print(f"   ⚠️  Could not determine the parameter count of {model_id!r} — skipping catalog registration.")
+            print(f"      Pass --instance-type to do/deploy explicitly.")
+        return False
     entry["modelId"] = _model_key_pattern(model_id)
     entry["source"] = "local"
 
@@ -300,7 +446,8 @@ def register_model(
         if "parameterCount" in entry:
             p = entry["parameterCount"]
             param_str = f"{p/1e9:.1f}B params" if p >= 1e9 else f"{p/1e6:.0f}M params"
-        ctx_str = f"{entry.get('maxPositionEmbeddings', '?'):,} token context"
+        max_ctx = entry.get("maxPositionEmbeddings")
+        ctx_str = f"{max_ctx:,} token context" if isinstance(max_ctx, int) else "context length unknown"
         dtype_str = entry.get("defaultDtype", "")
         arch_str = entry.get("architecture", "")
         print(f"   ✅ Registered in .mlcc/model-sizes.json")

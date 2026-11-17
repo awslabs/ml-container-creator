@@ -8,7 +8,7 @@
       "required": true,
       "depends": [],
       "stackNameSuffix": "core",
-      "exports": ["RoleArn", "EcrRepositoryName", "EcrRepositoryUri"],
+      "exports": ["RoleArn", "EcrRepositoryName", "EcrRepositoryUri", "ModelsBucket"],
       "resourceLevel": "account"
     },
     "benchmark": {
@@ -34,12 +34,12 @@
     },
     "training": {
       "displayName": "Training Infrastructure",
-      "description": "Training data bucket + execution role + MLflow experiment tracking",
+      "description": "Artifacts bucket (tune/train/optimize output + MLflow store) + legacy training/adapters buckets + reward-Lambda role + MLflow experiment tracking",
       "estimatedMonthlyCost": "$2",
       "required": false,
       "depends": ["core"],
       "stackNameSuffix": "training",
-      "exports": ["TrainingBucket", "AdaptersBucket", "TrainingRoleArn", "MlflowAppArn"],
+      "exports": ["ArtifactsBucket", "TrainingBucket", "AdaptersBucket", "RewardLambdaRoleArn", "MlflowAppArn"],
       "resourceLevel": "profile"
     },
     "ci": {
@@ -49,7 +49,7 @@
       "required": false,
       "depends": ["core", "benchmark", "registry"],
       "stackNameSuffix": "ci",
-      "exports": ["CodeBuildProject", "StateMachineArn", "CiTableName"],
+      "exports": ["CodeBuildProject", "StateMachineArn", "CiTableName", "SourceBucket"],
       "resourceLevel": "profile"
     },
     "sagemaker-domain": {
@@ -62,14 +62,26 @@
       "exports": ["DomainId", "UserProfileName"],
       "resourceLevel": "profile"
     },
-    "hyperpod-cluster": {
-      "displayName": "HyperPod (EKS + Inference)",
-      "description": "Provisions a full HyperPod EKS environment: VPC, EKS cluster, HyperPod cluster (0-instance), and the SageMaker Inference Operator. Three CDK stacks deployed in sequence.",
-      "estimatedMonthlyCost": "$100+/mo (EKS control plane ~$73 + NAT; compute billed per node-hour when scaled up)",
+    "eks": {
+      "displayName": "EKS Cluster",
+      "description": "Provisions a standalone EKS environment: VPC, EKS cluster, OIDC provider, Fargate profile, CSI/metrics add-ons, and the EKS inference IRSA role. Vanilla-EKS users add this alone; the hyperpod module depends on it.",
+      "estimatedMonthlyCost": "$73+/mo (EKS control plane; NAT + compute billed separately)",
       "required": false,
       "depends": ["core"],
-      "stacks": ["eks-cluster", "hyperpod-cluster", "inference-operator"],
-      "exports": ["EksClusterArn", "EksClusterName", "HyperPodClusterArn", "HyperPodClusterName", "InferenceOperatorStatus"],
+      "stacks": ["eks-cluster"],
+      "exports": ["EksClusterArn", "EksClusterName", "OidcProviderArn", "OidcProviderIssuer", "EksInferenceRoleArn"],
+      "resourceLevel": "profile"
+    },
+    "hyperpod": {
+      "displayName": "HyperPod (Inference Operator)",
+      "description": "DEPRECATED (v2.0.0) — HyperPod CLUSTER PROVISIONING is deprecated pending a dedicated spike (BL153). The live BL143 rehearsal proved MLCC's cluster-creation path does not enable inference at CreateCluster time (the cluster comes up with no InferenceConfig), so the operator can never create a SageMaker endpoint — a root cause that lives in AWS's compiled provisioning Lambda and cannot be cleanly reconstructed here. Provision a HyperPod cluster via the AWS SageMaker console / published CFT instead; the `hyperpod-eks` DEPLOY target still works against a correctly-provisioned cluster. See docs/architecture/eks-hyperpod-migration.md.",
+      "estimatedMonthlyCost": "~$1,300/mo (2 x ml.c5.4xlarge on-demand CPU default-worker floor, billed 24/7 while provisioned; confirm current rates on the SageMaker pricing page. GPU model-serving instances are billed separately only when attached. Remove the module when idle)",
+      "required": false,
+      "deprecated": true,
+      "deprecationNote": "Cluster provisioning deprecated pending the HP-native spike (BL153) — it does not enable inference at CreateCluster time, so model endpoints are never created. Provision via the AWS console/CFT; deploy with --target hyperpod-eks against the result. See docs/architecture/eks-hyperpod-migration.md.",
+      "depends": ["eks"],
+      "stacks": ["hyperpod-cluster", "inference-operator"],
+      "exports": ["HyperPodClusterArn", "HyperPodClusterName", "InferenceOperatorStatus"],
       "resourceLevel": "profile"
     }
   }

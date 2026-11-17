@@ -1,7 +1,7 @@
 """Unit tests for templates/do/lib/python/lora_vllm.py.
 
 Tests cover: load success, load 409 conflict, unload success, unload 404,
-list filtered results, list on empty, network error handling, and S3 URI passthrough.
+list filtered results, list on empty, network error handling, and the s3:// refusal guard (Wave 6.1 R1.5).
 """
 
 import json
@@ -30,12 +30,12 @@ class TestLoadLora:
         mock_resp.status_code = 200
         mock_post.return_value = mock_resp
 
-        result = lora_vllm.load_lora(BASE_URL, "my-adapter", "s3://bucket/path/")
+        result = lora_vllm.load_lora(BASE_URL, "my-adapter", "/opt/ml/model/.mlcc-adapters/p/a")
 
         assert result == {"success": True}
         mock_post.assert_called_once_with(
             "http://localhost:8080/v1/load_lora_adapter",
-            json={"lora_name": "my-adapter", "lora_path": "s3://bucket/path/"},
+            json={"lora_name": "my-adapter", "lora_path": "/opt/ml/model/.mlcc-adapters/p/a"},
             timeout=60,
         )
 
@@ -48,7 +48,7 @@ class TestLoadLora:
         mock_resp.json.return_value = {"message": "Adapter already loaded"}
         mock_post.return_value = mock_resp
 
-        result = lora_vllm.load_lora(BASE_URL, "my-adapter", "s3://bucket/path/")
+        result = lora_vllm.load_lora(BASE_URL, "my-adapter", "/opt/ml/model/.mlcc-adapters/p/a")
 
         assert result["success"] is False
         assert result["status_code"] == 409
@@ -61,24 +61,35 @@ class TestLoadLora:
             "Connection refused"
         )
 
-        result = lora_vllm.load_lora(BASE_URL, "my-adapter", "s3://bucket/path/")
+        result = lora_vllm.load_lora(BASE_URL, "my-adapter", "/opt/ml/model/.mlcc-adapters/p/a")
 
         assert result["success"] is False
         assert result["status_code"] == 0
         assert "Connection refused" in result["error"]
 
     @patch("lora_vllm.requests.post")
-    def test_load_s3_uri_passthrough(self, mock_post):
-        """S3 URI is passed directly as lora_path without modification."""
+    def test_load_s3_uri_refused_before_any_engine_call(self, mock_post):
+        """Wave 6.1 R1.5: an s3:// lora_path is refused (vLLM would treat it as an
+        HF repo id) and vLLM is never called. Supersedes the old passthrough test."""
+        s3_uri = "s3://my-training-bucket/adapters/ectsum/epoch-3/"
+        result = lora_vllm.load_lora(BASE_URL, "ectsum", s3_uri)
+
+        assert result["success"] is False
+        assert "s3://" in result["error"] and "LOCAL path" in result["error"]
+        mock_post.assert_not_called()
+
+    @patch("lora_vllm.requests.post")
+    def test_load_local_path_passthrough(self, mock_post):
+        """A local (mounted) path is passed as lora_path unchanged."""
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_post.return_value = mock_resp
 
-        s3_uri = "s3://my-training-bucket/adapters/ectsum/epoch-3/"
-        lora_vllm.load_lora(BASE_URL, "ectsum", s3_uri)
+        local = "/opt/ml/model/.mlcc-adapters/proj/ectsum"
+        lora_vllm.load_lora(BASE_URL, "ectsum", local)
 
         call_payload = mock_post.call_args[1]["json"]
-        assert call_payload["lora_path"] == s3_uri
+        assert call_payload["lora_path"] == local
 
     @patch("lora_vllm.requests.post")
     def test_load_server_error_500(self, mock_post):
@@ -89,7 +100,7 @@ class TestLoadLora:
         mock_resp.json.side_effect = ValueError("not json")
         mock_post.return_value = mock_resp
 
-        result = lora_vllm.load_lora(BASE_URL, "my-adapter", "s3://bucket/path/")
+        result = lora_vllm.load_lora(BASE_URL, "my-adapter", "/opt/ml/model/.mlcc-adapters/p/a")
 
         assert result["success"] is False
         assert result["status_code"] == 500
@@ -225,12 +236,12 @@ class TestCliMain:
         """CLI 'load' invokes load_lora with correct args."""
         mock_load.return_value = {"success": True}
 
-        with patch.object(sys, "argv", ["lora_vllm.py", "load", "my-lora", "s3://b/p", "http://localhost:8080"]):
+        with patch.object(sys, "argv", ["lora_vllm.py", "load", "my-lora", "/opt/ml/model/x", "http://localhost:8080"]):
             with pytest.raises(SystemExit) as exc_info:
                 lora_vllm._cli_main()
             assert exc_info.value.code == 0
 
-        mock_load.assert_called_once_with("http://localhost:8080", "my-lora", "s3://b/p")
+        mock_load.assert_called_once_with("http://localhost:8080", "my-lora", "/opt/ml/model/x")
 
     @patch("lora_vllm.unload_lora")
     def test_cli_unload(self, mock_unload):

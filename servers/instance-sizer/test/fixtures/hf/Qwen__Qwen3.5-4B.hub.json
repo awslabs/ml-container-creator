@@ -1,0 +1,20 @@
+{
+  "_source": "https://huggingface.co/api/models/Qwen/Qwen3.5-4B",
+  "_fetchedAt": "2026-10-28",
+  "_note": "Verbatim subset (id, sha, safetensors, config.architectures) of the HF Hub model API response; used as an offline test fixture.",
+  "id": "Qwen/Qwen3.5-4B",
+  "sha": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+  "safetensors": {
+    "parameters": {
+      "BF16": 4659861248,
+      "F32": 3840
+    },
+    "total": 4659865088
+  },
+  "config": {
+    "architectures": [
+      "Qwen3_5ForConditionalGeneration"
+    ],
+    "model_type": "qwen3_5"
+  }
+}

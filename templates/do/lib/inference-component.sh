@@ -23,6 +23,23 @@ _collect_ic_env_vars() {
 
         local stripped_key="${full_key#IC_ENV_}"
 
+        # BL212: a plaintext secret here lands in the IC Environment, which
+        # DescribeInferenceComponent returns and CloudTrail records. Pass
+        # IC_ENV_HF_TOKEN_ARN / IC_ENV_NGC_API_KEY_ARN instead (resolved by the
+        # container at startup), or opt in with do/deploy --allow-plaintext-secret.
+        case "${stripped_key}" in
+            HF_TOKEN|NGC_API_KEY)
+                if [ "${MLCC_ALLOW_PLAINTEXT_SECRET:-false}" != "true" ]; then
+                    echo "❌ IC_ENV_${stripped_key} is a plaintext secret; it would be visible in" >&2
+                    echo "   SageMaker DescribeInferenceComponent and CloudTrail." >&2
+                    echo "   Use IC_ENV_${stripped_key}_ARN=<secrets-manager-arn> (or ${stripped_key}_ARN)," >&2
+                    echo "   or pass --allow-plaintext-secret to do/deploy to keep the plaintext value." >&2
+                    return 1
+                fi
+                echo "⚠️  --allow-plaintext-secret: IC_ENV_${stripped_key} is written as plaintext." >&2
+                ;;
+        esac
+
         # Validate key length (AC-3.4)
         if [ ${#stripped_key} -gt 1024 ]; then
             echo "⚠️  IC_ENV_${stripped_key}: key exceeds 1024 chars, skipping" >&2
@@ -87,7 +104,7 @@ create_inference_component() {
     source "${ic_conf}"
 
     # Collect IC_ENV_* overrides from environment (sourced from do/config)
-    _collect_ic_env_vars
+    _collect_ic_env_vars || exit 3
 
     local ic_timestamp
     ic_timestamp=$(date +%s)

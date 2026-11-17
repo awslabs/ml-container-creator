@@ -284,6 +284,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="GPU count (auto-detected from instance type if omitted)",
     )
     prompt_parser.add_argument(
+        "--scale-to-zero",
+        default="",
+        help="Scale-to-zero on|off (realtime-inference IC endpoints; validated by do/deploy)",
+    )
+    prompt_parser.add_argument(
+        "--scale-max",
+        default="",
+        help="Max IC copies / instances with scale-to-zero (1-20; validated by do/deploy)",
+    )
+    prompt_parser.add_argument(
         "--cluster-name",
         default="",
         help="HyperPod EKS cluster name",

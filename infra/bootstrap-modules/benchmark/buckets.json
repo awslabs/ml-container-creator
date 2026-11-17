@@ -1,0 +1,14 @@
+{
+  "$comment": "Single declared source for the S3 buckets the benchmark stack owns (ADR-008 derive-dont-hardcode, bucket consolidation R1.2). benchmark/stack.ts, module-runner.cjs (adopt flags + implicit import) and every derived consumer read this file. Placeholders: {account} {region} {profile}. test/unit/no-literal-bucket-names.test.js allows each name ONLY here.",
+  "stack": "benchmark",
+  "buckets": {
+    "BenchmarkBucket": {
+      "name": "mlcc-benchmark-results-{account}-{region}",
+      "adoptContext": "adoptExistingBuckets",
+      "output": "BenchmarkBucketOutput",
+      "profileKey": "benchmarkS3Bucket",
+      "envVar": "BENCHMARK_S3_BUCKET",
+      "purpose": "Benchmark results (<project>/bmk-*/, results/ Glue table, athena-query-results/)"
+    }
+  }
+}

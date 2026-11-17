@@ -716,8 +716,9 @@
       "memGb": 1536,
       "accelerator": "B200 192GB",
       "cudaVersions": [
-        "12.6",
-        "12.8"
+        "12.8",
+        "12.9",
+        "13.0"
       ],
       "tags": [
         "gpu",
@@ -735,7 +736,7 @@
       "hardware": "NVIDIA B200",
       "gpuArchitecture": "Blackwell",
       "defaultCudaVersion": "12.8",
-      "notes": "8x NVIDIA B200 GPUs (1536GB total). Next-gen Blackwell architecture",
+      "notes": "8x NVIDIA B200 GPUs (1536GB total). Next-gen Blackwell architecture. CUDA 12.8+ only (12.8 is the first CUDA with Blackwell support); SageMaker runs this family on al2023-ami-sagemaker-inference-gpu-4-1 (driver 580, CUDA 13.0) per https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html",
       "gpuMemoryGb": 192,
       "gpuType": "NVIDIA B200",
       "costTier": "very-high"
@@ -845,7 +846,9 @@
       "memGb": 32,
       "accelerator": "RTX PRO 4500 32GB",
       "cudaVersions": [
-        "12.8"
+        "12.8",
+        "12.9",
+        "13.0"
       ],
       "tags": [
         "gpu",
@@ -859,7 +862,7 @@
       "hardware": "NVIDIA RTX PRO 4500",
       "gpuArchitecture": "Blackwell",
       "defaultCudaVersion": "12.8",
-      "notes": "G7 Blackwell \u2014 1x 32GB GPU = 32GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+      "notes": "G7 Blackwell \u2014 1x 32GB GPU = 32GB total. Use al2023-ami-sagemaker-inference-gpu-4-1. CUDA 12.8+ only (12.8 is the first CUDA with Blackwell support); SageMaker runs this family on al2023-ami-sagemaker-inference-gpu-4-1 (driver 580, CUDA 13.0) per https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html",
       "gpuMemoryGb": 32,
       "gpuType": "NVIDIA RTX PRO 4500",
       "costTier": "medium"
@@ -871,7 +874,9 @@
       "memGb": 64,
       "accelerator": "RTX PRO 4500 32GB",
       "cudaVersions": [
-        "12.8"
+        "12.8",
+        "12.9",
+        "13.0"
       ],
       "tags": [
         "gpu",
@@ -885,7 +890,7 @@
       "hardware": "NVIDIA RTX PRO 4500",
       "gpuArchitecture": "Blackwell",
       "defaultCudaVersion": "12.8",
-      "notes": "G7 Blackwell \u2014 1x 32GB GPU = 32GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+      "notes": "G7 Blackwell \u2014 1x 32GB GPU = 32GB total. Use al2023-ami-sagemaker-inference-gpu-4-1. CUDA 12.8+ only (12.8 is the first CUDA with Blackwell support); SageMaker runs this family on al2023-ami-sagemaker-inference-gpu-4-1 (driver 580, CUDA 13.0) per https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html",
       "gpuMemoryGb": 32,
       "gpuType": "NVIDIA RTX PRO 4500",
       "costTier": "medium"
@@ -897,7 +902,9 @@
       "memGb": 128,
       "accelerator": "RTX PRO 4500 32GB",
       "cudaVersions": [
-        "12.8"
+        "12.8",
+        "12.9",
+        "13.0"
       ],
       "tags": [
         "gpu",
@@ -911,7 +918,7 @@
       "hardware": "NVIDIA RTX PRO 4500",
       "gpuArchitecture": "Blackwell",
       "defaultCudaVersion": "12.8",
-      "notes": "G7 Blackwell \u2014 1x 32GB GPU = 32GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+      "notes": "G7 Blackwell \u2014 1x 32GB GPU = 32GB total. Use al2023-ami-sagemaker-inference-gpu-4-1. CUDA 12.8+ only (12.8 is the first CUDA with Blackwell support); SageMaker runs this family on al2023-ami-sagemaker-inference-gpu-4-1 (driver 580, CUDA 13.0) per https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html",
       "gpuMemoryGb": 32,
       "gpuType": "NVIDIA RTX PRO 4500",
       "costTier": "medium"
@@ -923,7 +930,9 @@
       "memGb": 192,
       "accelerator": "RTX PRO 4500 32GB",
       "cudaVersions": [
-        "12.8"
+        "12.8",
+        "12.9",
+        "13.0"
       ],
       "tags": [
         "gpu",
@@ -938,7 +947,7 @@
       "hardware": "NVIDIA RTX PRO 4500",
       "gpuArchitecture": "Blackwell",
       "defaultCudaVersion": "12.8",
-      "notes": "G7 Blackwell \u2014 2x 32GB GPU = 64GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+      "notes": "G7 Blackwell \u2014 2x 32GB GPU = 64GB total. Use al2023-ami-sagemaker-inference-gpu-4-1. CUDA 12.8+ only (12.8 is the first CUDA with Blackwell support); SageMaker runs this family on al2023-ami-sagemaker-inference-gpu-4-1 (driver 580, CUDA 13.0) per https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html",
       "gpuMemoryGb": 32,
       "gpuType": "NVIDIA RTX PRO 4500",
       "costTier": "high"
@@ -950,7 +959,9 @@
       "memGb": 384,
       "accelerator": "RTX PRO 4500 32GB",
       "cudaVersions": [
-        "12.8"
+        "12.8",
+        "12.9",
+        "13.0"
       ],
       "tags": [
         "gpu",
@@ -965,7 +976,7 @@
       "hardware": "NVIDIA RTX PRO 4500",
       "gpuArchitecture": "Blackwell",
       "defaultCudaVersion": "12.8",
-      "notes": "G7 Blackwell \u2014 4x 32GB GPU = 128GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+      "notes": "G7 Blackwell \u2014 4x 32GB GPU = 128GB total. Use al2023-ami-sagemaker-inference-gpu-4-1. CUDA 12.8+ only (12.8 is the first CUDA with Blackwell support); SageMaker runs this family on al2023-ami-sagemaker-inference-gpu-4-1 (driver 580, CUDA 13.0) per https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html",
       "gpuMemoryGb": 32,
       "gpuType": "NVIDIA RTX PRO 4500",
       "costTier": "high"
@@ -977,7 +988,9 @@
       "memGb": 768,
       "accelerator": "RTX PRO 4500 32GB",
       "cudaVersions": [
-        "12.8"
+        "12.8",
+        "12.9",
+        "13.0"
       ],
       "tags": [
         "gpu",
@@ -992,7 +1005,7 @@
       "hardware": "NVIDIA RTX PRO 4500",
       "gpuArchitecture": "Blackwell",
       "defaultCudaVersion": "12.8",
-      "notes": "G7 Blackwell \u2014 8x 32GB GPU = 256GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+      "notes": "G7 Blackwell \u2014 8x 32GB GPU = 256GB total. Use al2023-ami-sagemaker-inference-gpu-4-1. CUDA 12.8+ only (12.8 is the first CUDA with Blackwell support); SageMaker runs this family on al2023-ami-sagemaker-inference-gpu-4-1 (driver 580, CUDA 13.0) per https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html",
       "gpuMemoryGb": 32,
       "gpuType": "NVIDIA RTX PRO 4500",
       "costTier": "high"
@@ -1004,7 +1017,9 @@
       "memGb": 64,
       "accelerator": "RTX PRO Server 6000 96GB",
       "cudaVersions": [
-        "12.8"
+        "12.8",
+        "12.9",
+        "13.0"
       ],
       "tags": [
         "gpu",
@@ -1019,7 +1034,7 @@
       "hardware": "NVIDIA RTX PRO Server 6000",
       "gpuArchitecture": "Blackwell",
       "defaultCudaVersion": "12.8",
-      "notes": "G7e Blackwell high-memory \u2014 1x 96GB GPU = 96GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+      "notes": "G7e Blackwell high-memory \u2014 1x 96GB GPU = 96GB total. Use al2023-ami-sagemaker-inference-gpu-4-1. CUDA 12.8+ only (12.8 is the first CUDA with Blackwell support); SageMaker runs this family on al2023-ami-sagemaker-inference-gpu-4-1 (driver 580, CUDA 13.0) per https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html",
       "gpuMemoryGb": 96,
       "gpuType": "NVIDIA RTX PRO Server 6000",
       "costTier": "high"
@@ -1031,7 +1046,9 @@
       "memGb": 128,
       "accelerator": "RTX PRO Server 6000 96GB",
       "cudaVersions": [
-        "12.8"
+        "12.8",
+        "12.9",
+        "13.0"
       ],
       "tags": [
         "gpu",
@@ -1046,7 +1063,7 @@
       "hardware": "NVIDIA RTX PRO Server 6000",
       "gpuArchitecture": "Blackwell",
       "defaultCudaVersion": "12.8",
-      "notes": "G7e Blackwell high-memory \u2014 1x 96GB GPU = 96GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+      "notes": "G7e Blackwell high-memory \u2014 1x 96GB GPU = 96GB total. Use al2023-ami-sagemaker-inference-gpu-4-1. CUDA 12.8+ only (12.8 is the first CUDA with Blackwell support); SageMaker runs this family on al2023-ami-sagemaker-inference-gpu-4-1 (driver 580, CUDA 13.0) per https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html",
       "gpuMemoryGb": 96,
       "gpuType": "NVIDIA RTX PRO Server 6000",
       "costTier": "high"
@@ -1058,7 +1075,9 @@
       "memGb": 256,
       "accelerator": "RTX PRO Server 6000 96GB",
       "cudaVersions": [
-        "12.8"
+        "12.8",
+        "12.9",
+        "13.0"
       ],
       "tags": [
         "gpu",
@@ -1073,7 +1092,7 @@
       "hardware": "NVIDIA RTX PRO Server 6000",
       "gpuArchitecture": "Blackwell",
       "defaultCudaVersion": "12.8",
-      "notes": "G7e Blackwell high-memory \u2014 1x 96GB GPU = 96GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+      "notes": "G7e Blackwell high-memory \u2014 1x 96GB GPU = 96GB total. Use al2023-ami-sagemaker-inference-gpu-4-1. CUDA 12.8+ only (12.8 is the first CUDA with Blackwell support); SageMaker runs this family on al2023-ami-sagemaker-inference-gpu-4-1 (driver 580, CUDA 13.0) per https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html",
       "gpuMemoryGb": 96,
       "gpuType": "NVIDIA RTX PRO Server 6000",
       "costTier": "high"
@@ -1085,7 +1104,9 @@
       "memGb": 512,
       "accelerator": "RTX PRO Server 6000 96GB",
       "cudaVersions": [
-        "12.8"
+        "12.8",
+        "12.9",
+        "13.0"
       ],
       "tags": [
         "gpu",
@@ -1101,7 +1122,7 @@
       "hardware": "NVIDIA RTX PRO Server 6000",
       "gpuArchitecture": "Blackwell",
       "defaultCudaVersion": "12.8",
-      "notes": "G7e Blackwell high-memory \u2014 2x 96GB GPU = 192GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+      "notes": "G7e Blackwell high-memory \u2014 2x 96GB GPU = 192GB total. Use al2023-ami-sagemaker-inference-gpu-4-1. CUDA 12.8+ only (12.8 is the first CUDA with Blackwell support); SageMaker runs this family on al2023-ami-sagemaker-inference-gpu-4-1 (driver 580, CUDA 13.0) per https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html",
       "gpuMemoryGb": 96,
       "gpuType": "NVIDIA RTX PRO Server 6000",
       "costTier": "very-high"
@@ -1113,7 +1134,9 @@
       "memGb": 1024,
       "accelerator": "RTX PRO Server 6000 96GB",
       "cudaVersions": [
-        "12.8"
+        "12.8",
+        "12.9",
+        "13.0"
       ],
       "tags": [
         "gpu",
@@ -1129,7 +1152,7 @@
       "hardware": "NVIDIA RTX PRO Server 6000",
       "gpuArchitecture": "Blackwell",
       "defaultCudaVersion": "12.8",
-      "notes": "G7e Blackwell high-memory \u2014 4x 96GB GPU = 384GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+      "notes": "G7e Blackwell high-memory \u2014 4x 96GB GPU = 384GB total. Use al2023-ami-sagemaker-inference-gpu-4-1. CUDA 12.8+ only (12.8 is the first CUDA with Blackwell support); SageMaker runs this family on al2023-ami-sagemaker-inference-gpu-4-1 (driver 580, CUDA 13.0) per https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html",
       "gpuMemoryGb": 96,
       "gpuType": "NVIDIA RTX PRO Server 6000",
       "costTier": "very-high"
@@ -1141,7 +1164,9 @@
       "memGb": 2048,
       "accelerator": "RTX PRO Server 6000 96GB",
       "cudaVersions": [
-        "12.8"
+        "12.8",
+        "12.9",
+        "13.0"
       ],
       "tags": [
         "gpu",
@@ -1157,7 +1182,7 @@
       "hardware": "NVIDIA RTX PRO Server 6000",
       "gpuArchitecture": "Blackwell",
       "defaultCudaVersion": "12.8",
-      "notes": "G7e Blackwell high-memory \u2014 8x 96GB GPU = 768GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+      "notes": "G7e Blackwell high-memory \u2014 8x 96GB GPU = 768GB total. Use al2023-ami-sagemaker-inference-gpu-4-1. CUDA 12.8+ only (12.8 is the first CUDA with Blackwell support); SageMaker runs this family on al2023-ami-sagemaker-inference-gpu-4-1 (driver 580, CUDA 13.0) per https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html",
       "gpuMemoryGb": 96,
       "gpuType": "NVIDIA RTX PRO Server 6000",
       "costTier": "very-high"
@@ -1170,7 +1195,8 @@
       "accelerator": "B300 268GB",
       "cudaVersions": [
         "12.8",
-        "12.9"
+        "12.9",
+        "13.0"
       ],
       "tags": [
         "gpu",
@@ -1186,7 +1212,7 @@
       "hardware": "NVIDIA B300",
       "gpuArchitecture": "Blackwell Ultra",
       "defaultCudaVersion": "12.8",
-      "notes": "8x NVIDIA B300 (Blackwell Ultra / sm_100) GPUs. 268 GB HBM3e per GPU, 2144 GB total. Requires CUDA 12.8+ (Blackwell architecture). 6.4 Tbps EFA, 30 TB NVMe.",
+      "notes": "8x NVIDIA B300 (Blackwell Ultra / sm_100) GPUs. 268 GB HBM3e per GPU, 2144 GB total. Requires CUDA 12.8+ (Blackwell architecture). 6.4 Tbps EFA, 30 TB NVMe. CUDA 12.8+ only (12.8 is the first CUDA with Blackwell support); SageMaker runs this family on al2023-ami-sagemaker-inference-gpu-4-1 (driver 580, CUDA 13.0) per https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html",
       "gpuMemoryGb": 268,
       "gpuType": "NVIDIA B300",
       "costTier": "very-high"

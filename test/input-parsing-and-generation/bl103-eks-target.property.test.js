@@ -234,13 +234,25 @@ describe('BL103: Plain EKS deployment target', () => {
         });
 
         it('(edge 6.1/6.2) do/benchmark reaches the pod via port-forward and fails fast', () => {
-            const idx = benchmarkContent.indexOf('DEPLOYMENT_TARGET:-}" = "eks"');
-            assert.ok(idx >= 0, 'benchmark must have an eks branch');
-            const branch = benchmarkContent.slice(idx, idx + 4000);
+            // The eks benchmark behavior changed from "20 sequential curls"
+            // to a local-AIPerf load run, but the port-forward invariants are
+            // PRESERVED — the eks path still reaches the pod via `kubectl
+            // port-forward` and still fails fast with a clear error. The load run moved
+            // out of the pre-parser stub into _run_eks_aiperf_benchmark (so eks can
+            // parse --workload/--dataset/concurrency first).
+            const idx = benchmarkContent.indexOf('_run_eks_aiperf_benchmark()');
+            assert.ok(idx >= 0, 'benchmark must define _run_eks_aiperf_benchmark()');
+            const branch = benchmarkContent.slice(idx, idx + 6000);
+            assert.ok(/DEPLOYMENT_TARGET:-\}" = "eks"/.test(branch),
+                'the eks benchmark path must guard on DEPLOYMENT_TARGET=eks');
             assert.ok(branch.includes('kubectl port-forward'),
                 'eks benchmark must port-forward to the pod');
             assert.ok(/port-forward .* failed/i.test(branch),
                 'eks benchmark must fail fast with a clear port-forward error');
+            // The eks path now runs AIPerf locally, not the SageMaker
+            // benchmarking service (no create-ai-benchmark-job on this path).
+            assert.ok(/aiperf/i.test(branch),
+                'eks benchmark must drive AIPerf locally');
         });
 
         it('(edge 7.1) do/optimize is N/A for eks and exits non-zero', () => {

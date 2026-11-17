@@ -139,13 +139,16 @@ def test_property_4_mpg_metadata_mirrors_family(base_id, tune_technique,
         dataset_version="",
     )
     props = register_model._build_adapter_metadata(args)
-    assert props["mlcc.family"] == base_id
-    assert props["mlcc.base_model_id"] == base_id
+    # Empty values are OMITTED, not sent as "": SageMaker CreateModelPackage
+    # rejects a zero-length CustomerMetadataProperties value (_truncate_metadata).
+    assert props.get("mlcc.family") == (base_id or None)
+    assert props.get("mlcc.base_model_id") == (base_id or None)
+    assert "" not in props.values()
     # Existing adapter keys preserved.
     assert props["isAdapter"] == "true"
     assert props["parentModelVersionArn"] == parent_arn
-    assert props["tuneTechnique"] == tune_technique
-    assert props["datasetS3Uri"] == dataset_s3_uri
+    assert props.get("tuneTechnique") == (tune_technique or None)
+    assert props.get("datasetS3Uri") == (dataset_s3_uri or None)
 
 
 # Feature: v18-w2-04-bl056, Property 5: --list groups every adapter under its own family when grouping is enabled

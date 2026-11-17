@@ -42,3 +42,10 @@ servers/lib/node_modules/
 
 # Infra node_modules (users run npm install themselves)
 infra/ci-harness/node_modules/
+infra/bootstrap-modules/node_modules/
+infra/bootstrap-modules/cdk.out/
+infra/bootstrap-modules/dist/
+infra/bootstrap-modules/test/
+infra/bootstrap-modules/.hyperpod-helm-cache/
+# Account-specific CDK lookup cache (contains real account/VPC IDs)
+infra/bootstrap-modules/cdk.context.json

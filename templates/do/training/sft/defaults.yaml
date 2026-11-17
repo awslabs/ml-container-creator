@@ -1,10 +1,14 @@
 # Default hyperparameters for SFT (Supervised Fine-Tuning) training.
 #
-# These are the lowest-priority defaults. Override via:
-#   1. CLI flags (--learning-rate, --epochs, etc.) — highest priority
-#   2. training/config.yaml hyperparameters section
-#   3. Interactive mode answers (written to config.yaml)
-#   4. These defaults — lowest priority
+# Precedence (lowest -> highest):
+#   1. manifest.json `default` (the shipped manifest declares none)
+#   2. These defaults
+#   3. training/config.yaml hyperparameters section
+#   4. --set KNOB=VALUE / CLI flags (--learning-rate, --epochs, etc.) = interactive answers
+#      (do/train -i; answers are written back to config.yaml)
+#
+# Value types, bounds, and prompt tiers live in manifest.json next to this file;
+# a key here that the manifest does not declare is passed to train.py unchanged.
 
 lora_r: 16
 lora_alpha: 32

@@ -269,19 +269,37 @@ create_endpoint_config
     });
 
     // ================================================================
-    // E2E: Pool validation rejects mixed CUDA 12.x + next-gen instances
+    // E2E: Pool validation uses the AWS AMI table (BL209)
     // ================================================================
-    describe('E2E: Pool validation rejects incompatible generations', () => {
-        it('rejects mixed CUDA 12.x (g6e) + cuda-next (g7e) instances', () => {
+    describe('E2E: Pool validation follows the AWS AMI / instance-family table', () => {
+        it('allows g6e + g7e: AWS lists gpu-4-1 for both (g7e default, g6e override) and the pool gets it', () => {
+            // https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html —
+            // the old hand-coded generation map rejected this pool.
             const script = `set -euo pipefail
-export INSTANCE_POOLS='[{"InstanceType":"ml.g6e.48xlarge","Priority":1},{"InstanceType":"ml.g7e.xlarge","Priority":2}]'
+export INSTANCE_POOLS='[{"InstanceType":"ml.g6e.48xlarge","Priority":1},{"InstanceType":"ml.g7e.2xlarge","Priority":2}]'
+source "${endpointConfigPath}"
+_validate_instance_pools
+echo "AMI=\${INFERENCE_AMI_VERSION:-}"
+`;
+            const result = runBashTest(script, 'test-e2e-allow-g6e-g7e.sh');
+            assert.strictEqual(result.exitCode, 0, `g6e + g7e share an AWS-listed AMI. Output: ${result.stdout}`);
+            assert.ok(!result.stdout.includes('Cannot mix'));
+            const ami = (result.stdout.match(/AMI=(\S*)/) || [])[1];
+            const fleet = JSON.parse(readFileSync(path.join(__dirname2, '../../servers/lib/catalogs/fleet-drivers.json'), 'utf8'));
+            const entry = fleet.ami_versions[ami] || {};
+            const listed = [...(entry.default_families || []), ...(entry.override_families || [])];
+            assert.ok(listed.includes('g6e') && listed.includes('g7e'), `pool AMI ${ami} must be AWS-listed for g6e and g7e`);
+        });
 
+        it('rejects mixed NVIDIA GPU (g7e) + Inferentia (inf2) instances', () => {
+            const script = `set -euo pipefail
+export INSTANCE_POOLS='[{"InstanceType":"ml.g7e.2xlarge","Priority":1},{"InstanceType":"ml.inf2.xlarge","Priority":2}]'
 source "${endpointConfigPath}"
 _validate_instance_pools
 echo "SHOULD_NOT_REACH"
 `;
-            const result = runBashTest(script, 'test-e2e-reject-mixed-gen.sh');
-            assert.notStrictEqual(result.exitCode, 0, 'Mixed generations must fail');
+            const result = runBashTest(script, 'test-e2e-reject-gpu-neuron.sh');
+            assert.notStrictEqual(result.exitCode, 0, 'GPU + Neuron must fail');
             assert.ok(result.stdout.includes('Cannot mix'), 'Must show error about mixing');
             assert.ok(!result.stdout.includes('SHOULD_NOT_REACH'));
         });

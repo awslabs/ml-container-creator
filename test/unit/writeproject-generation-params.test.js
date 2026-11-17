@@ -110,6 +110,16 @@ describe('writeProject generation params', () => {
         assert.ok(params.generatedAt, 'should have generatedAt');
         assert.ok(params.answers, 'should have answers');
         assert.strictEqual(params.answers.projectName, 'test-project');
+
+        // Wave 9 (R7.2, R9.1): the API-generated pricing snapshot and the
+        // live-verified Bedrock catalog are copied next to instances.json so
+        // do/lib/python/pricing.py resolves offline without the MLCC source tree.
+        for (const name of ['pricing-snapshot.json', 'bedrock-equivalents.json']) {
+            const copied = path.join(tmpDir, '.mlcc', name);
+            assert.ok(fs.existsSync(copied), `.mlcc/${name} should be copied`);
+            assert.deepStrictEqual(JSON.parse(fs.readFileSync(copied, 'utf8')),
+                JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'servers', 'lib', 'catalogs', name), 'utf8')));
+        }
     });
 
     it('test_redacts_hf_token', async () => {

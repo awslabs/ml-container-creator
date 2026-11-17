@@ -11,6 +11,7 @@
             "envVar": "ML_PROJECT_NAME",
             "templateVar": "projectName",
             "configKey": "projectName",
+            "doConfigVar": "PROJECT_NAME",
             "default": null,
             "validation": {
                 "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
@@ -47,6 +48,7 @@
             "envVar": "ML_DEPLOYMENT_CONFIG",
             "templateVar": "deploymentConfig",
             "configKey": "deploymentConfig",
+            "doConfigVar": "DEPLOYMENT_CONFIG",
             "default": null,
             "validation": {
                 "enum": [
@@ -97,6 +99,7 @@
             "envVar": "ML_MODEL_NAME",
             "templateVar": "modelName",
             "configKey": "modelName",
+            "doConfigVar": "MODEL_NAME",
             "default": null,
             "validation": {
                 "minLength": 1
@@ -133,6 +136,7 @@
             "envVar": "ML_DEPLOYMENT_TARGET",
             "templateVar": "deploymentTarget",
             "configKey": "deploymentTarget",
+            "doConfigVar": "DEPLOYMENT_TARGET",
             "default": "realtime-inference",
             "validation": {
                 "enum": [
@@ -169,6 +173,7 @@
             "envVar": "ML_INSTANCE_TYPE",
             "templateVar": "instanceType",
             "configKey": "instanceType",
+            "doConfigVar": "INSTANCE_TYPE",
             "default": null,
             "validation": {
                 "pattern": "^ml\\.[a-z0-9-]+\\.[a-z0-9]+$"
@@ -179,7 +184,9 @@
                 "deploymentTargets": [
                     "managed-inference",
                     "async-inference",
-                    "batch-transform"
+                    "batch-transform",
+                    "hyperpod-eks",
+                    "eks"
                 ],
                 "architectures": [
                     "*"
@@ -207,6 +214,8 @@
             "envVar": "ML_IC_GPU_COUNT",
             "templateVar": "icGpuCount",
             "configKey": "icGpuCount",
+            "doConfigVar": "IC_GPU_COUNT",
+            "doConfigUnsetValue": "1",
             "default": null,
             "validation": {
                 "min": 0,
@@ -242,6 +251,7 @@
             "envVar": "ML_IC_COPY_COUNT",
             "templateVar": "icCopyCount",
             "configKey": "icCopyCount",
+            "doConfigVar": "IC_COPY_COUNT",
             "default": 1,
             "validation": {
                 "min": 0,
@@ -277,6 +287,7 @@
             "envVar": "ML_IC_MEMORY_SIZE",
             "templateVar": "icMemorySize",
             "configKey": "icMemorySize",
+            "doConfigVar": "IC_MEMORY_SIZE",
             "default": null,
             "validation": {
                 "min": 128,
@@ -312,6 +323,7 @@
             "envVar": "ML_ENABLE_LORA",
             "templateVar": "enableLora",
             "configKey": "enableLora",
+            "doConfigVar": "ENABLE_LORA",
             "default": true,
             "validation": {},
             "phase": "features",
@@ -353,7 +365,7 @@
             "envVar": "ML_MAX_LORAS",
             "templateVar": "maxLoras",
             "configKey": "maxLoras",
-            "default": 30,
+            "default": 4,
             "validation": {
                 "min": 1,
                 "max": 256
@@ -375,7 +387,7 @@
             "widget": {
                 "section": "features",
                 "inputType": "number",
-                "placeholder": "30"
+                "placeholder": "4"
             },
             "prompt": {
                 "message": "Max concurrent LoRA adapters?",
@@ -397,10 +409,9 @@
             "envVar": "ML_MAX_LORA_RANK",
             "templateVar": "maxLoraRank",
             "configKey": "maxLoraRank",
-            "default": 64,
+            "default": 16,
             "validation": {
-                "min": 8,
-                "max": 512
+                "enum": [1, 8, 16, 32, 64, 128, 256, 320, 512]
             },
             "phase": "features",
             "group": "lora",
@@ -419,7 +430,7 @@
             "widget": {
                 "section": "features",
                 "inputType": "number",
-                "placeholder": "64"
+                "placeholder": "16"
             },
             "prompt": {
                 "message": "Max LoRA rank?",
@@ -473,6 +484,7 @@
             "envVar": null,
             "templateVar": "benchmarkConcurrency",
             "configKey": "benchmarkConcurrency",
+            "doConfigVar": "BENCHMARK_CONCURRENCY",
             "default": 10,
             "validation": {
                 "min": 1,
@@ -506,6 +518,7 @@
             "envVar": null,
             "templateVar": "benchmarkInputTokensMean",
             "configKey": "benchmarkInputTokensMean",
+            "doConfigVar": "BENCHMARK_INPUT_TOKENS_MEAN",
             "default": 550,
             "validation": {
                 "min": 1,
@@ -539,6 +552,7 @@
             "envVar": null,
             "templateVar": "benchmarkOutputTokensMean",
             "configKey": "benchmarkOutputTokensMean",
+            "doConfigVar": "BENCHMARK_OUTPUT_TOKENS_MEAN",
             "default": 150,
             "validation": {
                 "min": 1,
@@ -572,6 +586,7 @@
             "envVar": null,
             "templateVar": "benchmarkStreaming",
             "configKey": "benchmarkStreaming",
+            "doConfigVar": "BENCHMARK_STREAMING",
             "default": true,
             "validation": {},
             "phase": "features",
@@ -601,6 +616,7 @@
             "envVar": null,
             "templateVar": "benchmarkRequestCount",
             "configKey": "benchmarkRequestCount",
+            "doConfigVar": "BENCHMARK_REQUEST_COUNT",
             "default": null,
             "validation": {
                 "min": 1
@@ -629,6 +645,7 @@
             "envVar": "ML_BENCHMARK_S3_OUTPUT_PATH",
             "templateVar": "benchmarkS3OutputPath",
             "configKey": "benchmarkS3OutputPath",
+            "doConfigVar": "BENCHMARK_S3_OUTPUT_PATH",
             "default": null,
             "validation": {
                 "pattern": "^s3://"
@@ -848,6 +865,7 @@
             "envVar": "ML_MODEL_FORMAT",
             "templateVar": "modelFormat",
             "configKey": "modelFormat",
+            "doConfigVar": "MODEL_FORMAT",
             "default": null,
             "validation": {
                 "enum": [
@@ -921,6 +939,7 @@
             "envVar": "ML_BASE_IMAGE",
             "templateVar": "baseImage",
             "configKey": "baseImage",
+            "doConfigVar": "BASE_IMAGE",
             "default": null,
             "validation": {},
             "phase": "build",
@@ -946,6 +965,7 @@
             "envVar": "ML_REGION",
             "templateVar": "awsRegion",
             "configKey": "region",
+            "doConfigVar": "AWS_REGION",
             "default": "us-east-1",
             "validation": {
                 "pattern": "^[a-z]{2}-[a-z]+-\\d+$"
@@ -1003,6 +1023,7 @@
             "envVar": "ML_BUILD_TARGET",
             "templateVar": "buildTarget",
             "configKey": "buildTarget",
+            "doConfigVar": "BUILD_TARGET",
             "default": "codebuild",
             "validation": {
                 "enum": [
@@ -1032,6 +1053,7 @@
             "envVar": "ML_CODEBUILD_COMPUTE_TYPE",
             "templateVar": "codebuildComputeType",
             "configKey": "codebuildComputeType",
+            "doConfigVar": "CODEBUILD_COMPUTE_TYPE",
             "default": "BUILD_GENERAL1_LARGE",
             "validation": {
                 "enum": [
@@ -1067,6 +1089,7 @@
             "envVar": null,
             "templateVar": "hfToken",
             "configKey": "hfToken",
+            "doConfigVar": "HF_TOKEN",
             "default": null,
             "validation": {},
             "phase": "auth",
@@ -1120,8 +1143,9 @@
             "cliFlag": "--ngc-token",
             "cliArgName": "token",
             "envVar": null,
-            "templateVar": "ngcToken",
+            "templateVar": "ngcApiKey",
             "configKey": "ngcToken",
+            "doConfigVar": "NGC_API_KEY",
             "default": null,
             "validation": {},
             "phase": "auth",
@@ -1175,6 +1199,7 @@
             "envVar": "ML_ENDPOINT_INSTANCE_COUNT",
             "templateVar": "endpointInitialInstanceCount",
             "configKey": "endpointInitialInstanceCount",
+            "doConfigVar": "ENDPOINT_INITIAL_INSTANCE_COUNT",
             "default": 1,
             "validation": {
                 "min": 1,
@@ -1203,6 +1228,7 @@
             "envVar": null,
             "templateVar": "endpointDataCapturePercent",
             "configKey": "endpointDataCapturePercent",
+            "doConfigVar": "ENDPOINT_DATA_CAPTURE_PERCENT",
             "default": 0,
             "validation": {
                 "min": 0,
@@ -1231,6 +1257,7 @@
             "envVar": null,
             "templateVar": "endpointVariantName",
             "configKey": "endpointVariantName",
+            "doConfigVar": "ENDPOINT_VARIANT_NAME",
             "default": "AllTraffic",
             "validation": {
                 "pattern": "^[a-zA-Z0-9]([\\w-]{0,62}[a-zA-Z0-9])?$"
@@ -1258,6 +1285,7 @@
             "envVar": null,
             "templateVar": "endpointVolumeSize",
             "configKey": "endpointVolumeSize",
+            "doConfigVar": "ENDPOINT_VOLUME_SIZE",
             "default": null,
             "validation": {
                 "min": 1,
@@ -1286,6 +1314,7 @@
             "envVar": "ML_CAPACITY_RESERVATION_ARN",
             "templateVar": "capacityReservationArn",
             "configKey": "capacityReservationArn",
+            "doConfigVar": "CAPACITY_RESERVATION_ARN",
             "default": null,
             "validation": {
                 "pattern": "^arn:aws:sagemaker:"
@@ -1313,6 +1342,7 @@
             "envVar": "ML_IC_CPU_COUNT",
             "templateVar": "icCpuCount",
             "configKey": "icCpuCount",
+            "doConfigVar": "IC_CPU_COUNT",
             "default": null,
             "validation": {
                 "min": 0.25,
@@ -1341,6 +1371,7 @@
             "envVar": null,
             "templateVar": "icModelWeight",
             "configKey": "icModelWeight",
+            "doConfigVar": "IC_MODEL_WEIGHT",
             "default": 1,
             "validation": {
                 "min": 0,
@@ -1452,8 +1483,9 @@
             "cliFlag": "--async-max-concurrent",
             "cliArgName": "n",
             "envVar": null,
-            "templateVar": "asyncMaxConcurrent",
+            "templateVar": "asyncMaxConcurrentInvocations",
             "configKey": "asyncMaxConcurrent",
+            "doConfigVar": "ASYNC_MAX_CONCURRENT_INVOCATIONS",
             "default": 1,
             "validation": {
                 "min": 1,
@@ -1544,6 +1576,7 @@
             "envVar": null,
             "templateVar": "batchInstanceCount",
             "configKey": "batchInstanceCount",
+            "doConfigVar": "BATCH_INSTANCE_COUNT",
             "default": 1,
             "validation": {
                 "min": 1,
@@ -1572,6 +1605,7 @@
             "envVar": null,
             "templateVar": "batchSplitType",
             "configKey": "batchSplitType",
+            "doConfigVar": "BATCH_SPLIT_TYPE",
             "default": "Line",
             "validation": {
                 "enum": [
@@ -1603,6 +1637,7 @@
             "envVar": null,
             "templateVar": "batchStrategy",
             "configKey": "batchStrategy",
+            "doConfigVar": "BATCH_STRATEGY",
             "default": "MultiRecord",
             "validation": {
                 "enum": [
@@ -1633,6 +1668,7 @@
             "envVar": null,
             "templateVar": "batchJoinSource",
             "configKey": "batchJoinSource",
+            "doConfigVar": "BATCH_JOIN_SOURCE",
             "default": "None",
             "validation": {
                 "enum": [
@@ -1661,8 +1697,9 @@
             "cliFlag": "--batch-max-concurrent",
             "cliArgName": "n",
             "envVar": null,
-            "templateVar": "batchMaxConcurrent",
+            "templateVar": "batchMaxConcurrentTransforms",
             "configKey": "batchMaxConcurrent",
+            "doConfigVar": "BATCH_MAX_CONCURRENT_TRANSFORMS",
             "default": 1,
             "validation": {
                 "min": 1
@@ -1688,8 +1725,9 @@
             "cliFlag": "--batch-max-payload",
             "cliArgName": "mb",
             "envVar": null,
-            "templateVar": "batchMaxPayload",
+            "templateVar": "batchMaxPayloadInMB",
             "configKey": "batchMaxPayload",
+            "doConfigVar": "BATCH_MAX_PAYLOAD_IN_MB",
             "default": 6,
             "validation": {
                 "min": 0,
@@ -1718,6 +1756,7 @@
             "envVar": "ML_HYPERPOD_CLUSTER",
             "templateVar": "hyperPodCluster",
             "configKey": "hyperpodCluster",
+            "doConfigVar": "HP_CLUSTER_NAME",
             "default": null,
             "validation": {},
             "phase": "infrastructure",
@@ -1748,6 +1787,7 @@
             "envVar": "ML_HYPERPOD_NAMESPACE",
             "templateVar": "hyperPodNamespace",
             "configKey": "hyperpodNamespace",
+            "doConfigVar": "HP_NAMESPACE",
             "default": "default",
             "validation": {},
             "phase": "infrastructure",
@@ -1774,6 +1814,7 @@
             "envVar": null,
             "templateVar": "hyperPodReplicas",
             "configKey": "hyperpodReplicas",
+            "doConfigVar": "HP_REPLICAS",
             "default": 1,
             "validation": {
                 "min": 1
@@ -1802,6 +1843,7 @@
             "envVar": "ML_FSX_VOLUME_HANDLE",
             "templateVar": "fsxVolumeHandle",
             "configKey": "fsxVolumeHandle",
+            "doConfigVar": "FSX_VOLUME_HANDLE",
             "default": null,
             "validation": {},
             "phase": "infrastructure",
@@ -1826,8 +1868,9 @@
             "cliFlag": "--hp-gpu-count",
             "cliArgName": "count",
             "envVar": null,
-            "templateVar": "HP_GPU_COUNT",
+            "templateVar": "hpGpuCount",
             "configKey": "hpGpuCount",
+            "doConfigVar": "HP_GPU_COUNT",
             "default": 1,
             "validation": {
                 "min": 1,
@@ -1855,8 +1898,9 @@
             "cliFlag": "--hp-node-selector",
             "cliArgName": "type",
             "envVar": null,
-            "templateVar": "HP_NODE_SELECTOR",
+            "templateVar": "hpNodeSelector",
             "configKey": "hpNodeSelector",
+            "doConfigVar": "HP_NODE_SELECTOR",
             "default": "",
             "validation": {},
             "phase": "infrastructure",
@@ -1881,8 +1925,9 @@
             "cliFlag": "--hp-efa-enabled",
             "cliArgName": "enabled",
             "envVar": null,
-            "templateVar": "HP_EFA_ENABLED",
+            "templateVar": "hpEfaEnabled",
             "configKey": "hpEfaEnabled",
+            "doConfigVar": "HP_EFA_ENABLED",
             "default": "false",
             "validation": {},
             "phase": "infrastructure",
@@ -1907,8 +1952,9 @@
             "cliFlag": "--hp-mem-request",
             "cliArgName": "mem",
             "envVar": null,
-            "templateVar": "HP_MEM_REQUEST",
+            "templateVar": "hpMemRequest",
             "configKey": "hpMemRequest",
+            "doConfigVar": "HP_MEM_REQUEST",
             "default": "",
             "validation": {},
             "phase": "infrastructure",
@@ -1933,8 +1979,9 @@
             "cliFlag": "--hp-cpu-request",
             "cliArgName": "cpu",
             "envVar": null,
-            "templateVar": "HP_CPU_REQUEST",
+            "templateVar": "hpCpuRequest",
             "configKey": "hpCpuRequest",
+            "doConfigVar": "HP_CPU_REQUEST",
             "default": "",
             "validation": {},
             "phase": "infrastructure",
@@ -1959,8 +2006,9 @@
             "cliFlag": "--hp-queue",
             "cliArgName": "queue",
             "envVar": null,
-            "templateVar": "HP_QUEUE",
+            "templateVar": "hpQueue",
             "configKey": "hpQueue",
+            "doConfigVar": "HP_QUEUE",
             "default": "",
             "validation": {},
             "phase": "infrastructure",
@@ -1985,8 +2033,10 @@
             "cliFlag": "--model-env",
             "cliArgName": "KEY=VALUE",
             "envVar": null,
-            "templateVar": null,
+            "templateVar": "modelEnvVars",
             "configKey": "modelEnv",
+            "doConfigVar": "MLCC_MODEL_ENV_KEYS",
+            "doConfigShape": "env-map",
             "default": [],
             "validation": {},
             "phase": "features",
@@ -2014,8 +2064,10 @@
             "cliFlag": "--server-env",
             "cliArgName": "KEY=VALUE",
             "envVar": null,
-            "templateVar": null,
+            "templateVar": "serverEnvVars",
             "configKey": "serverEnv",
+            "doConfigVar": "MLCC_SERVER_ENV_KEYS",
+            "doConfigShape": "env-map",
             "default": [],
             "validation": {},
             "phase": "features",
@@ -2043,8 +2095,11 @@
             "cliFlag": "--ic-env",
             "cliArgName": "KEY=VALUE",
             "envVar": null,
-            "templateVar": null,
+            "templateVar": "icEnvVars",
             "configKey": "icEnv",
+            "doConfigVar": "MLCC_IC_ENV_KEYS",
+            "doConfigShape": "env-map",
+            "doConfigVarPrefix": "IC_ENV_",
             "default": [],
             "validation": {},
             "phase": "infrastructure",
@@ -2332,6 +2387,32 @@
             "cliBehavior": true,
             "deprecated": false,
             "since": "0.6.0"
+        }
+    },
+    "doConfig": {
+        "_comment": "do/config <-> parameter mapping (Wave 8 / OQ-8.6). Every export in templates/do/config is user input (a parameter carries it as doConfigVar), runtime-owned (the RUNTIME_OWNED_VARS sources regenerate uses: targets.d runtime_owned_vars + serve.d dimension_map + SHARED_RUNTIME_VARS), a secret (a sensitive parameter; exported as a $VAR reference only) or derived (listed here with the reason it is excluded). Enforced by test/unit/do-config-schema-mapping.test.js.",
+        "derived": {
+            "MCC_VERSION": "generator version stamp written at generation time",
+            "FRAMEWORK": "decomposed from deploymentConfig (deprecated --framework)",
+            "MODEL_SERVER": "decomposed from deploymentConfig (deprecated --model-server)",
+            "DEPLOY_MODE": "set to dlc-direct by --no-build (generation-time image-mode decision, not a do/config input)",
+            "CONTAINER_IMAGE_URI": "DLC image resolved at generation time for dlc-direct mode",
+            "ENDPOINT_EXTERNAL": "computed from an imported existing endpoint (mcc import), no generator parameter",
+            "INSTANCE_POOLS": "heterogeneous pools resolved by the instance recommender, no generator parameter",
+            "INFERENCE_AMI_VERSION": "resolved at deploy time from the instance family (fleet-drivers.json AWS AMI table, BL209) and the image default; no generator parameter",
+            "IC_ENV_VLLM_MAX_MODEL_LEN": "computed by the instance sizer (sizerMaxModelLen), default 4096",
+            "IC_ENV_VLLM_GPU_MEMORY_UTILIZATION": "commented example of a deploy-time IC env var (set via --ic-env)",
+            "HF_MODEL_ID": "copy of modelName preserved for tokenizer / catalog lookups after staging",
+            "TUNE_SUPPORTED": "computed from the tune catalog for the model",
+            "TUNE_MODEL_ID": "resolved from the tune catalog (JumpStart hub id), no generator parameter",
+            "MLFLOW_APP_ARN": "resolved from the bootstrap profile by do/lib/profile.sh (BL163)",
+        "HF_TOKEN_ARN": "resolved from the bootstrap profile secrets at run time (BL076); commented manual-override slot",
+        "NGC_API_KEY_ARN": "resolved from the bootstrap profile secrets at run time (BL076); commented manual-override slot",
+            "CI_BENCHMARK_RESULTS_BUCKET": "resolved from the bootstrap profile (bootstrap --benchmark-infra)",
+            "_MLCC_CONFIG_PRINTED": "print-once guard for the configuration summary"
+        },
+        "derivedDynamic": {
+            "orderedEnvVars": "catalog env vars merged with the model-env / server-env / engine-feature values; the per-family key lists (MLCC_*_ENV_KEYS) carry the user inputs"
         }
     }
 }

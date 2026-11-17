@@ -37,7 +37,11 @@ for (const [key, param] of Object.entries(schema.parameters)) {
 
     const checks = [];
 
-    if (v.enum) {
+    if (v.enum && v.enum.every((e) => typeof e === 'number')) {
+        // Numeric enum (e.g. maxLoraRank = the serve engine's allowed set): a CLI
+        // or env value may arrive as a string, so compare numerically.
+        checks.push(`if (!${JSON.stringify(v.enum)}.includes(Number(value))) return \`Invalid value "\${value}" for ${key}. Valid: ${v.enum.join(', ')}\``);
+    } else if (v.enum) {
         checks.push(`if (!${JSON.stringify(v.enum)}.includes(value)) return \`Invalid value "\${value}" for ${key}. Valid: ${v.enum.join(', ')}\``);
     }
     if (v.min !== undefined) {

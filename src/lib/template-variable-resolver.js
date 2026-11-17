@@ -5,6 +5,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { isTuneSupported, lookupModel } from './tune-catalog-validator.js';
+import { loraSizingDefaults } from './serve-manifest-reader.js';
+import { resolveInferenceAmi } from '../../servers/lib/image-filter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -194,6 +196,9 @@ export async function _validateEnvironmentVariables(answers, registryConfigManag
  * @param {object|null} registryConfigManager - Registry configuration manager (or null)
  */
 export async function _ensureTemplateVariables(answers, registryConfigManager = null) {
+    // BL188: LoRA sizing defaults come from the serve engine's manifest
+    // (capability_map lora_max / lora_max_rank `default`), never a literal.
+    const loraDefaults = loraSizingDefaults(answers.modelServer || answers.backend || null);
     const defaults = {
         chatTemplate: null,
         chatTemplateSource: null,
@@ -232,8 +237,8 @@ export async function _ensureTemplateVariables(answers, registryConfigManager = 
         artifactUri: '',
         existingEndpointName: null,
         enableLora: true,
-        maxLoras: 30,
-        maxLoraRank: 64
+        maxLoras: loraDefaults.maxLoras,
+        maxLoraRank: loraDefaults.maxLoraRank
     };
 
     Object.entries(defaults).forEach(([key, value]) => {
@@ -530,6 +535,24 @@ export async function _ensureTemplateVariables(answers, registryConfigManager = 
         }
         if (!answers.tuneModelId) {
             answers.tuneModelId = null;
+        }
+    }
+
+    // BL209: when the instance type is known at generation time, the registry's
+    // image-default InferenceAmiVersion is only kept if AWS lists it for that
+    // instance family; otherwise use the family's AWS default (or omit). Same
+    // resolver as deploy time (servers/lib/image-filter.js resolveInferenceAmi).
+    if (answers.instanceType && answers.inferenceAmiVersion) {
+        const amiResult = resolveInferenceAmi({
+            instanceType: answers.instanceType,
+            imageAmi: answers.inferenceAmiVersion
+        });
+        const resolvedAmi = amiResult.ami || '';
+        const isGpuFamily = amiResult.families.some(f => f.kind === 'gpu');
+        if (!amiResult.error && isGpuFamily && resolvedAmi !== answers.inferenceAmiVersion) {
+            console.log(`    ℹ️  InferenceAmiVersion: ${resolvedAmi || '(omitted)'} for ${answers.instanceType} ` +
+                `(image default ${answers.inferenceAmiVersion} is not AWS-listed for this family)`);
+            answers.inferenceAmiVersion = resolvedAmi;
         }
     }
 

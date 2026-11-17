@@ -42,9 +42,9 @@ async ({ parameters, limit, context }) => ({
 Servers may register **one to seven** tools; the factory takes a `tools` array,
 so single-picker and multi-tool servers use the same shape.
 
-## The 14 servers and their variance
+## The servers and their variance (Wave 2 snapshot)
 
-Captured in the Wave 2 Task 1 audit. "Scaffold" columns show what each server
+Captured in the Wave 2 Task 1 audit; the table is a point-in-time snapshot. The `reasoning` server (one tool, `interpret`, built on the factory) was added after it. `ml-container-creator mcp --bundled list` prints the current set. "Scaffold" columns show what each server
 currently re-implements (and what the factory absorbs). "Unique" is what stays in
 the server after migration.
 
@@ -63,7 +63,7 @@ the server after migration.
 | instance-sizer | 856 | 4 | – | ✓ | ✓ | ✓ | VRAM sizing, quota resolver, Bedrock prompt, lib/ |
 | model-picker | 1788 | 2 | ✓ | – | ✓ | – | HF client, ModelResolver, catalogs |
 
-Universal (14/14): `__dirname` block, `new McpServer`, `StdioServerTransport`.
+Universal (every server in the snapshot): `__dirname` block, `new McpServer`, `StdioServerTransport`.
 Only **region-picker** and **instance-sizer** use Bedrock smart-mode. `loadCatalog`
 is byte-identical in all 5 servers that have it.
 

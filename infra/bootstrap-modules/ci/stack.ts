@@ -8,6 +8,13 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
+import CI_BUCKETS from './buckets.json';
+import {
+    StackBucketDeclarations, bucketDeclaration, declaredBucket, renderBucketName,
+} from '../bucket-declarations';
+
+/** The ci stack's bucket declarations (single declared source, R1.2). */
+export const BUCKETS: StackBucketDeclarations = CI_BUCKETS;
 
 export interface MlccCiStackProps extends cdk.StackProps {
     profileName: string;
@@ -34,18 +41,18 @@ export class MlccCiStack extends cdk.Stack {
 
         // ── CodeBuild source bucket — do/submit uploads the project source zip ──
         // Bootstrap-owned; do/ scripts NEVER create buckets. RETAIN so in-flight
-        // source archives survive a re-provision. Adopt-if-exists so re-provision
-        // against the retained bucket doesn't collide on create.
-        const sourceBucketName = `mlcc-codebuild-source-${this.account}-${this.region}`;
-        const sourceBucket = adoptExistingBuckets
-            ? s3.Bucket.fromBucketName(this, 'SourceBucketResource', sourceBucketName)
-            : new s3.Bucket(this, 'SourceBucketResource', {
-                bucketName: sourceBucketName,
-                versioned: true,
-                encryption: s3.BucketEncryption.S3_MANAGED,
-                removalPolicy: cdk.RemovalPolicy.RETAIN,
-                blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-            });
+        // source archives survive a re-provision. Declared in ./buckets.json; the
+        // runner adopts it by reference ONLY while it exists but is not yet a
+        // resource of this stack (stack creation; imported right after).
+        const sourceBucketName = renderBucketName(
+            bucketDeclaration(BUCKETS, 'SourceBucketResource'),
+            { account: this.account, region: this.region, profileName },
+        );
+        const sourceBucket = declaredBucket(this, 'SourceBucketResource', sourceBucketName, adoptExistingBuckets, {
+            versioned: true,
+            encryption: s3.BucketEncryption.S3_MANAGED,
+            blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+        });
 
         // CloudWatch Log Group
         const logGroup = new logs.LogGroup(this, 'CiLogGroup', {
@@ -93,6 +100,25 @@ export class MlccCiStack extends cdk.Stack {
         codebuildRole.addToPolicy(new iam.PolicyStatement({
             actions: ['logs:CreateLogStream', 'logs:PutLogEvents'],
             resources: [logGroup.logGroupArn, `${logGroup.logGroupArn}:*`],
+        }));
+        // Wave 9 (R7, R11.4): the benchmark writer that CI runs resolves on-demand
+        // prices through the Price List API (no resource-level permissions, so
+        // '*') and registers / reconciles its Glue partition. Database name comes
+        // from the benchmark module's export, not a literal.
+        codebuildRole.addToPolicy(new iam.PolicyStatement({
+            sid: 'BenchmarkPriceLookup',
+            actions: ['pricing:GetProducts'],
+            resources: ['*'],
+        }));
+        const glueDatabase = cdk.Fn.importValue(`mlcc-${profileName}-benchmark-GlueDatabase`);
+        codebuildRole.addToPolicy(new iam.PolicyStatement({
+            sid: 'BenchmarkPartitionRegister',
+            actions: ['glue:GetTable', 'glue:GetPartition', 'glue:BatchCreatePartition', 'glue:UpdatePartition'],
+            resources: [
+                `arn:${this.partition}:glue:${this.region}:${this.account}:catalog`,
+                `arn:${this.partition}:glue:${this.region}:${this.account}:database/${glueDatabase}`,
+                `arn:${this.partition}:glue:${this.region}:${this.account}:table/${glueDatabase}/*`,
+            ],
         }));
 
         // CodeBuild project

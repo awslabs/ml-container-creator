@@ -120,6 +120,8 @@ def cmd_resolve_dataset(args):
             version=version_spec,
             region=getattr(args, "region", None),
             core_bucket=core_bucket,
+            project_name=getattr(args, "project_name", None),
+            all_projects=getattr(args, "all_projects", False),
         )
     except DatasetVersionNotFoundError as e:
         _version_not_found(name, version_spec, e.available)
@@ -137,7 +139,7 @@ def cmd_resolve_dataset(args):
 
 
 def resolve_dataset_uri(name, *, version=None, region=None, core_bucket=None,
-                        s3_client=None):
+                        s3_client=None, project_name=None, all_projects=False):
     """Resolve a registered dataset name to its S3 URI and metadata.
 
     Shared resolution core used by both the ``resolve-dataset`` CLI
@@ -175,7 +177,9 @@ def resolve_dataset_uri(name, *, version=None, region=None, core_bucket=None,
     import mlcc_mlflow
     if mlcc_mlflow._mlflow_configured():
         try:
-            entry = mlcc_mlflow.resolve_dataset_by_name(name)
+            entry = mlcc_mlflow.resolve_dataset_by_name(
+                name, project_name=project_name, all_projects=all_projects,
+            )
         except mlcc_mlflow.MlflowUnavailableError as e:
             raise DatasetResolveError(str(e), code="MLFLOW_UNAVAILABLE") from e
         except Exception as e:  # noqa: BLE001 — surface, do not silently fall back
@@ -213,6 +217,12 @@ def resolve_dataset_uri(name, *, version=None, region=None, core_bucket=None,
     if sidecar is None:
         raise DatasetNotFoundError(f"Dataset not found: {name}")
 
+    # BL167 (R4 / OQ-2): the VERSION ledger stays in the sidecar. mlflow.data
+    # Datasets have no first-class semver ledger (unlike the Model Registry), so
+    # @v<N> / semver pinning resolves from the sidecar `versions` array for both
+    # pre- and post-BL167 datasets. Deprecating the sidecar version ledger is a
+    # later patch if MLflow gains a fit; until then the sidecar is the index even
+    # when MLflow holds the catalog.
     versions = sidecar.get("versions") or []
     entry, ordinal = _select_version(versions, version)
 
@@ -255,6 +265,8 @@ def _native_hub_name(sm_client, region):
             token = resp.get("NextToken")
             if not token:
                 break
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
     except Exception:  # noqa: BLE001 — fall through to the derived name
         pass
 
@@ -262,6 +274,8 @@ def _native_hub_name(sm_client, region):
         import boto3
         account = boto3.client("sts", region_name=region).get_caller_identity()["Account"]
         return f"AiRegistry-{region}-{account}"
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
     except Exception:  # noqa: BLE001
         return None
 

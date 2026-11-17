@@ -1,0 +1,176 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# do/metrics — Serving-metrics readout for the deployed endpoint (Wave 9, OQ-9.9).
+#
+# Read-only. Prints, over the last N minutes: server-side TTFT and end-to-end
+# latency p50/p99, queue waiting avg/max, running avg, KV-cache avg/max, GPU
+# utilization avg and (realtime) per-copy concurrency, plus a pointer to the
+# target's native AWS dashboard. A signal with no samples prints "no data".
+#
+# Where the numbers come from is DERIVED, not hardcoded (ADR-008):
+#   * the metrics store, label selector and dashboard — targets.d/<target>/
+#     manifest.json `observability` (realtime-inference: CloudWatch PromQL from
+#     SageMaker AI detailed observability; hyperpod-eks: the HyperPod
+#     observability add-on's Amazon Managed Service for Prometheus workspace);
+#   * whether the verb applies — targets.d/<target>/manifest.json `verbs.metrics`;
+#   * engine metric names — serve.d/<engine>/manifest.json `metric_signals`.
+# Targets without a store (eks, async-inference, batch-transform) print a skip
+# notice with the reason and exit 0.
+#
+# Usage:
+#   ./do/metrics [--window <minutes>] [--target <target>] [--json]
+#
+#   --window <minutes>   Look-back window, 1-1440 (default 15)
+#   --target <target>    Override DEPLOYMENT_TARGET for this run
+#   --json               Machine-readable output
+#
+# Exit codes: 0 ok (including the skip notice); 2 usage error; 3 unknown target
+# or no active deployment (contract violation).
+#
+# Guard: the header declares `none` because R12.4 requires the skip notice
+# (exit 0) for targets without a store BEFORE any deployment check; the
+# deployment-active guard is then enforced inline (_require_guard) for the
+# resolved --target.
+#
+# @mlcc-script
+# type: deployment-centric
+# guard: none
+# lifecycle: monitor
+# targets: all
+
+set -e
+set -u
+set -o pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+_metrics_usage() {
+    echo "Usage: ./do/metrics [--window <minutes>] [--target <target>] [--json]"
+    echo ""
+    echo "Serving-metrics readout for the deployed endpoint (read-only)."
+    echo ""
+    echo "Options:"
+    echo "  --window <minutes>   Look-back window, 1-1440 (default 15)"
+    echo "  --target <target>    Override DEPLOYMENT_TARGET for this run"
+    echo "  --json               Machine-readable output"
+    echo "  -h, --help           Show this help"
+    echo ""
+    echo "Prints server-side TTFT and e2e p50/p99, queue waiting avg/max, running avg,"
+    echo "KV-cache avg/max, GPU util avg and (realtime) per-copy concurrency, each"
+    echo "\"no data\" when the store has no samples, plus the native dashboard pointer."
+    echo "Targets without an AWS-native metrics store print a skip notice and exit 0."
+}
+
+# ── Parse flags (before sourcing config so --help and usage errors need none) ─
+ARG_WINDOW="15"
+ARG_TARGET=""
+ARG_JSON=false
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --window)
+            if [ $# -lt 2 ]; then
+                echo "❌ --window needs a value" >&2
+                _metrics_usage >&2
+                exit 2
+            fi
+            ARG_WINDOW="$2"; shift 2 ;;
+        --window=*) ARG_WINDOW="${1#*=}"; shift ;;
+        --target)
+            if [ $# -lt 2 ]; then
+                echo "❌ --target needs a value" >&2
+                _metrics_usage >&2
+                exit 2
+            fi
+            ARG_TARGET="$2"; shift 2 ;;
+        --target=*) ARG_TARGET="${1#*=}"; shift ;;
+        --json) ARG_JSON=true; shift ;;
+        -h|--help) _metrics_usage; exit 0 ;;
+        *)
+            echo "❌ Unknown argument: $1" >&2
+            _metrics_usage >&2
+            exit 2 ;;
+    esac
+done
+
+# --window: integer minutes in 1..1440 (PromQL range selectors cap at 24 h).
+case "${ARG_WINDOW}" in
+    ''|*[!0-9]*)
+        echo "❌ --window must be an integer number of minutes (got '${ARG_WINDOW}')" >&2
+        _metrics_usage >&2
+        exit 2 ;;
+esac
+if [ "${ARG_WINDOW}" -lt 1 ] || [ "${ARG_WINDOW}" -gt 1440 ]; then
+    echo "❌ --window must be between 1 and 1440 minutes (got ${ARG_WINDOW})" >&2
+    _metrics_usage >&2
+    exit 2
+fi
+
+source "${SCRIPT_DIR}/lib/script-contract.sh"
+_require_python_env
+source "${SCRIPT_DIR}/config"
+
+_PY="${SCRIPT_DIR}/lib/python"
+TARGET="${ARG_TARGET:-${DEPLOYMENT_TARGET:-realtime-inference}}"
+
+# Canonical target name + applicability, both from the descriptor.
+if ! TARGET=$(python3 "${_PY}/target_manifest.py" resolve "${TARGET}"); then
+    exit 3
+fi
+_METRICS_VERBS=""
+if ! _METRICS_VERBS=$(python3 "${_PY}/target_manifest.py" verbs "${TARGET}"); then
+    echo "❌ Unknown deployment target: ${TARGET}" >&2
+    exit 3
+fi
+_METRICS_APPLIES=$(printf '%s' "${_METRICS_VERBS}" | python3 -c \
+    'import json,sys; print("true" if json.load(sys.stdin).get("metrics") else "false")')
+
+_JSON_FLAG=""
+[ "${ARG_JSON}" = "true" ] && _JSON_FLAG="--json"
+
+if [ "${_METRICS_APPLIES}" != "true" ]; then
+    # R12.4: no AWS-native store → the helper prints the skip notice; exit 0.
+    python3 "${_PY}/endpoint_metrics.py" readout --target "${TARGET}" \
+        --window "${ARG_WINDOW}" ${_JSON_FLAG}
+    exit 0
+fi
+
+# The readout needs a live deployment of the resolved target (exit 3 otherwise).
+DEPLOYMENT_TARGET="${TARGET}"
+_require_guard deployment-active
+
+source "${SCRIPT_DIR}/lib/aws-preflight.sh"
+_aws_preflight
+
+# Realtime selector: the first deployed base IC (do/ic/*.conf IC_DEPLOYED_NAME),
+# else the legacy single-IC INFERENCE_COMPONENT_NAME. Unused on hyperpod-eks,
+# whose selector is the deployment (PROJECT_NAME) + namespace.
+_METRICS_IC=""
+if [ -d "${SCRIPT_DIR}/ic" ]; then
+    for _conf in "${SCRIPT_DIR}"/ic/*.conf; do
+        [ -f "${_conf}" ] || continue
+        # Key-presence probe: an IC conf that was never deployed has no name.
+        _METRICS_IC=$(grep "^export IC_DEPLOYED_NAME=" "${_conf}" 2>/dev/null \
+            | sed 's/^export IC_DEPLOYED_NAME="//; s/"$//' || true)
+        [ -n "${_METRICS_IC}" ] && break
+    done
+fi
+_METRICS_IC="${_METRICS_IC:-${INFERENCE_COMPONENT_NAME:-}}"
+
+_metrics_rc=0
+python3 "${_PY}/endpoint_metrics.py" readout \
+    --target "${TARGET}" \
+    --window "${ARG_WINDOW}" \
+    --region "${AWS_REGION}" \
+    --endpoint-name "${ENDPOINT_NAME:-}" \
+    --ic-name "${_METRICS_IC}" \
+    --project "${PROJECT_NAME}" \
+    --namespace "${HP_NAMESPACE:-}" \
+    --engine "${MODEL_SERVER:-}" \
+    --cluster "${HP_CLUSTER_NAME:-}" \
+    ${_JSON_FLAG} || _metrics_rc=$?
+if [ ${_metrics_rc} -ne 0 ]; then
+    echo "⚠️  Metrics readout unavailable (endpoint_metrics.py exited ${_metrics_rc})" >&2
+fi
+exit ${_metrics_rc}

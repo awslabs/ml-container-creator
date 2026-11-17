@@ -120,7 +120,7 @@ predictor data at deploy time arises.
      framework that drifts from its consumers fails here with the exact mismatch.
    - `npm run lint` and an **end-to-end generate**:
      `node bin/cli.js <name> --project-dir /tmp/<name> --deployment-config=http-flask
-     --model-format=<a format of your framework> --deployment-target=realtime-inference
+     --model-format=<a format of your framework>
      --instance-type=ml.m5.large --build-target=codebuild --region=us-east-1 --skip-prompts`.
      The engine is inferred from `--model-format` via the descriptor
      `formatToEngineMap()`. Inspect the generated `code/model_handler.py`,

@@ -29,6 +29,7 @@ asset. See `docs/fine-tuning.md` for the full comparison.
 | `train.py` | The GRPO training loop (TRL `GRPOTrainer` + PEFT LoRA). Imports `REWARD_FUNCS` from `reward_example.py`. |
 | `reward_example.py` | **The file you edit.** Worked example reward functions + the reward-function contract. |
 | `defaults.yaml` | Default hyperparameters (group size, KL/beta, lengths, LoRA, …). |
+| `manifest.json` | Hyperparameter knob metadata (types, bounds, prompt tiers) for `do/train` validation and `-i` prompts; values stay in `defaults.yaml`. Set any knob with `--set KNOB=VALUE`. |
 | `accelerate_config.yaml` | FSDP-ready accelerate config (single- and multi-GPU). |
 
 ## The reward-function contract

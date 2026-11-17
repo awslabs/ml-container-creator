@@ -49,20 +49,31 @@ plugins:
 
 exclude_docs: |
   README.md
+  snippets/
+
+# Fail `mkdocs build --strict` on broken in-page / cross-page anchors (mkdocs >= 1.6).
+validation:
+  anchors: warn
 
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Supported Models: supported-models.md
   - SageMaker BYOC Contract: aws-sagemaker.md
-  - Bootstrap: bootstrap.md
+  - Bootstrap:
+      - Bootstrap: bootstrap.md
+      - HyperPod Bootstrap (deprecated): hyperpod-bootstrap.md
   - MCP Servers: mcp-configuration.md
   - User Guide:
+      - Upgrading to v2: upgrading-to-v2.md
       - Configuration: configuration.md
       - Secrets Management: secrets.md
       - Deployment & Inference: deployments.md
+      - Scale-to-Zero: scale-to-zero.md
       - Fine-Tuning: fine-tuning.md
       - Custom Training: custom-training.md
+      - Authoring do/train Techniques: train-plugin-authoring.md
+      - "Walkthrough: Add Your Own Technique": train-plugin-walkthrough.md
       - Agent UX: agent.md
       - Examples: EXAMPLES.md
       - Troubleshooting: TROUBLESHOOTING.md
@@ -81,12 +92,16 @@ nav:
   - Developer Guide:
       - Contributing: CONTRIBUTING.md
       - Local Development: dev/local-development.md
+      - Docs Site — Local Development: LOCAL_DEVELOPMENT.md
+      - Docs Site — Deployment: DEPLOYMENT.md
       - Coding Standards: coding-standards.md
       - Adding Features: ADDING_FEATURES.md
       - Architecture: how-it-works.md
       - Schema-Driven Architecture: dev/schema-driven-architecture.md
       - Template System: dev/template-system.md
       - do/ Script Contracts: do-script-contract.md
+      - Bootstrap IAM Roles (adopted-role limitation): dev/bootstrap-iam-roles.md
+      - EKS / HyperPod Migration & Findings: architecture/eks-hyperpod-migration.md
       - MCP Server Development: dev/mcp-server-development.md
       - Registries and Catalogs: dev/registries-and-catalogs.md
       - Registry Contribution Guide: REGISTRY_CONTRIBUTION_GUIDE.md
@@ -106,6 +121,10 @@ nav:
           - do/ Scripts: architecture/do-scripts.md
           - Adding a Deployment Target: architecture/deployment-target-authoring.md
           - Module-Header Convention: architecture/module-header-convention.md
+          - S3 Buckets & Layout: architecture/s3-layout.md
+          - LoRA Delivery on Kubernetes: architecture/k8s-lora-delivery.md
+          - Right-Sizing Checks: architecture/right-sizing.md
+          - Per-Technique Tune Descriptor: architecture/tune-descriptor.md
       - Decision Records (ADRs):
           - ADR-001 Import Metadata Contract: adr/ADR-001-import-contract-metadata-schema.md
           - ADR-002 Consolidation Program: adr/ADR-002-consolidation-program.md
@@ -117,6 +136,10 @@ nav:
           - ADR-008 Deployment-Target Descriptor: adr/ADR-008-deployment-target-descriptor.md
           - ADR-009 Serve-Engine Capability Versioning: adr/ADR-009-serve-engine-capability-versioning.md
           - ADR-010 K8s Engine-Config Injection: adr/ADR-010-k8s-engine-config-injection.md
+          - ADR-011 Tune Technique Descriptor: adr/ADR-011-tune-technique-descriptor.md
+          - ADR-012 Consume, Don't Provision Clusters: adr/ADR-012-consume-dont-provision-clusters.md
+          - ADR-013 Additive-Deploy Artifact-Kind Contract: adr/ADR-013-additive-deploy-artifact-kind-contract.md
+          - ADR-014 Scale-from-Zero: adr/ADR-014-scale-from-zero.md
       - Archive (point-in-time snapshots):
           - do/ Scripts — Wave 6 Changelog: architecture/do-scripts-wave6-changelog.md
           - Test Inventory: dev/test-inventory.md

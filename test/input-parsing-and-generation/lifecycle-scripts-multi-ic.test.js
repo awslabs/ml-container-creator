@@ -194,15 +194,22 @@ describe('Lifecycle Scripts Multi-IC (Requirement 7.3)', () => {
             );
         });
 
-        it('should wait for IC deletion to complete', () => {
+        it('should pause after IC deletion without a nonexistent CLI waiter', () => {
             const output = renderClean(realtimeVars);
             const cleanEndpointStart = output.indexOf('clean_endpoint()');
             const cleanEndpointEnd = output.indexOf('SageMaker resources cleaned');
             const cleanEndpointBlock = output.substring(cleanEndpointStart, cleanEndpointEnd);
 
+            // The AWS CLI has no `wait inference-component-deleted` waiter, so the
+            // old call always fell through to `|| sleep 15` (test_aws_cli_flags.py).
+            const deletePos = cleanEndpointBlock.indexOf('delete-inference-component');
             assert.ok(
-                cleanEndpointBlock.includes('wait inference-component-deleted'),
-                'clean_endpoint must wait for IC deletion'
+                deletePos >= 0 && cleanEndpointBlock.indexOf('sleep 15', deletePos) > deletePos,
+                'clean_endpoint must pause after IC deletion'
+            );
+            assert.ok(
+                !cleanEndpointBlock.includes('wait inference-component-deleted'),
+                'clean_endpoint must not call the nonexistent IC-deleted waiter'
             );
         });
     });

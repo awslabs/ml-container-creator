@@ -24,24 +24,36 @@ describe('CdkMultiStackModuleRunner', () => {
     describe('Multi-stack module manifest schema', () => {
         const manifest = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'));
 
-        it('hyperpod-cluster has stacks[] instead of stackNameSuffix', () => {
-            const hyperpod = manifest.modules['hyperpod-cluster'];
-            assert.ok(hyperpod.stacks, 'hyperpod-cluster should have stacks[]');
-            assert.ok(Array.isArray(hyperpod.stacks), 'stacks should be an array');
-            assert.deepStrictEqual(hyperpod.stacks, ['eks-cluster', 'hyperpod-cluster', 'inference-operator']);
-            assert.ok(!('stackNameSuffix' in hyperpod), 'hyperpod-cluster should NOT have stackNameSuffix');
+        // BL143: the old `hyperpod-cluster` 3-stack module was split into `eks`
+        // (owns eks-cluster) + `hyperpod` (owns hyperpod-cluster + inference-operator,
+        // depends on eks). The combined module no longer exists.
+
+        it('no combined hyperpod-cluster module (split into eks + hyperpod)', () => {
+            assert.ok(!manifest.modules['hyperpod-cluster'],
+                'the combined hyperpod-cluster module should be removed');
         });
 
-        it('hyperpod-cluster has correct metadata', () => {
-            const hyperpod = manifest.modules['hyperpod-cluster'];
-            assert.strictEqual(hyperpod.displayName, 'HyperPod (EKS + Inference)');
-            assert.ok(hyperpod.estimatedMonthlyCost.includes('$100'));
-            assert.deepStrictEqual(hyperpod.depends, ['core']);
-            assert.ok(hyperpod.exports.includes('EksClusterArn'));
-            assert.ok(hyperpod.exports.includes('EksClusterName'));
-            assert.ok(hyperpod.exports.includes('HyperPodClusterArn'));
-            assert.ok(hyperpod.exports.includes('HyperPodClusterName'));
-            assert.ok(hyperpod.exports.includes('InferenceOperatorStatus'));
+        it('eks module owns the eks-cluster stack, depends on core', () => {
+            const eks = manifest.modules.eks;
+            assert.ok(eks, 'eks module should exist');
+            assert.deepStrictEqual(eks.stacks, ['eks-cluster']);
+            assert.ok(!('stackNameSuffix' in eks), 'eks should use stacks[], not stackNameSuffix');
+            assert.deepStrictEqual(eks.depends, ['core']);
+            for (const exp of ['EksClusterArn', 'EksClusterName', 'OidcProviderArn',
+                'OidcProviderIssuer', 'EksInferenceRoleArn']) {
+                assert.ok(eks.exports.includes(exp), `eks should export ${exp}`);
+            }
+            assert.strictEqual(eks.resourceLevel, 'profile');
+        });
+
+        it('hyperpod module owns hyperpod-cluster + inference-operator, depends on eks', () => {
+            const hyperpod = manifest.modules.hyperpod;
+            assert.ok(hyperpod, 'hyperpod module should exist');
+            assert.deepStrictEqual(hyperpod.stacks, ['hyperpod-cluster', 'inference-operator']);
+            assert.deepStrictEqual(hyperpod.depends, ['eks']);
+            for (const exp of ['HyperPodClusterArn', 'HyperPodClusterName', 'InferenceOperatorStatus']) {
+                assert.ok(hyperpod.exports.includes(exp), `hyperpod should export ${exp}`);
+            }
             assert.strictEqual(hyperpod.resourceLevel, 'profile');
         });
 
@@ -52,11 +64,6 @@ describe('CdkMultiStackModuleRunner', () => {
                 assert.ok('stackNameSuffix' in mod, `${name} should have stackNameSuffix`);
                 assert.ok(!('stacks' in mod), `${name} should NOT have stacks[]`);
             }
-        });
-
-        it('hyperpod-cluster depends only on core', () => {
-            const hyperpod = manifest.modules['hyperpod-cluster'];
-            assert.deepStrictEqual(hyperpod.depends, ['core']);
         });
     });
 

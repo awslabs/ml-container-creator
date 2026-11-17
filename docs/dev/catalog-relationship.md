@@ -97,6 +97,17 @@ entry "rt-new-model": technique "sft" not supported for model "new-model-id"
 
 ## Why Two Catalogs?
 
-The tune-catalog serves a broader purpose than E2E testing — it's the user-facing registry for `do/tune --list-models` and contains metadata (dataset schemas, display names, provider info) that the E2E runner doesn't need. Merging them fully would couple the user-facing tune command to E2E test infrastructure.
+The tune-catalog serves a broader purpose than E2E testing — it's the user-facing registry for `do/tune --list-models` and contains per-model metadata (display names, provider info, supported techniques, and a jsonl dataset schema for `sft`/`dpo`) that the E2E runner doesn't need. Merging them fully would couple the user-facing tune command to E2E test infrastructure.
 
 The E2E catalog embeds only the subset of tune metadata needed to construct tune commands, keeping the runner self-contained while the tune-catalog remains the authoritative reference for the tune CLI.
+
+!!! note "BL129: the per-technique contract lives in the tune descriptor, not the catalog"
+    The tune-catalog is a per-MODEL index (which models, which techniques). A technique's
+    knobs, reward kind, and dataset CONTRACT live in the per-technique **tune descriptor**
+    (`templates/code/tune.d/<technique>/manifest.json`) — see
+    [Per-technique tune descriptor](../architecture/tune-descriptor.md) and
+    [ADR-011](../adr/ADR-011-tune-technique-descriptor.md). The catalog still carries a jsonl
+    `datasetSchema` for `sft`/`dpo` (read by `do/tune`'s jsonl line-check); the managed-RL
+    techniques (`rlvr`/`rlaif`/`mtrl`) carry their dataset contract in the descriptor
+    (verl 5-field parquet), consumed by the `do/tune` preflight's field-schema check. The
+    old synced `{prompt: array}` RL guess in `sync-model-families` was removed.

@@ -1,6 +1,6 @@
 {
   "name": "@aws/ml-container-creator",
-  "version": "1.9.1",
+  "version": "2.0.0",
   "description": "Build and deploy custom ML containers on AWS SageMaker with minimal configuration.",
   "main": "src/index.js",
   "bin": {
@@ -65,7 +65,6 @@
     "servers/lib/package.json",
     "servers/README.md",
     "config/defaults.json",
-    "config/bootstrap-stack.json",
     "config/bootstrap-e2e-stack.json",
     "config/parameter-schema-v2.json",
     "config/agent.json",
@@ -81,12 +80,28 @@
     "infra/ci-harness/package-lock.json",
     "infra/ci-harness/tsconfig.json",
     "infra/ci-harness/state-machines/",
+    "infra/bootstrap-modules/**/*.ts",
+    "infra/bootstrap-modules/**/*.cjs",
+    "infra/bootstrap-modules/**/buckets.json",
+    "infra/bootstrap-modules/module-manifest.json",
+    "infra/bootstrap-modules/cdk.json",
+    "infra/bootstrap-modules/package.json",
+    "infra/bootstrap-modules/package-lock.json",
+    "infra/bootstrap-modules/tsconfig.json",
+    "!infra/bootstrap-modules/**/*.d.ts",
+    "!infra/bootstrap-modules/test/",
+    "!infra/bootstrap-modules/node_modules/",
+    "!infra/bootstrap-modules/dist/",
+    "!infra/bootstrap-modules/cdk.out/",
+    "!infra/bootstrap-modules/.hyperpod-helm-cache/",
     "README.md",
     "LICENSE",
     "LICENSE-THIRD-PARTY",
     "NOTICE",
     "requirements.txt",
     "pyproject.toml",
+    "examples/train-plugins/",
+    "!examples/**/__pycache__/",
     "docs/**/*.md",
     "!docs/dev/*-pr-summary.md",
     "!docs/dev/*-pr-description.md",
@@ -101,7 +116,9 @@
   "scripts": {
     "test": "mocha 'test/**/*.test.js' --ignore 'test/property/**' --recursive --timeout 30000 --parallel",
     "test:property": "NODE_OPTIONS='--max-old-space-size=8192' mocha 'test/property/**/*.test.js' --recursive --timeout 60000 --parallel --jobs 4",
-    "test:all": "npm run test && npm run test:property",
+    "test:all": "npm run test && npm run test:node && npm run test:property",
+    "test:node": "node scripts/run-node-tests.js",
+    "test:node:network": "node scripts/run-node-tests.js --include-network",
     "test:fast": "mocha 'test/**/*.test.js' --recursive --timeout 15000 --parallel",
     "test:unit": "mocha 'test/unit/**/*.test.js' --recursive --timeout 15000",
     "test:integration": "mocha 'test/integration/**/*.test.js' --recursive --timeout 30000",
@@ -114,10 +131,15 @@
     "test:perf": "node scripts/analyze-test-performance.js",
     "lint": "eslint src/ servers/ bin/ --ext .js,.cjs,.mjs",
     "lint:fix": "eslint src/ servers/ bin/ --ext .js,.cjs,.mjs --fix",
-    "codegen": "node scripts/codegen-cli.js && node scripts/codegen-validator.js && node scripts/codegen-widget.js && node scripts/codegen-parameter-matrix.js && node scripts/codegen-target-guard.js && node scripts/codegen-deploy-flags.js && eslint src/lib/generated/ --fix",
+    "codegen": "node scripts/codegen-cli.js && node scripts/codegen-validator.js && node scripts/codegen-widget.js && node scripts/codegen-parameter-matrix.js && node scripts/codegen-target-guard.js && node scripts/codegen-deploy-flags.js && node scripts/codegen-train-schema.js && node scripts/codegen-export-map.js && eslint src/lib/generated/ --fix",
+    "sync:models": "node scripts/sync-model-families.js",
+    "sync:serving": "node scripts/sync-serving-versions.js",
+    "sync:all": "npm run sync:models && npm run sync:serving",
+    "sync:pricing": "python3 templates/do/lib/python/pricing.py snapshot",
     "validate:doc-commands": "node scripts/validate-docs-commands.js",
     "validate:catalogs": "node scripts/validate-catalogs.js",
     "validate:serve-manifests": "node scripts/validate-serve-manifests.js",
+    "validate:tune-manifests": "node scripts/validate-tune-manifests.js",
     "sbom": "sbom --format spdx --output sbom.json",
     "prepublishOnly": "npm run lint && npm run test:all",
     "prepare": "husky || true"
@@ -140,6 +162,7 @@
     "tinyglobby": "^0.2.16"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.700.0",
     "@aws-sdk/client-sagemaker": "^3.700.0",
     "@aws-sdk/client-service-quotas": "^3.700.0",
     "@microsoft/eslint-formatter-sarif": "^3.1.0",
@@ -158,5 +181,12 @@
     "*.js": [
       "eslint --fix --quiet --max-warnings 0"
     ]
+  },
+  "nyc": {
+    "extension": [
+      ".js",
+      ".mjs"
+    ],
+    "//": "BL238: no .cjs/.ts hooks. Under nyc a child ts-node run (test/unit/bootstrap-*-cdk.test.js) otherwise resolves '../bucket-declarations' to the sibling .cjs runtime file instead of the .ts source. infra/** is not part of root coverage."
   }
 }

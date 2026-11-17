@@ -6,7 +6,7 @@
  *
  * Tests cover:
  * - Adapter name validation (lowercase alphanumeric + hyphens, 1-50 chars)
- * - S3 URI format validation (must start with s3:// and end with .tar.gz)
+ * - S3 URI format validation (must start with s3://; a .tar.gz or an S3 prefix)
  * - Adapter name uniqueness check (do/adapters/<name>.conf must not exist)
  * - Base IC status validation (must be InService)
  * - S3 object existence check (best-effort, warn on failure)
@@ -101,12 +101,16 @@ describe('Feature: lora-adapter-lifecycle — do/adapter add (Req 2.2, 3.1-3.5, 
             );
         });
 
-        it('validates URI ends with .tar.gz', () => {
+        // Bucket consolidation R3.4 / R3.7 (Wave 6.1 Part B): --from-weights takes a .tar.gz
+        // OR an S3 prefix of loose PEFT files — both are promoted into the canonical prefix,
+        // and `do/adapter promote` prints a prefix as the next `add --from-weights` step.
+        // (Behavior is exercised end to end in additive-deploy-verbs.test.js, SMAI block.)
+        it('accepts a .tar.gz archive or an S3 prefix, and says so in the error', () => {
             const rendered = renderAdapter();
-            assert.ok(
-                rendered.includes('\\.tar\\.gz$'),
-                'Must validate S3 URI ends with .tar.gz'
-            );
+            assert.ok(rendered.includes('A .tar.gz archive containing those files at its top level'),
+                'Must name the .tar.gz form');
+            assert.ok(rendered.includes('An S3 prefix holding adapter_config.json + adapter weights'),
+                'Must name the S3-prefix form');
         });
 
         it('shows helpful error message for invalid S3 URI', () => {

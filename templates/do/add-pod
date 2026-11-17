@@ -1,0 +1,356 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# do/add-pod — Serve a full fine-tuned model as its own InferenceEndpointConfig.
+#
+# @mlcc-script
+# type: deployment-centric
+# guard: deployment-active
+# lifecycle: post-deploy
+# targets: hyperpod-eks
+# Deploys a SECOND InferenceEndpointConfig (IEC) named <project>-<name> (and a
+# SageMaker endpoint of the same name) next to the base deployment, rendered from
+# the project's own IEC template by the same driver derivation do/deploy uses
+# (lib/hp-iec-render.sh). Wave 11 / BL149.
+#
+# Usage:
+#   ./do/add-pod <name> --from-tune [technique] | --from-train [technique]
+#                       | --from-weights s3://... | --from-registry <version-arn>
+#                       [--instance-group <g>] [--surge-node] [--dry-run]
+#   ./do/add-pod --list
+#   ./do/add-pod --status <name>
+#   ./do/add-pod --remove <name>
+#
+# Sources resolve through the shared ADR-013 resolver (_resolve_additive_source);
+# do/add-pod accepts full_model artifacts only (a LoRA adapter is refused → use
+# do/adapter). The weights must live under models/mlcc-<project>/<name>/ in the
+# core bucket; any other source is promoted there first.
+set -e
+set -u
+set -o pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"
+_require_python_env
+source "${SCRIPT_DIR}/config"
+# ── Target guard: DERIVED from the additive-deploy contract (ADR-013) ─────────
+# do/add-pod accepts full_model artifacts and drives the pod-apply mechanism,
+# which only hyperpod-eks exposes today (plain eks: post-2.0). The refusal on
+# every other target is derived from the contract table and names the right verb.
+_additive_verb_supported_on add-pod "${DEPLOYMENT_TARGET:-}"
+source "${SCRIPT_DIR}/lib/profile.sh"
+source "${SCRIPT_DIR}/lib/s3-layout.sh"
+
+PODS_DIR="${SCRIPT_DIR}/pods"
+HP_NAMESPACE="${HP_NAMESPACE:-default}"
+DEPLOY_TIMEOUT="${DEPLOY_TIMEOUT:-900}"
+
+_usage() {
+    echo "Usage: ./do/add-pod <name> --from-tune [technique] | --from-train [technique]"
+    echo "                           | --from-weights s3://... | --from-registry <version-arn>"
+    echo "                           [--instance-group <g>] [--surge-node] [--dry-run]"
+    echo "       ./do/add-pod --list"
+    echo "       ./do/add-pod --status <name>"
+    echo "       ./do/add-pod --remove <name>"
+    echo ""
+    echo "Serve a FULL fine-tuned model as its own InferenceEndpointConfig (<project>-<name>)"
+    echo "on the HyperPod cluster, next to the base deployment. The SageMaker endpoint has the"
+    echo "same name, so ./do/test and SageMaker invoke work as for the base."
+    echo ""
+    echo "Options:"
+    echo "  --from-tune [t]       a do/tune full-model output (TUNE_MODEL_PATH_<T>)"
+    echo "  --from-train [t]      a do/train full-model output (TRAIN_MODEL_PATH_<T>)"
+    echo "  --from-weights <uri>  an S3 prefix holding the model (config.json + weights)"
+    echo "  --from-registry <arn> a registered full-model package version"
+    echo "  --instance-group <g>  pin the pod to an instance group (nodeAffinity)"
+    echo "  --surge-node          when no node has room, add ONE node to the group (billed)"
+    echo "  --dry-run             print the rendered IEC; apply nothing"
+    echo ""
+    echo "A LoRA adapter is refused here — $(_additive_kind_guidance lora_adapter "${DEPLOYMENT_TARGET:-}")"
+    echo "State: do/pods/<name>.conf. ./do/clean also removes every add-pod IEC."
+}
+
+POD_NAME=""
+SRC_VERB=""
+SRC_ARG=""
+ARG_GROUP=""
+ARG_SURGE=false
+ARG_DRY_RUN=false
+ACTION="add"
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --help|-h) _usage; exit 0 ;;
+        --list) ACTION="list"; shift ;;
+        --status|--remove)
+            ACTION="${1#--}"
+            if [ -z "${2:-}" ] || [[ "${2}" == -* ]]; then
+                echo "❌ $1 requires a pod name"
+                exit 2
+            fi
+            POD_NAME="$2"; shift 2 ;;
+        --from-tune|--from-train)
+            [ -n "${SRC_VERB}" ] && { echo "❌ Pass exactly one --from-* source"; exit 2; }
+            SRC_VERB="${1#--}"
+            if [ -n "${2:-}" ] && [[ "${2}" != -* ]]; then SRC_ARG="$2"; shift 2; else shift; fi ;;
+        --from-weights|--from-registry)
+            [ -n "${SRC_VERB}" ] && { echo "❌ Pass exactly one --from-* source"; exit 2; }
+            if [ -z "${2:-}" ] || [[ "${2}" == -* ]]; then
+                echo "❌ $1 requires a value"
+                exit 2
+            fi
+            SRC_VERB="${1#--}"; SRC_ARG="$2"; shift 2 ;;
+        --instance-group)
+            if [ -z "${2:-}" ] || [[ "${2}" == -* ]]; then echo "❌ --instance-group requires a value"; exit 2; fi
+            ARG_GROUP="$2"; shift 2 ;;
+        --surge-node) ARG_SURGE=true; shift ;;
+        --dry-run) ARG_DRY_RUN=true; shift ;;
+        -*) echo "❌ Unknown option: $1"; echo "   Run ./do/add-pod --help"; exit 2 ;;
+        *)
+            if [ -n "${POD_NAME}" ]; then echo "❌ Unexpected argument: $1"; exit 2; fi
+            POD_NAME="$1"; shift ;;
+    esac
+done
+
+# <name> is a DNS-1123 label and <project>-<name> must stay a valid object name.
+_validate_name() {
+    local _max=$(( 63 - ${#PROJECT_NAME} - 1 ))
+    if ! echo "${POD_NAME}" | grep -Eq '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$' || [ "${#POD_NAME}" -gt "${_max}" ]; then
+        echo "❌ Pod name '${POD_NAME}' must be a lowercase DNS-1123 label of at most ${_max} characters"
+        echo "   (<project>-<name> becomes the IEC and SageMaker endpoint name)."
+        exit 2
+    fi
+}
+
+_conf_get() {
+    local _f="${PODS_DIR}/${POD_NAME}.conf" _k="$1"
+    [ -f "${_f}" ] || return 0
+    sed -n "s/^export ${_k}=\"\(.*\)\"$/\1/p" "${_f}" | tail -1
+}
+
+_write_conf() {
+    mkdir -p "${PODS_DIR}"
+    {
+        echo "# do/add-pod state for '${POD_NAME}' (written by do/add-pod; removed by --remove / do/clean)"
+        echo "export POD_IEC_NAME=\"${IEC_NAME}\""
+        echo "export POD_MODEL_URI=\"${MODEL_URI}\""
+        echo "export POD_SOURCE=\"${SRC_VERB}${SRC_ARG:+ ${SRC_ARG}}\""
+        echo "export POD_STATUS=\"$1\""
+    } > "${PODS_DIR}/${POD_NAME}.conf"
+}
+
+# ── --list / --status / --remove ───────────────────────────────────────────────
+if [ "${ACTION}" = "list" ]; then
+    echo "📋 do/add-pod deployments for ${PROJECT_NAME} (namespace ${HP_NAMESPACE}):"
+    _found=false
+    for _c in "${PODS_DIR}"/*.conf; do
+        [ -f "${_c}" ] || continue
+        _found=true
+        _n="$(basename "${_c}" .conf)"
+        printf '   %-24s %s\n' "${_n}" "$(sed -n 's/^export POD_STATUS="\(.*\)"$/\1/p' "${_c}") $(sed -n 's/^export POD_MODEL_URI="\(.*\)"$/\1/p' "${_c}")"
+    done
+    [ "${_found}" = true ] || echo "   (none)"
+    _live=$(kubectl get inferenceendpointconfig -n "${HP_NAMESPACE}" \
+        -l "mlcc.aws/project-name=${PROJECT_NAME},mlcc.aws/role=add-pod" \
+        -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+    [ -n "${_live}" ] && echo "   Live IECs: ${_live}"
+    exit 0
+fi
+
+if [ -z "${POD_NAME}" ]; then
+    _usage
+    exit 2
+fi
+_validate_name
+IEC_NAME="${PROJECT_NAME}-${POD_NAME}"
+
+if [ "${ACTION}" = "status" ]; then
+    IEC_NAME="$(_conf_get POD_IEC_NAME)"
+    IEC_NAME="${IEC_NAME:-${PROJECT_NAME}-${POD_NAME}}"
+    _state=$(kubectl get inferenceendpointconfig "${IEC_NAME}" -n "${HP_NAMESPACE}" \
+        -o jsonpath='{.status.state}' 2>/dev/null || echo "NotFound")
+    echo "📊 ${IEC_NAME}: ${_state:-Pending}"
+    echo "   Model: $(_conf_get POD_MODEL_URI)"
+    _ep=$(aws sagemaker describe-endpoint --endpoint-name "${IEC_NAME}" --region "${AWS_REGION}" \
+        --query EndpointStatus --output text 2>/dev/null || echo "not found")
+    echo "   SageMaker endpoint: ${_ep}"
+    exit 0
+fi
+
+if [ "${ACTION}" = "remove" ]; then
+    IEC_NAME="$(_conf_get POD_IEC_NAME)"
+    IEC_NAME="${IEC_NAME:-${PROJECT_NAME}-${POD_NAME}}"
+    echo "🗑️  Deleting InferenceEndpointConfig ${HP_NAMESPACE}/${IEC_NAME} (and its endpoint)..."
+    if ! kubectl delete inferenceendpointconfig "${IEC_NAME}" -n "${HP_NAMESPACE}" --ignore-not-found; then
+        echo "❌ Delete failed. Retry: kubectl delete inferenceendpointconfig ${IEC_NAME} -n ${HP_NAMESPACE}"
+        exit 1
+    fi
+    rm -f "${PODS_DIR}/${POD_NAME}.conf"
+    echo "✅ Removed ${IEC_NAME} (the canonical weights under models/mlcc-${PROJECT_NAME}/${POD_NAME}/ are kept)"
+    exit 0
+fi
+
+# ── add ────────────────────────────────────────────────────────────────────────
+if [ -z "${SRC_VERB}" ]; then
+    echo "❌ A source is required: --from-tune | --from-train | --from-weights | --from-registry"
+    exit 2
+fi
+if [ -z "${CORE_S3_BUCKET:-}" ]; then
+    echo "❌ The profile has no core bucket (CORE_S3_BUCKET): ml-container-creator bootstrap update --module core"
+    exit 1
+fi
+
+# 1. Resolve the source (ADR-013 axis 1) and gate the kind (axis 2).
+_resolved=$(_resolve_additive_source "${SRC_VERB}" "${SRC_ARG}" "${POD_NAME}" \
+    "$(_additive_accepts_kind add-pod)") || exit 1
+RESOLVED_SOURCE="" RESOLVED_URI="" RESOLVED_KIND=""
+eval "${_resolved}"
+_guard_artifact_kind "${RESOLVED_KIND}" "$(_additive_accepts_kind add-pod)" \
+    "A LoRA adapter is not a full model. $(_additive_kind_guidance lora_adapter "${DEPLOYMENT_TARGET}")"
+if [ -z "${RESOLVED_KIND}" ] && [ "$(_additive_sniff_kind "${RESOLVED_URI}")" = "lora_adapter" ]; then
+    _contract_violation "artifact-kind" \
+        "${RESOLVED_URI} holds adapter_config.json: it is a LoRA adapter, not a full model." \
+        "$(_additive_kind_guidance lora_adapter "${DEPLOYMENT_TARGET}")"
+fi
+echo "📦 Source: ${RESOLVED_SOURCE} → ${RESOLVED_URI}"
+
+# 2. The weights must live under models/mlcc-<project>/<name>/ (R7.2): promote.
+_canon_json=$(_s3_layout finetune-uri --bucket "${CORE_S3_BUCKET}" --project "${PROJECT_NAME}" --name "${POD_NAME}")
+CANON_URI=$(_s3_layout_field "${_canon_json}" uri)
+MODEL_URI="${CANON_URI}"
+if [ "${RESOLVED_URI%/}" != "${CANON_URI%/}" ]; then
+    if [ "${ARG_DRY_RUN}" = true ]; then
+        echo "   (dry run) would promote to ${CANON_URI}"
+    else
+        _s3_layout_promote "${RESOLVED_URI}" model "${POD_NAME}" "" "" "${MODEL_NAME:-}" "do/add-pod"
+        if [ -z "${PROMOTED_URI:-}" ]; then
+            echo "❌ The full model could not be promoted to ${CANON_URI} (see above)"
+            exit 1
+        fi
+        MODEL_URI="${PROMOTED_URI}"
+    fi
+fi
+_MODEL_KEY="${MODEL_URI#s3://*/}"
+_MODEL_KEY="${_MODEL_KEY%/}"
+
+# 3. Render the second IEC with the deploy driver's own derivation (render-only:
+#    no cluster write), overriding name / location / labels / replicas / group.
+_render_dir="$(mktemp -d)"
+(
+    _update_config() { :; }
+    _update_config_var() { :; }
+    export MLCC_HP_RENDER_ONLY="${_render_dir}"
+    export STAGED_MODEL_PATH="${MODEL_URI}"
+    export HP_MODEL_SOURCE="s3" HP_LORA_ENABLED="false" ENABLE_LORA="false"
+    export HP_IEC_NAME="${IEC_NAME}" HP_MODEL_LOCATION="${_MODEL_KEY}" HP_IEC_ROLE="add-pod" HP_IEC_REPLICAS="1"
+    export HP_IEC_NODE_GROUP="${ARG_GROUP}"
+    cd "${SCRIPT_DIR}/.."   # the driver renders hyperpod/*.yaml from the project root
+    source "${SCRIPT_DIR}/deploy.d/hyperpod-eks"
+) >&2 || { _rr=$?; rm -rf "${_render_dir}"; echo "❌ Render failed (exit ${_rr})"; exit "${_rr}"; }
+_manifest=$(ls "${_render_dir}"/*.yaml 2>/dev/null | head -1)
+if [ -z "${_manifest}" ] || ! grep -q "^  name: ${IEC_NAME}$" "${_manifest}"; then
+    rm -rf "${_render_dir}"
+    echo "❌ The rendered IEC does not carry the add-pod name ${IEC_NAME}"
+    exit 3
+fi
+
+# The GPUs one replica requests, as the driver derived them for this instance type.
+POD_GPUS=$(sed -n 's/^ *nvidia.com\/gpu: *"\{0,1\}\([0-9][0-9]*\)"\{0,1\} *$/\1/p' "${_manifest}" | head -1)
+POD_GPUS="${POD_GPUS:-1}"
+
+# 4. Cluster contract (read-only): free GPUs, Kueue queue, the S3 CSI role (R2.2).
+_contract_script=$(python3 "${SCRIPT_DIR}/lib/python/target_manifest.py" cluster_contract "${DEPLOYMENT_TARGET}" \
+    | python3 -c "import json,sys; print(json.load(sys.stdin).get('script',''))")
+echo "🔎 Cluster contract (add-pod, read-only):"
+_crc=0
+_surge_flag=""
+[ "${ARG_SURGE}" = true ] && _surge_flag="--allow-surge"
+# A named group pins the node; otherwise look for room on the base's instance type.
+_itype=""
+[ -n "${ARG_GROUP}" ] || _itype="${HP_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
+_cjson=$(python3 "${SCRIPT_DIR}/${_contract_script}" contract --verb add-pod --namespace "${HP_NAMESPACE}" \
+    --project "${PROJECT_NAME}" --group "${ARG_GROUP}" --instance-type "${_itype}" \
+    --gpus "${POD_GPUS}" --model-bucket "${CORE_S3_BUCKET}" ${_surge_flag}) || _crc=$?
+if [ "${_crc}" -eq 4 ]; then
+    rm -rf "${_render_dir}"
+    echo "❌ The cluster contract has blocking findings (above); nothing was applied."
+    exit 4
+elif [ "${_crc}" -ne 0 ]; then
+    rm -rf "${_render_dir}"
+    echo "❌ The cluster contract could not run (exit ${_crc})"
+    exit 1
+fi
+
+# 5. Right-sizing against the FULL model's own config.json (R7.3).
+_src=0
+STAGED_MODEL_PATH="${MODEL_URI}" python3 "${SCRIPT_DIR}/lib/python/right_sizing.py" check || _src=$?
+if [ "${_src}" -eq 2 ] && [ "${ARG_DRY_RUN}" != true ]; then
+    rm -rf "${_render_dir}"
+    echo "❌ Right-sizing blocks this model on ${HP_INSTANCE_TYPE:-${INSTANCE_TYPE:-the instance}} (above)."
+    exit 4
+fi
+
+if [ "${ARG_DRY_RUN}" = true ]; then
+    echo ""
+    echo "🔍 Dry run — InferenceEndpointConfig (nothing applied):"
+    echo ""
+    cat "${_manifest}"
+    rm -rf "${_render_dir}"
+    exit 0
+fi
+
+# 6. Capacity (R7.3): reuse the rollout-capacity decision; --surge-node adds a node.
+if [ -z "${ARG_GROUP}" ]; then
+    _cap_rc=0
+    _cap=$(python3 "${SCRIPT_DIR}/lib/python/hyperpod_ops.py" rollout-capacity --cluster "${HP_CLUSTER_NAME}" \
+        --namespace "${HP_NAMESPACE}" --project "${IEC_NAME}" --instance-type "${HP_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}" \
+        --gpus "${POD_GPUS}" --model-source s3 --purpose new) || _cap_rc=$?
+    if [ "${_cap_rc}" -eq 3 ]; then
+        if [ "${ARG_SURGE}" != true ]; then
+            rm -rf "${_render_dir}"
+            echo "❌ No node has room for ${IEC_NAME} (GPUs and pod slots, incl. its Mountpoint-S3 pod)."
+            printf '%s' "${_cap}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("   " + d.get("reason", "")); print("   Fix: " + d["fix"]) if d.get("fix") else None' 2>/dev/null || true
+            echo "   Free a node, use --instance-group, or pass --surge-node."
+            exit 4
+        fi
+        _grp=$(printf '%s' "${_cap}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('group',''))")
+        _orig=$(python3 "${SCRIPT_DIR}/lib/python/hyperpod_ops.py" surge-up --cluster "${HP_CLUSTER_NAME}" --group "${_grp}" \
+            | python3 -c "import json,sys; print(json.load(sys.stdin).get('original_target',''))") || { rm -rf "${_render_dir}"; exit 1; }
+        echo "   ⏫ Added one node to ${_grp} (was ${_orig}); it stays while ${IEC_NAME} runs (billed)."
+        python3 "${SCRIPT_DIR}/lib/python/hyperpod_ops.py" surge-wait --cluster "${HP_CLUSTER_NAME}" --group "${_grp}" \
+            --count "$(( _orig + 1 ))" >/dev/null || { rm -rf "${_render_dir}"; exit 1; }
+    fi
+fi
+
+# 7. Apply and wait for the operator (pod label app=<IEC name>, never app=<project>).
+echo "🚀 Applying ${HP_NAMESPACE}/${IEC_NAME}..."
+if ! kubectl apply -n "${HP_NAMESPACE}" -f "${_manifest}"; then
+    rm -rf "${_render_dir}"
+    exit 1
+fi
+rm -rf "${_render_dir}"
+_write_conf "Deploying"
+_elapsed=0
+_state=""
+while [ "${_elapsed}" -lt "${DEPLOY_TIMEOUT}" ]; do
+    _state=$(kubectl get inferenceendpointconfig "${IEC_NAME}" -n "${HP_NAMESPACE}" \
+        -o jsonpath='{.status.state}' 2>/dev/null || true)
+    case "${_state}" in
+        DeploymentComplete) break ;;
+        DeploymentFailed)
+            _write_conf "Failed"
+            echo "❌ ${IEC_NAME} failed: $(kubectl get inferenceendpointconfig "${IEC_NAME}" -n "${HP_NAMESPACE}" \
+                -o jsonpath='{.status.message}' 2>/dev/null || true)"
+            echo "   Logs: kubectl logs -n ${HP_NAMESPACE} -l app=${IEC_NAME} --tail=200"
+            exit 1 ;;
+    esac
+    echo "   📊 $(date +%H:%M:%S) ${_state:-Pending}"
+    sleep 15
+    _elapsed=$(( _elapsed + 15 ))
+done
+if [ "${_state}" != "DeploymentComplete" ]; then
+    echo "⚠️  Timed out after ${DEPLOY_TIMEOUT}s; check: ./do/add-pod --status ${POD_NAME}"
+    exit 1
+fi
+_write_conf "Running"
+echo "✅ ${IEC_NAME} is serving ${MODEL_URI}"
+echo "   Endpoint: ${IEC_NAME}   Status: ./do/add-pod --status ${POD_NAME}   Remove: ./do/add-pod --remove ${POD_NAME}"

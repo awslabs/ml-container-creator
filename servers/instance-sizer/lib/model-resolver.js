@@ -7,8 +7,11 @@
  * Resolution pipeline:
  *   1. Load model-sizes catalog (pre-built, offline-safe)
  *   2. Attempt catalog lookup via glob pattern matching
- *   3. If discover=true and no catalog hit, fetch config.json from HuggingFace Hub
- *   4. Extract/estimate parameter count, dtype, architecture, context length
+ *   3. If discover=true and no catalog hit, query the HuggingFace Hub (model API
+ *      safetensors metadata for the parameter count + config.json, including
+ *      the nested `text_config` of multimodal models)
+ *   4. Extract parameter count, dtype, architecture, context length; when the
+ *      size cannot be determined, parameterCount is null (never zero)
  *
  * Exports:
  *   - resolveModelMetadata(modelName, options) — full resolution pipeline
@@ -113,44 +116,195 @@ export function catalogLookup(modelName, catalog) {
 }
 
 /**
- * Estimate parameter count from model architecture dimensions.
- * Uses the approximation: hidden_size × num_hidden_layers × 12.
+ * Sub-config keys under which multimodal / composite HF configs nest the
+ * language-model dimensions (e.g. Qwen3_5ForConditionalGeneration,
+ * Qwen2_5_VLForConditionalGeneration, Gemma3ForConditionalGeneration,
+ * LlavaForConditionalGeneration put hidden_size, num_hidden_layers,
+ * max_position_embeddings and dtype under `text_config`). Reading only the
+ * top level of such a config silently yields no size and a bogus 4096 context.
+ */
+export const NESTED_TEXT_CONFIG_KEYS = ['text_config', 'llm_config', 'language_config'];
+
+/**
+ * Config keys whose presence means the model is a mixture-of-experts. The
+ * dense-transformer parameter formula does not apply to these, so
+ * estimateParamsFromConfig refuses to guess.
+ */
+const MOE_CONFIG_KEYS = ['num_experts', 'num_local_experts', 'n_routed_experts', 'moe_num_experts'];
+
+/**
+ * safetensors dtype tags (HF Hub API `safetensors.parameters` keys) → the
+ * dtype names used by the VRAM estimator.
+ */
+export const SAFETENSORS_DTYPE_MAP = {
+    BF16: 'bfloat16',
+    F16: 'float16',
+    F32: 'float32',
+    I8: 'int8',
+    U8: 'int8',
+    F8_E4M3: 'int8',
+    F8_E5M2: 'int8'
+};
+
+/**
+ * Return the nested language-model sub-config of a composite (multimodal)
+ * HF config, or null for a plain causal-LM config.
+ *
+ * @param {Object} config - Parsed HF config.json
+ * @returns {Object|null}
+ */
+export function nestedTextConfig(config) {
+    if (!config || typeof config !== 'object') return null;
+    for (const key of NESTED_TEXT_CONFIG_KEYS) {
+        const sub = config[key];
+        if (sub && typeof sub === 'object' && !Array.isArray(sub)) return sub;
+    }
+    return null;
+}
+
+/**
+ * Read a field from the top level of an HF config, falling back to the
+ * nested language-model sub-config (see NESTED_TEXT_CONFIG_KEYS).
+ *
+ * @param {Object} config - Parsed HF config.json
+ * @param {string} key - Field name
+ * @returns {*} The value, or undefined when absent at both levels
+ */
+export function configField(config, key) {
+    if (config && config[key] !== undefined && config[key] !== null) return config[key];
+    const sub = nestedTextConfig(config);
+    if (sub && sub[key] !== undefined && sub[key] !== null) return sub[key];
+    return undefined;
+}
+
+/**
+ * Estimate parameter count of a DENSE transformer from its config dimensions:
+ *   layers × 12 × hidden² (attention + MLP blocks) + vocab × hidden embeddings
+ *   (×2 when input/output embeddings are untied).
+ *
+ * This is a last-resort derivation, used only when neither the HF Hub
+ * safetensors metadata nor `num_parameters` is available. It refuses to guess
+ * (returns null) for mixture-of-experts configs, where the dense formula is
+ * wrong by an order of magnitude.
  *
  * @param {Object} config - Model configuration (HuggingFace config.json format)
- * @returns {number|null} Estimated parameter count, or null if dimensions are missing
+ * @returns {number|null} Estimated parameter count, or null if dimensions are missing / MoE
  */
 export function estimateParamsFromConfig(config) {
-    const hiddenSize = config.hidden_size;
-    const numLayers = config.num_hidden_layers;
+    if (!config || typeof config !== 'object') return null;
+    const hiddenSize = configField(config, 'hidden_size');
+    const numLayers = configField(config, 'num_hidden_layers');
 
     if (!hiddenSize || !numLayers) {
         return null;
     }
+    if (MOE_CONFIG_KEYS.some(k => configField(config, k))) {
+        return null;
+    }
 
-    return hiddenSize * numLayers * 12;
+    const vocabSize = configField(config, 'vocab_size') || 0;
+    const tied = configField(config, 'tie_word_embeddings') === true;
+    const embeddingParams = vocabSize * hiddenSize * (tied ? 1 : 2);
+    return numLayers * 12 * hiddenSize * hiddenSize + embeddingParams;
 }
 
 /**
- * Extract model metadata from a HuggingFace config.json object.
+ * Normalize a dtype string from config.json (`torch_dtype` / `dtype`) to the
+ * estimator's names. Returns null for unknown values.
  *
- * @param {Object} config - Parsed config.json from HuggingFace Hub
- * @returns {Object} Extracted metadata with parameterCount, dtype, architecture, maxPositionEmbeddings, source
+ * @param {*} raw
+ * @returns {string|null}
  */
-export function extractFromHuggingFaceConfig(config) {
-    const parameterCount = config.num_parameters || estimateParamsFromConfig(config);
-    const dtype = config.torch_dtype || 'float16';
-    const architecture = (config.architectures && config.architectures[0]) || 'unknown';
-    const maxPositionEmbeddings = config.max_position_embeddings || 4096;
+function normalizeDtype(raw) {
+    if (typeof raw !== 'string') return null;
+    const v = raw.toLowerCase().replace(/^torch\./, '');
+    if (v === 'bfloat16' || v === 'bf16') return 'bfloat16';
+    if (v === 'float16' || v === 'fp16' || v === 'half') return 'float16';
+    if (v === 'float32' || v === 'fp32' || v === 'float') return 'float32';
+    return null;
+}
+
+/**
+ * Pick the dominant weight dtype from HF Hub safetensors metadata
+ * (`{ parameters: { BF16: n, F32: m }, total }`).
+ *
+ * @param {Object|null} safetensors
+ * @returns {string|null}
+ */
+export function dominantSafetensorsDtype(safetensors) {
+    const params = safetensors?.parameters;
+    if (!params || typeof params !== 'object') return null;
+    let best = null;
+    let bestCount = -1;
+    for (const [tag, count] of Object.entries(params)) {
+        if (typeof count === 'number' && count > bestCount && SAFETENSORS_DTYPE_MAP[tag]) {
+            best = SAFETENSORS_DTYPE_MAP[tag];
+            bestCount = count;
+        }
+    }
+    return best;
+}
+
+/**
+ * Extract model metadata from a HuggingFace config.json object, optionally
+ * combined with the HF Hub API's safetensors metadata (authoritative
+ * parameter count, read from the published weight-file headers).
+ *
+ * Parameter-count precedence (first available wins, the source is recorded
+ * in `parameterCountSource`):
+ *   1. `safetensors.total` from the HF Hub model API
+ *   2. `num_parameters` in config.json
+ *   3. a dense-transformer estimate from config dimensions (never for MoE)
+ * When none apply, `parameterCount` is null — callers must treat that as
+ * "size unknown", never as zero.
+ *
+ * Multimodal configs that nest the language model under `text_config` (and
+ * siblings) are read through `configField`. `maxPositionEmbeddings` is null
+ * when the config does not publish it (no fabricated 4096).
+ *
+ * @param {Object} config - Parsed config.json from HuggingFace Hub ({} when unavailable)
+ * @param {Object} [hubInfo] - Optional HF Hub API metadata `{ safetensors }`
+ * @returns {Object} Extracted metadata
+ */
+export function extractFromHuggingFaceConfig(config, hubInfo = null) {
+    const cfg = config || {};
+    const safetensorsTotal = hubInfo?.safetensors?.total;
+    let parameterCount = null;
+    let parameterCountSource = null;
+    if (typeof safetensorsTotal === 'number' && safetensorsTotal > 0) {
+        parameterCount = safetensorsTotal;
+        parameterCountSource = 'huggingface-safetensors-metadata';
+    } else if (configField(cfg, 'num_parameters')) {
+        parameterCount = configField(cfg, 'num_parameters');
+        parameterCountSource = 'config.num_parameters';
+    } else {
+        const estimated = estimateParamsFromConfig(cfg);
+        if (estimated) {
+            parameterCount = estimated;
+            parameterCountSource = 'config-dimension-estimate';
+        }
+    }
+
+    const dtype = normalizeDtype(configField(cfg, 'torch_dtype'))
+        || normalizeDtype(configField(cfg, 'dtype'))
+        || dominantSafetensorsDtype(hubInfo?.safetensors)
+        || 'float16';
+    const architectures = cfg.architectures || hubInfo?.config?.architectures;
+    const architecture = (architectures && architectures[0]) || 'unknown';
+    const maxPositionEmbeddings = configField(cfg, 'max_position_embeddings') || null;
 
     // Extract architecture params for KV cache computation (computeMaxModelLen)
-    const numLayers = config.num_hidden_layers || null;
-    const numKvHeads = config.num_key_value_heads || config.num_attention_heads || null;
-    const headDim = config.head_dim || (config.hidden_size && config.num_attention_heads
-        ? Math.floor(config.hidden_size / config.num_attention_heads)
+    const hiddenSize = configField(cfg, 'hidden_size');
+    const numAttnHeads = configField(cfg, 'num_attention_heads');
+    const numLayers = configField(cfg, 'num_hidden_layers') || null;
+    const numKvHeads = configField(cfg, 'num_key_value_heads') || numAttnHeads || null;
+    const headDim = configField(cfg, 'head_dim') || (hiddenSize && numAttnHeads
+        ? Math.floor(hiddenSize / numAttnHeads)
         : null);
 
     const result = {
         parameterCount,
+        parameterCountSource,
         dtype,
         architecture,
         maxPositionEmbeddings,
@@ -166,6 +320,77 @@ export function extractFromHuggingFaceConfig(config) {
 }
 
 /**
+ * Fetch JSON from a URL with a timeout. Returns null on any failure.
+ *
+ * @param {Function} fetchImpl - fetch implementation
+ * @param {string} url
+ * @param {number} timeout - ms
+ * @param {Object} headers
+ * @returns {Promise<Object|null>}
+ */
+async function fetchJson(fetchImpl, url, timeout, headers) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+        const response = await fetchImpl(url, { signal: controller.signal, headers });
+        if (!response.ok) return null;
+        return await response.json();
+    } catch {
+        return null;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/**
+ * Discover model sizing metadata from the HuggingFace Hub.
+ *
+ * Queries, in parallel, the Hub model API (`/api/models/<id>` — public even
+ * for gated repos, carries the authoritative safetensors parameter count) and
+ * the repo's config.json (context length / dtype / KV-head dimensions; may be
+ * 401 for gated repos without HF_TOKEN). Returns null when neither is
+ * reachable.
+ *
+ * @param {string} modelName - HF model id (org/name)
+ * @param {Object} [options]
+ * @param {number} [options.timeout=5000]
+ * @param {Function} [options.fetchImpl=globalThis.fetch]
+ * @param {string} [options.hfToken] - Optional HF token (defaults to $HF_TOKEN)
+ * @returns {Promise<Object|null>}
+ */
+export async function discoverFromHuggingFace(modelName, options = {}) {
+    const {
+        timeout = 5000,
+        fetchImpl = globalThis.fetch,
+        hfToken = process.env.HF_TOKEN || process.env.HUGGING_FACE_HUB_TOKEN || ''
+    } = options;
+    if (typeof fetchImpl !== 'function') return null;
+
+    const headers = {
+        'User-Agent': 'ml-container-creator/instance-sizer',
+        ...(hfToken ? { Authorization: `Bearer ${hfToken}` } : {})
+    };
+    const [hubInfo, config] = await Promise.all([
+        fetchJson(fetchImpl, `https://huggingface.co/api/models/${modelName}`, timeout, headers),
+        fetchJson(fetchImpl, `https://huggingface.co/${modelName}/resolve/main/config.json`, timeout, headers)
+    ]);
+
+    if (!hubInfo && !config) return null;
+    return extractFromHuggingFaceConfig(config || {}, hubInfo);
+}
+
+/**
+ * True when resolved metadata carries a usable (positive, finite) parameter count.
+ *
+ * @param {Object|null} metadata
+ * @returns {boolean}
+ */
+export function hasUsableSize(metadata) {
+    const n = metadata?.parameterCount;
+    return typeof n === 'number' && Number.isFinite(n) && n > 0;
+}
+
+/**
  * Resolve model metadata through the full pipeline:
  *   1. Catalog lookup (offline, fast)
  *   2. HuggingFace Hub fetch (if discover=true and no catalog hit)
@@ -176,33 +401,50 @@ export function extractFromHuggingFaceConfig(config) {
  * @param {boolean} [options.discover=true] - Whether to fetch from HuggingFace Hub on cache miss
  * @param {number} [options.timeout=5000] - HTTP timeout for HuggingFace API (ms)
  * @param {string} [options.localCatalogPath] - Path to a project-local catalog override (checked first)
- * @returns {Promise<Object|null>} Resolved metadata, or null if unresolvable
+ * @param {Function} [options.fetchImpl] - fetch implementation (tests inject a stub)
+ * @returns {Promise<Object|null>} Resolved metadata, or null if unresolvable.
+ *   A returned object may still have `parameterCount: null` (e.g. an
+ *   incomplete local-catalog entry when the Hub is unreachable) — check with
+ *   hasUsableSize() before sizing.
  */
 export async function resolveModelMetadata(modelName, options = {}) {
     const {
         catalogPath = DEFAULT_CATALOG_PATH,
         discover = true,
         localCatalogPath = null,
-        timeout = 5000
+        timeout = 5000,
+        fetchImpl
     } = options;
 
-    // Step 1a: Try project-local catalog first (written by do/stage for unknown models)
+    // Step 1a: Try project-local catalog first (written by do/stage for unknown models).
+    // An entry WITHOUT a parameter count (older do/stage registrations of
+    // multimodal configs wrote only architecture/dtype/context) cannot size the
+    // model, so it must not shadow the shipped catalog or Hub discovery — keep
+    // it only as a last-resort partial result.
+    let incompleteLocal = null;
     if (localCatalogPath) {
         const localCatalog = await loadCatalog(localCatalogPath);
         if (localCatalog) {
             const localEntry = catalogLookup(modelName, localCatalog);
             if (localEntry) {
-                return {
+                const localResult = {
                     parameterCount: localEntry.parameterCount ?? null,
                     dtype: localEntry.defaultDtype || 'float16',
                     architecture: localEntry.architecture || 'unknown',
-                    maxPositionEmbeddings: localEntry.maxPositionEmbeddings || 4096,
+                    // do/stage omits an unknown context length — keep it unknown
+                    // (null) rather than inventing 4096.
+                    maxPositionEmbeddings: localEntry.maxPositionEmbeddings || null,
                     source: 'local-catalog',
+                    ...(localEntry.parameterCountSource ? { parameterCountSource: localEntry.parameterCountSource } : {}),
                     ...(localEntry.numLayers ? { numLayers: localEntry.numLayers } : {}),
                     ...(localEntry.numKvHeads ? { numKvHeads: localEntry.numKvHeads } : {}),
                     ...(localEntry.headDim ? { headDim: localEntry.headDim } : {}),
                     ...(localEntry.recommendedInstances ? { recommendedInstances: localEntry.recommendedInstances } : {})
                 };
+                if (hasUsableSize(localResult)) {
+                    return localResult;
+                }
+                incompleteLocal = localResult;
             }
         }
     }
@@ -233,28 +475,17 @@ export async function resolveModelMetadata(modelName, options = {}) {
         return result;
     }
 
-    // Step 2: If discover mode, try HuggingFace Hub
+    // Step 2: If discover mode, derive from the HuggingFace Hub (safetensors
+    // metadata + config.json). Network error / timeout → fall through.
     if (discover && isHuggingFacePattern(modelName)) {
-        try {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), timeout);
-
-            const url = `https://huggingface.co/${modelName}/resolve/main/config.json`;
-            const response = await fetch(url, {
-                signal: controller.signal,
-                headers: { 'User-Agent': 'ml-container-creator/instance-sizer' }
-            });
-
-            clearTimeout(timer);
-
-            if (response.ok) {
-                const config = await response.json();
-                return extractFromHuggingFaceConfig(config);
-            }
-        } catch {
-            // Network error or timeout — fall through to null
+        const discovered = await discoverFromHuggingFace(modelName, {
+            timeout,
+            ...(fetchImpl ? { fetchImpl } : {})
+        });
+        if (discovered && (hasUsableSize(discovered) || !incompleteLocal)) {
+            return discovered;
         }
     }
 
-    return null;
+    return incompleteLocal;
 }

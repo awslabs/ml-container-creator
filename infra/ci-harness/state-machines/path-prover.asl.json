@@ -63,7 +63,7 @@
 
     "GenerateBuildPush": {
       "Type": "Task",
-      "Resource": "arn:aws:states:::codebuild:startBuild",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
       "Parameters": {
         "ProjectName": "${CodeBuildProjectName}",
         "EnvironmentVariablesOverride": [
@@ -105,7 +105,7 @@
 
     "DeployTest": {
       "Type": "Task",
-      "Resource": "arn:aws:states:::codebuild:startBuild",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
       "Parameters": {
         "ProjectName": "${CodeBuildProjectName}",
         "EnvironmentVariablesOverride": [
@@ -159,7 +159,7 @@
 
     "TuneAdapterTest": {
       "Type": "Task",
-      "Resource": "arn:aws:states:::codebuild:startBuild",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
       "Parameters": {
         "ProjectName": "${CodeBuildProjectName}",
         "EnvironmentVariablesOverride": [
@@ -201,7 +201,7 @@
 
     "Benchmark": {
       "Type": "Task",
-      "Resource": "arn:aws:states:::codebuild:startBuild",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
       "Parameters": {
         "ProjectName": "${CodeBuildProjectName}",
         "EnvironmentVariablesOverride": [

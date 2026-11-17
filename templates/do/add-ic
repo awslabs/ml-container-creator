@@ -13,8 +13,14 @@
 # Creates a new IC config file in do/ic/ and deploys it immediately.
 #
 # Usage:
-#   ./do/add-ic [name] [--from-tune] [--model-data <s3-uri>]
+#   ./do/add-ic [name] [--from-weights <s3-uri> | --from-tune [technique] | --from-registry <version-arn>]
 #   ./do/add-ic --help
+#
+# Sources resolve through the shared ADR-013 resolver (_resolve_additive_source in
+# lib/script-contract.sh); do/add-ic accepts full_model artifacts only (a LoRA
+# adapter is refused → use do/adapter).
+# Deprecated alias: --model-data <s3-uri> == --from-weights <s3-uri> (prints a notice).
+# (Not to be confused with do/register's --model-data-url, which is unchanged.)
 
 set -e
 set -u
@@ -25,20 +31,15 @@ source "${SCRIPT_DIR}/lib/script-contract.sh"
 _require_python_env
 source "${SCRIPT_DIR}/config"
 
-# ── HyperPod guard: IC is a SageMaker managed inference concept ───────────────
-# Distinct guidance from the generic case, so kept as an explicit branch; uses
-# _contract_violation for the standard contract-violation format + exit 3.
-if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
-    _contract_violation "target" \
-        "do/add-ic is not supported on HyperPod. Inference Components are a SageMaker managed inference concept." \
-        "To load an adapter on HyperPod, use: do/adapter --load-lora"
-fi
-
-# ── Async/Batch guard: ICs require real-time endpoints ────────────────────────
-# Everything except real-time inference is unsupported; _restrict_targets emits
-# the standard violation (exit 3) for any other target.
-_restrict_targets "realtime-inference" \
-    "Inference Components require a real-time (managed-inference) endpoint."
+# ── Target guard: DERIVED from the additive-deploy contract (ADR-013) ─────────
+# do/add-ic accepts full_model artifacts and drives the SMAI Inference Component
+# mechanism, which only realtime-inference exposes. The refusal on every other
+# target (hyperpod-eks / eks / async / batch) is derived from the contract
+# table's empty mechanism intersection and names the right verb — e.g. on
+# hyperpod-eks a LoRA goes through `do/adapter add <name> --from-tune` and a
+# full model through `do/add-pod <name> --from-tune` (BL149); plain eks has no
+# full-model verb yet (do/add-pod on eks is post-2.0).
+_additive_verb_supported_on add-ic "${DEPLOYMENT_TARGET:-}"
 
 # ============================================================
 # Usage
@@ -52,12 +53,15 @@ _usage() {
     echo "  [name]                     IC name (required for --update, optional otherwise)"
     echo ""
     echo "Options:"
-    echo "  --from-tune                Use model output from do/tune (reads TUNE_OUTPUT_PATH_LATEST)"
-    echo "  --model-data <s3-uri>      S3 URI to model data (tar.gz or model directory)"
+    echo "  --from-weights <s3-uri>    S3 URI to model data (tar.gz or model directory)"
+    echo "  --from-tune [technique]    Use model output from do/tune (TUNE_MODEL_PATH_<T> or TUNE_OUTPUT_PATH_LATEST)"
+    echo "  --from-registry <arn>      Use a registered full-model package version"
     echo "  --update                   Update an existing IC in-place (zero-disruption swap)"
     echo "  --help, -h                 Show this help message"
     echo ""
-    echo "Note: --from-tune and --model-data are mutually exclusive."
+    echo "Note: --from-weights, --from-tune, and --from-registry are mutually exclusive."
+    echo "Deprecated: --model-data <s3-uri> is an alias of --from-weights (prints a notice)."
+    echo "do/add-ic accepts full models only; a LoRA adapter is refused — use do/adapter add <name> --from-tune."
     echo ""
     echo "Update mode (--update):"
     echo "  Updates the model artifact on an existing deployed IC using UpdateInferenceComponent."
@@ -67,12 +71,13 @@ _usage() {
     echo "Examples:"
     echo "  ./do/add-ic                                    # Interactive mode"
     echo "  ./do/add-ic tuned-v1 --from-tune               # Use latest tune output"
-    echo "  ./do/add-ic tuned-v1 --model-data s3://bucket/model.tar.gz"
+    echo "  ./do/add-ic tuned-v1 --from-weights s3://bucket/model.tar.gz"
+    echo "  ./do/add-ic tuned-v1 --from-registry arn:aws:sagemaker:...:model-package/proj/3"
     echo ""
     echo "  # Update an existing IC in-place:"
     echo "  ./do/add-ic default --update                   # Re-deploy same artifact"
     echo "  ./do/add-ic default --update --from-tune       # Swap to latest tune output"
-    echo "  ./do/add-ic default --update --model-data s3://bucket/model.tar.gz"
+    echo "  ./do/add-ic default --update --from-weights s3://bucket/model.tar.gz"
     echo ""
 }
 
@@ -81,6 +86,8 @@ _usage() {
 # ============================================================
 IC_NAME=""
 FROM_TUNE=""
+FROM_TUNE_TECHNIQUE=""
+FROM_REGISTRY=""
 MODEL_DATA=""
 UPDATE_MODE=""
 
@@ -88,15 +95,33 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --from-tune)
             FROM_TUNE="true"
-            shift
+            # Optional technique argument (anything not starting with -), but only
+            # once the IC name is known — `add-ic --from-tune` alone stays valid.
+            if [ -n "${IC_NAME}" ] && [ -n "${2:-}" ] && [[ "${2}" != -* ]]; then
+                FROM_TUNE_TECHNIQUE="$2"
+                shift 2
+            else
+                shift
+            fi
             ;;
-        --model-data)
+        --from-weights|--model-data)
+            # --model-data is the DEPRECATED alias of --from-weights (ADR-013 / R2).
+            [ "$1" = "--model-data" ] && _deprecated_flag_alias --model-data --from-weights
             if [ -z "${2:-}" ]; then
-                echo "❌ --model-data requires an S3 URI argument"
-                echo "   Usage: ./do/add-ic <name> --model-data <s3-uri>"
+                echo "❌ $1 requires an S3 URI argument"
+                echo "   Usage: ./do/add-ic <name> --from-weights <s3-uri>"
                 exit 1
             fi
             MODEL_DATA="$2"
+            shift 2
+            ;;
+        --from-registry)
+            if [ -z "${2:-}" ] || [[ "${2}" == -* ]]; then
+                echo "❌ --from-registry requires a model-package version ARN"
+                echo "   Usage: ./do/add-ic <name> --from-registry arn:aws:sagemaker:...:model-package/<group>/<version>"
+                exit 1
+            fi
+            FROM_REGISTRY="$2"
             shift 2
             ;;
         --update)
@@ -128,31 +153,54 @@ done
 # ============================================================
 # Mutual exclusivity check
 # ============================================================
-if [ -n "${FROM_TUNE}" ] && [ -n "${MODEL_DATA}" ]; then
-    echo "❌ --from-tune and --model-data are mutually exclusive"
+_SOURCE_COUNT=0
+[ -n "${FROM_TUNE}" ] && _SOURCE_COUNT=$((_SOURCE_COUNT + 1))
+[ -n "${MODEL_DATA}" ] && _SOURCE_COUNT=$((_SOURCE_COUNT + 1))
+[ -n "${FROM_REGISTRY}" ] && _SOURCE_COUNT=$((_SOURCE_COUNT + 1))
+if [ "${_SOURCE_COUNT}" -gt 1 ]; then
+    echo "❌ --from-weights, --from-tune, and --from-registry are mutually exclusive"
     echo ""
     echo "   Use one of:"
-    echo "   ./do/add-ic <name> --from-tune"
-    echo "   ./do/add-ic <name> --model-data <s3-uri>"
+    echo "   ./do/add-ic <name> --from-tune [technique]"
+    echo "   ./do/add-ic <name> --from-weights <s3-uri>"
+    echo "   ./do/add-ic <name> --from-registry <version-arn>"
     exit 1
 fi
 
 # ============================================================
-# Resolve --from-tune to MODEL_DATA
+# Resolve the source through the shared ADR-013 resolver
 # ============================================================
+# --from-weights (raw S3), --from-tune and --from-registry all go through
+# _resolve_additive_source; RESOLVED_URI becomes MODEL_DATA for the existing
+# IC-config write + deploy --ic path. The kind gate reads the accepted kind from
+# the contract table: a lora_adapter is refused (→ do/adapter); an unknown kind
+# (raw S3 with no recorded kind) degrades to an advisory content check.
+_IC_SOURCE_VERB=""
+_IC_SOURCE_ARG=""
 if [ -n "${FROM_TUNE}" ]; then
-    if [ -z "${TUNE_OUTPUT_PATH_LATEST:-}" ]; then
-        echo "❌ No tune output found."
-        echo ""
-        echo "   TUNE_OUTPUT_PATH_LATEST is not set in do/config."
-        echo ""
-        echo "   Run a tune job first:"
-        echo "   ./do/tune --technique <technique> --dataset <source>"
-        exit 1
+    _IC_SOURCE_VERB="from-tune"
+    _IC_SOURCE_ARG="${FROM_TUNE_TECHNIQUE}"
+elif [ -n "${FROM_REGISTRY}" ]; then
+    _IC_SOURCE_VERB="from-registry"
+    _IC_SOURCE_ARG="${FROM_REGISTRY}"
+elif [ -n "${MODEL_DATA}" ]; then
+    _IC_SOURCE_VERB="from-weights"
+    _IC_SOURCE_ARG="${MODEL_DATA}"
+fi
+if [ -n "${_IC_SOURCE_VERB}" ]; then
+    _IC_RESOLVED=$(_resolve_additive_source "${_IC_SOURCE_VERB}" "${_IC_SOURCE_ARG}" "${IC_NAME}" \
+        "$(_additive_accepts_kind add-ic)") || exit 1
+    RESOLVED_SOURCE="" RESOLVED_URI="" RESOLVED_KIND=""
+    eval "${_IC_RESOLVED}"
+    MODEL_DATA="${RESOLVED_URI}"
+    _guard_artifact_kind "${RESOLVED_KIND}" "$(_additive_accepts_kind add-ic)" \
+        "A LoRA adapter is not a standalone model — use: do/adapter add <name> --from-tune (or --from-weights s3://...)."
+    if [ -z "${RESOLVED_KIND}" ] && [ "$(_additive_sniff_kind "${MODEL_DATA}")" = "lora_adapter" ]; then
+        # Advisory only (R4.4 — unknown never hard-blocks).
+        echo "⚠️  ${MODEL_DATA} contains adapter_config.json — it looks like a LoRA adapter."
+        echo "   If so, use: do/adapter add <name> --from-weights ${MODEL_DATA}"
     fi
-
-    MODEL_DATA="${TUNE_OUTPUT_PATH_LATEST}"
-    echo "📦 Using tune output: ${MODEL_DATA}"
+    echo "📦 Using --${RESOLVED_SOURCE} model data: ${MODEL_DATA}"
     echo ""
 fi
 
@@ -164,7 +212,7 @@ if [ -n "${UPDATE_MODE}" ]; then
     if [ -z "${IC_NAME}" ]; then
         echo "❌ IC name is required for --update"
         echo ""
-        echo "   Usage: ./do/add-ic <ic-name> --update [--from-tune | --model-data <s3-uri>]"
+        echo "   Usage: ./do/add-ic <ic-name> --update [--from-tune | --from-weights <s3-uri>]"
         echo ""
         echo "   Available ICs:"
         if [ -d "${SCRIPT_DIR}/ic" ]; then
@@ -203,7 +251,7 @@ if [ -n "${UPDATE_MODE}" ]; then
         exit 1
     fi
 
-    # Resolve model data: --model-data > --from-tune > current IC_MODEL_DATA
+    # Resolve model data: --from-weights / --from-tune / --from-registry > current IC_MODEL_DATA
     if [ -z "${MODEL_DATA}" ] && [ -n "${IC_MODEL_DATA:-}" ]; then
         MODEL_DATA="${IC_MODEL_DATA}"
         echo "📦 Using current model data from IC config: ${MODEL_DATA}"
@@ -229,15 +277,17 @@ if [ -n "${UPDATE_MODE}" ]; then
         "--region" "${AWS_REGION:-us-east-1}"
     )
     if [ -n "${MODEL_DATA}" ]; then
-        PYTHON_ARGS+=("--model-data" "${MODEL_DATA}")
+        PYTHON_ARGS+=("--from-weights" "${MODEL_DATA}")
     fi
     if [ -n "${IC_IMAGE}" ]; then
         PYTHON_ARGS+=("--image" "${IC_IMAGE}")
     fi
 
     # Call the update helper
-    UPDATE_OUTPUT=$(python3 "${SCRIPT_DIR}/lib/python/ic_update.py" "${PYTHON_ARGS[@]}")
-    UPDATE_EXIT=$?
+    # BL165: capture the exit code explicitly — a bare `X=$(cmd)` under set -e
+    # would abort silently on failure before the error below could be shown.
+    UPDATE_EXIT=0
+    UPDATE_OUTPUT=$(python3 "${SCRIPT_DIR}/lib/python/ic_update.py" "${PYTHON_ARGS[@]}") || UPDATE_EXIT=$?
 
     if [ ${UPDATE_EXIT} -ne 0 ]; then
         echo "❌ IC update failed"
@@ -287,7 +337,7 @@ REGISTRY_SELECTED_MODEL_DATA=""
 REGISTRY_SELECTED_IMAGE=""
 
 if [ -z "${MODEL_DATA}" ]; then
-    # Only query registry if MODEL_DATA was not already provided via --from-tune or --model-data
+    # Only query registry if MODEL_DATA was not already provided via a --from-* source
     if [ -t 0 ]; then
         # Interactive mode: query registry for available models
         _registry_json=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-models \
@@ -468,7 +518,7 @@ export IC_MIN_MEMORY_MB=${IC_MIN_MEMORY_MB}
 export IC_STARTUP_TIMEOUT=900
 EOF
 
-# Add model data if provided (from --from-tune, --model-data, or registry selection)
+# Add model data if provided (from a --from-* source or registry selection)
 if [ -n "${MODEL_DATA}" ]; then
     cat >> "${IC_CONF_PATH}" <<EOF
 export IC_MODEL_DATA="${MODEL_DATA}"
@@ -497,6 +547,13 @@ echo ""
 # ============================================================
 # Deploy the new IC immediately
 # ============================================================
+# Wave 10 (ADR-014 R3.3): an IC added later is not registered for scale-to-zero.
+source "${SCRIPT_DIR}/lib/scale-to-zero.sh"
+if stz_active "${DEPLOYMENT_TARGET:-}"; then
+    stz_add_ic_notice
+    echo ""
+    export MLCC_STZ_ADD_IC_NOTICE=1
+fi
 echo "🚀 Deploying IC '${IC_NAME}'..."
 echo ""
 exec "${SCRIPT_DIR}/deploy" --ic "${IC_NAME}"

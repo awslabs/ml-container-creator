@@ -6,11 +6,15 @@
 # advantage (the sampled group is its own baseline — there is no separate
 # value/critic model, and NO managed SageMaker evaluator in the loop).
 #
-# These are the lowest-priority defaults. Override via:
-#   1. CLI flags (--learning-rate, --epochs, --batch-size, --beta) — highest priority
-#   2. training/config.yaml hyperparameters section
-#   3. Interactive mode answers (written to config.yaml)
-#   4. These defaults — lowest priority
+# Precedence (lowest -> highest):
+#   1. manifest.json `default` (the shipped manifest declares none)
+#   2. These defaults
+#   3. training/config.yaml hyperparameters section
+#   4. --set KNOB=VALUE / CLI flags (--learning-rate, --epochs, --batch-size, --beta) = interactive answers
+#      (do/train -i; answers are written back to config.yaml)
+#
+# Value types, bounds, and prompt tiers live in manifest.json next to this file;
+# a key here that the manifest does not declare is passed to train.py unchanged.
 #
 # GPU REQUIREMENT: GRPO does on-policy generation AND training in the same job,
 # so it needs an adequate GPU instance — do NOT run it on CPU or an
@@ -19,7 +23,7 @@
 # completions, or a bigger num_generations group need a multi-GPU instance
 # (e.g. ml.g5.12xlarge = 4× A10G). Set the instance in training/config.yaml.
 
-# ── GRPO-specific (no existing --flag; configured here / via config.yaml) ──────
+# ── GRPO-specific (no legacy --flag; set here, in config.yaml, or via --set) ───
 num_generations: 8            # completions sampled per prompt (the "group"); the
                               # group-relative baseline needs >= 2, 8 is a sane default.
 max_completion_length: 256    # max new tokens sampled per completion.

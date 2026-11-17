@@ -117,3 +117,14 @@ def test_cli_unknown_field_exit_6():
 def test_cli_usage_exit_2():
     r = _cli("status_var")  # missing target arg
     assert r.returncode == 2
+def test_compute_backends_first_entry_is_smtj_everywhere():
+    # Wave 11 R1.1 / OQ-11.5: every target can submit an SMTJ and it is the default.
+    for t in TARGETS:
+        backends = tm.compute_backends(t, _TARGETS_D)
+        assert backends and backends[0] == "smtj"
+def test_compute_backends_falls_back_to_smtj_for_a_descriptor_without_the_field(tmp_path):
+    src = json.load(open(os.path.join(_TARGETS_D, "eks", "manifest.json")))
+    src.pop("compute_backends", None)
+    (tmp_path / "eks").mkdir()
+    (tmp_path / "eks" / "manifest.json").write_text(json.dumps(src))
+    assert tm.compute_backends("eks", str(tmp_path)) == ["smtj"]

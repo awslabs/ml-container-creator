@@ -131,6 +131,29 @@ export function serveEngineRuntimeVarsUnion(serveDir = SERVE_D) {
     return [...vars].sort();
 }
 
+/**
+ * The set of serve-engine environment-variable PREFIXES (e.g. `['SGLANG_',
+ * 'VLLM_']`), DERIVED from every serve engine's manifest `env_var_prefix`.
+ *
+ * This is the single source the eks deploy's unbounded Tier-2 pass-through keys
+ * on (`deploy.d/eks`: forward any `<prefix>*` engine var). `mcc regenerate` uses
+ * it (BL158) to PRESERVE those same prefix-matched vars across a re-render, so a
+ * user-set advanced engine knob is not silently dropped — deriving the prefixes
+ * here rather than hardcoding `VLLM_`/`SGLANG_` keeps the two sides in agreement
+ * and covers any new engine with a manifest prefix automatically (ADR-008).
+ *
+ * @param {string} [serveDir] - Optional serve.d root override (tests).
+ * @returns {string[]} Sorted, de-duplicated engine prefixes (non-empty only).
+ */
+export function serveEnginePrefixes(serveDir = SERVE_D) {
+    const prefixes = new Set();
+    for (const engine of listServeEngines(serveDir)) {
+        const prefix = readEnvVarPrefix(engine, serveDir);
+        if (prefix) prefixes.add(prefix);
+    }
+    return [...prefixes].sort();
+}
+
 // ── Capability versioning (BL129) ──────────────────────────────────────────────
 //
 // Node/generation-time mirror of the version logic in
@@ -241,6 +264,20 @@ export function engineFeature(engine, feature, serveDir = SERVE_D) {
 }
 
 /**
+ * The engine's `metric_signals` map (Wave 9 R2.1): abstract signal name to
+ * `{type, name}` or `{type: 'ratio', num, den}`. Returns {} when the engine
+ * declares none. Node twin of serve_manifest.metric_signals(), used by the
+ * serve-manifest signal conformance test.
+ * @param {string} engine
+ * @param {string} [serveDir]
+ * @returns {Object<string, {type: string, name?: string, num?: string, den?: string}>}
+ */
+export function metricSignals(engine, serveDir = SERVE_D) {
+    const manifest = readManifest(engine, serveDir);
+    return (manifest && manifest.metric_signals) || {};
+}
+
+/**
  * The engine's Tier-1 capability map (ADR-010), with each capability's env var
  * already prefixed. Tier 1 is the minimal set MLCC computes and injects (model,
  * tensor-parallel degree, LoRA + companions); everything else is Tier-2 prefix
@@ -288,6 +325,80 @@ export function capabilityMap(engine, serveDir = SERVE_D) {
         };
     }
     return out;
+}
+
+/**
+ * Wave 6.1 (BL188): {capability: default} for every capability_map entry that
+ * declares a `default`. This is the SINGLE source for MLCC's LoRA sizing defaults
+ * (vLLM lora_max=4 / lora_max_rank=16); the generator resolver, prompt,
+ * Dockerfile and parameter schema derive from it (drift-tested). Values keep the
+ * manifest's JSON type. {} when the engine declares none.
+ * @param {string} engine
+ * @param {string} [serveDir]
+ * @returns {Object<string,(string|number)>}
+ */
+export function capabilityDefaults(engine, serveDir = SERVE_D) {
+    const manifest = readManifest(engine, serveDir);
+    const caps = manifest && manifest.capability_map;
+    if (!caps || typeof caps !== 'object') return {};
+    const out = {};
+    for (const [name, decl] of Object.entries(caps)) {
+        if (decl && Object.prototype.hasOwnProperty.call(decl, 'default') && decl.default !== null) {
+            out[name] = decl.default;
+        }
+    }
+    return out;
+}
+
+/**
+ * The sorted discrete values an engine accepts for a capability (e.g. vLLM
+ * lora_max_rank), or [] when it accepts any positive integer.
+ * @param {string} engine
+ * @param {string} capability
+ * @param {string} [serveDir]
+ * @returns {number[]}
+ */
+export function capabilityAllowed(engine, capability, serveDir = SERVE_D) {
+    const manifest = readManifest(engine, serveDir);
+    const decl = manifest && manifest.capability_map && manifest.capability_map[capability];
+    if (!decl || !Array.isArray(decl.allowed)) return [];
+    return decl.allowed.filter((v) => Number.isInteger(v) && v > 0).sort((a, b) => a - b);
+}
+
+/** The engine's default max LoRA rank (capability lora_max_rank.default), or null. */
+export function loraRankDefault(engine, serveDir = SERVE_D) {
+    const v = capabilityDefaults(engine, serveDir).lora_max_rank;
+    return Number.isInteger(v) ? v : null;
+}
+
+/** The engine's allowed max LoRA rank values ([] = any positive integer). */
+export function loraRankAllowed(engine, serveDir = SERVE_D) {
+    return capabilityAllowed(engine, 'lora_max_rank', serveDir);
+}
+
+/** The engine's default max concurrent LoRA adapters (capability lora_max.default), or null. */
+export function loraMaxDefault(engine, serveDir = SERVE_D) {
+    const v = capabilityDefaults(engine, serveDir).lora_max;
+    return Number.isInteger(v) ? v : null;
+}
+
+/**
+ * Generation-time LoRA sizing defaults ({maxLoras, maxLoraRank}) for the
+ * template resolver, the LoRA prompts and the Dockerfile ENV. Read from the
+ * selected engine's manifest; an engine that declares no default for a field
+ * (e.g. SGLang has no lora_max, LMI/llama-cpp have no capability_map) falls back
+ * to the vLLM manifest — the engine whose VLLM_MAX_LORAS / VLLM_MAX_LORA_RANK the
+ * Dockerfile emits. Never a literal (BL188 drift test).
+ * @param {string} [engine]
+ * @param {string} [serveDir]
+ * @returns {{maxLoras: number|null, maxLoraRank: number|null}}
+ */
+export function loraSizingDefaults(engine, serveDir = SERVE_D) {
+    const pick = (fn) => {
+        const own = engine ? fn(engine, serveDir) : null;
+        return own !== null ? own : fn('vllm', serveDir);
+    };
+    return { maxLoras: pick(loraMaxDefault), maxLoraRank: pick(loraRankDefault) };
 }
 
 /**

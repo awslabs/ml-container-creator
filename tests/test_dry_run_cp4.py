@@ -145,6 +145,13 @@ def _setup_do_dir(config_dir: str) -> str:
     if not os.path.exists(lib_link):
         os.symlink(os.path.join(TEMPLATES_DO, "lib"), lib_link)
 
+    # Symlink targets.d: the per-target descriptors (ADR-008) that every
+    # generated project ships as do/targets.d. do/deploy derives the
+    # builder-answer → config-var map from them; without it no flag value
+    # is exported (BL234).
+    targets_link = os.path.join(do_dir, "targets.d")
+    if not os.path.exists(targets_link):
+        os.symlink(os.path.join(TEMPLATES_DO, "targets.d"), targets_link)
     # Symlink the deploy helper
     helper_link = os.path.join(do_dir, ".deploy_helper.py")
     if not os.path.exists(helper_link):
@@ -434,6 +441,16 @@ class TestDryRunCP4:
             'export MODEL_NAME="meta-llama/Llama-2-7b-hf"',
             'export PROJECT_NAME="test-project"',
         ])
+        # The helper path runs the Node deploy-config builder, which do/deploy
+        # looks up in the global npm root, then <project>/node_modules. Pin it to
+        # THIS checkout via a project-local install and an empty global prefix,
+        # so the test neither depends on nor picks up a globally linked copy
+        # (CI has none; a dev machine may link a different checkout). BL234.
+        local_pkg = os.path.join(config_dir, "node_modules", "@aws")
+        os.makedirs(local_pkg, exist_ok=True)
+        os.symlink(REPO_ROOT, os.path.join(local_pkg, "ml-container-creator"))
+        env = dict(mock_aws_env["env"])
+        env["NPM_CONFIG_PREFIX"] = str(tmp_path / "empty-npm-prefix")
 
         result = _run_dry_run(
             config_dir,
@@ -446,7 +463,7 @@ class TestDryRunCP4:
                 "--batch-strategy", "SingleRecord",
                 "--batch-max-concurrent", "10",
             ],
-            mock_aws_env["env"],
+            env,
         )
 
         assert result.returncode == 0, f"stderr: {result.stderr}\nstdout: {result.stdout}"

@@ -4,22 +4,7 @@ This directory contains the source files for the ML Container Creator documentat
 
 ## Structure
 
-```
-docs/
-├── index.md                 # Home page
-├── getting-started.md       # Installation and first project tutorial
-├── EXAMPLES.md             # Framework-specific examples
-├── TROUBLESHOOTING.md      # Common issues and solutions
-├── CONTRIBUTING.md         # Quick contributor guide
-├── ADDING_FEATURES.md      # Detailed feature development guide
-├── architecture.md         # Complete architecture guide
-├── coding-standards.md     # Code style guide
-├── aws-sagemaker.md       # AWS/SageMaker AI context
-├── DEPLOYMENT.md           # Deployment guide
-├── logo.png               # Project logo
-└── stylesheets/
-    └── extra.css          # Custom CSS
-```
+The page list and its order are defined by the `nav` section of `mkdocs.yml` at the project root. Reusable table snippets live in `docs/snippets/`, generated widget data in `docs/data/` (written by `node scripts/sync-command-generator.js` and `npm run codegen`; do not hand-edit), and custom CSS in `docs/stylesheets/`.
 
 ## Working with Documentation
 

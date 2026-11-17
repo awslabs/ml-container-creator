@@ -18,8 +18,12 @@
     "optional_vars",
     "runtime_owned_vars",
     "serving_config_source",
+    "compute_backends",
     "verbs",
-    "answer_params"
+    "observability",
+    "answer_params",
+    "pricing",
+    "scale_to_zero"
   ],
   "properties": {
     "target": {
@@ -85,17 +89,162 @@
       "enum": ["kubernetes", "sagemaker-ic"],
       "description": "Which resolve-serving-config.sh resolution arm this target uses. kubernetes: reads HP_*/BENCHMARK_* (hyperpod-eks, eks). sagemaker-ic: reads DEPLOYED_INSTANCE_TYPE/IC_ENV_* (realtime, async, batch)."
     },
+    "adapter_delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "mount_path", "subdir"],
+      "description": "Wave 6.1 (R1.1, BL189): how LoRA adapters reach the serving pod on this target, so do/adapter and the deploy driver derive the mapping instead of hardcoding it. strategy model-prefix: the adapter lives under <model S3 prefix>/<subdir>/<project>/<name>/ and the pod sees it at <mount_path>/<subdir>/<project>/<name> through the S3 model mount (hyperpod-eks with prefetchEnabled: false; eks with EKS_MODEL_MOUNT=s3). Omit on targets that load adapters another way (realtime-inference adapter ICs).",
+      "properties": {
+        "strategy": { "type": "string", "enum": ["model-prefix"] },
+        "mount_path": { "type": "string", "pattern": "^/" },
+        "subdir": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }
+      }
+    },
+    "cluster_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["script", "entry"],
+      "description": "Wave 8 (R5.3): the READ-ONLY cluster-contract preflight do/validate runs for this target (kubernetes family), so the dispatcher derives which helper to call instead of branching on the target name. script: path relative to do/. A .sh script is sourced in a subshell and `entry` (a shell function) is called: exit 0 = satisfied, non-zero = a contract miss (its output is the finding). A .py script is run as `python3 <script> <entry>` and prints {\"findings\": [{severity, check, message, fix}]}. The deploy driver calls the same helper; validate never mutates anything.",
+      "properties": {
+        "script": { "type": "string", "pattern": "^lib/[A-Za-z0-9_./-]+\\.(sh|py)$" },
+        "entry": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" }
+      }
+    },
+    "service_quota_usage": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Wave 8 (right-sizing `quota` check): the SageMaker Service Quotas usage suffix this target's instances count against, e.g. 'endpoint usage' (quota name '<instance> for endpoint usage') or 'transform job usage'. Omit on targets whose capacity is cluster-provided (kubernetes family); the quota check then reports skip."
+    },
+    "pricing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service", "instance_count"],
+      "description": "Wave 9 (R7.1, R8.2): how the price resolver (do/lib/python/pricing.py) prices this target's instances. service: the AWS Price List service code. component: the AmazonSageMaker `component` attribute value (Task 1, live GetProducts 2026-10-26: Hosting = real-time endpoints, AsyncInf = async endpoints, BatchTransform = transform jobs, Cluster = HyperPod); omitted for AmazonEC2 (EC2 uses the fixed Linux / Shared / NA / Used filter set). instance_count: how many instances one benchmark run is billed for.",
+      "properties": {
+        "service": { "type": "string", "enum": ["AmazonSageMaker", "AmazonEC2"] },
+        "component": { "type": "string", "enum": ["Hosting", "AsyncInf", "BatchTransform", "Cluster"] },
+        "instance_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["basis"],
+          "description": "basis endpoint-current: DescribeEndpoint ProductionVariants[0].CurrentInstanceCount at write time. basis replicas: nodes occupied = ceil(<replicas_var> x <gpus_per_replica_var> / catalog GPUs per instance); a gpus_per_replica value of 'auto' means the whole instance. basis not-benchmarked: do/benchmark refuses this target, so no count is derived.",
+          "properties": {
+            "basis": { "type": "string", "enum": ["endpoint-current", "replicas", "not-benchmarked"] },
+            "replicas_var": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+            "gpus_per_replica_var": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
+          }
+        }
+      }
+    },
+    "compute_backends": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "enum": ["smtj", "hp-eks"] },
+      "description": "Wave 11 (R1.1, OQ-11.5): the training compute backends do/train and do/tune may submit to from a project on this target, in preference order; the FIRST entry is the default when --backend is not given. smtj = a SageMaker training job (every target). hp-eks = a single-node HyperPodPyTorchJob on the project's HyperPod EKS cluster (hyperpod-eks only; opt-in, never the default). Verbs read this at run time through target_manifest.py compute_backends; no consumer branches on the target name."
+    },
+    "scale_to_zero": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["support", "mechanism", "wake_signal", "requests_at_zero", "idle_billing", "enabled"],
+      "description": "Wave 10 (ADR-014 §1/§2, R1): whether and how this target can scale to zero, and whether MLCC wires it in this release. do/deploy flag acceptance (--scale-to-zero), the cold-start warning wording, do/status and do/clean derive from this block instead of branching on the target name. support: what the platform offers (native = the AWS service scales the billed capacity to zero; pod-only = pods scale but nodes stay billed; requires-cluster-addon = needs an add-on the cluster owner installs; not-applicable = the target never idles). The enums are an open set: extend them here when a new target needs a new value. mechanism: the plug-point do/lib/scale-to-zero.sh dispatches on (ADR-013 style), null when there is none. wake_signal: the metric that wakes the target from zero, null when unknown. requests_at_zero: what a request sees while at zero (fail / queued / unknown / n/a); it drives the warning text. idle_billing: what is still billed at zero. enabled: MLCC v2 wires it (only with support native plus a mechanism and wake signal); reason: why not, shown verbatim when --scale-to-zero is refused.",
+      "properties": {
+        "support": { "type": "string", "enum": ["native", "pod-only", "requires-cluster-addon", "not-applicable"] },
+        "mechanism": { "type": ["string", "null"], "pattern": "^[a-z][a-z0-9-]*$" },
+        "wake_signal": { "type": ["string", "null"], "pattern": "^[A-Za-z][A-Za-z0-9]*$" },
+        "requests_at_zero": { "type": "string", "enum": ["fail", "queued", "unknown", "n/a"] },
+        "idle_billing": { "type": "string", "enum": ["none-at-zero", "nodes-still-billed", "n/a"] },
+        "enabled": { "type": "boolean" },
+        "reason": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+          "then": {
+            "properties": {
+              "support": { "const": "native" },
+              "mechanism": { "type": "string" },
+              "wake_signal": { "type": "string" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+          "then": { "required": ["reason"] }
+        }
+      ]
+    },
     "verbs": {
       "type": "object",
       "additionalProperties": { "type": "boolean" },
-      "description": "Per-verb applicability for verbs that are target-restricted. true = the verb applies to this target; false = the verb refuses it (exit 3). Only verbs that vary by target need listing (optimize, add-ic, ci, adapter, draft). Verbs with `targets: all` are not listed.",
+      "description": "Per-verb applicability for verbs that are target-restricted. true = the verb applies to this target; false = the verb refuses it (exit 3). Only verbs that vary by target need listing (optimize, add-ic, ci, adapter, draft, metrics). Verbs with `targets: all` are not listed.",
       "properties": {
         "optimize": { "type": "boolean" },
         "add-ic": { "type": "boolean" },
+        "add-pod": { "type": "boolean", "description": "Wave 11 (R8.1, BL149): do/add-pod applies (the ADR-013 contract derives a pod-apply mechanism for full_model on this target). Must agree with _additive_verb_supported_on add-pod (additive-deploy-contract.test.js)." },
         "ci": { "type": "boolean" },
         "adapter": { "type": "boolean" },
-        "draft": { "type": "boolean" }
+        "draft": { "type": "boolean" },
+        "metrics": { "type": "boolean", "description": "Wave 9 (OQ-9.9): do/metrics applies (the target has an observability store). Must equal observability.store != 'none'. Unlike the other verbs, do/metrics on a target where this is false prints a skip notice with the reason and exits 0 (R12.4) instead of a contract violation." }
       }
+    },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["store"],
+      "description": "Wave 9 (R1, R6, R12; ADR-008): where this target's serving metrics live and how to select them, so gpu_metrics.py (benchmark Phase 1 / AMP), endpoint_metrics.py (do/metrics) and do/status derive the store, label selector and dashboard pointer instead of branching on the target name. store cloudwatch-promql: SageMaker AI detailed observability, PromQL at monitoring.<region>.amazonaws.com/api/v1/query (SigV4 monitoring). store amp: the HyperPod observability add-on's Amazon Managed Service for Prometheus workspace (SigV4 aps), discovered via amp_discovery. store none: no AWS-native store; benchmark falls back to the engine scrape when `fallback` says so.",
+      "properties": {
+        "store": { "type": "string", "enum": ["cloudwatch-promql", "amp", "none"] },
+        "histogram_form": {
+          "type": "string",
+          "enum": ["native", "classic"],
+          "description": "native: histograms are OTel exponential (query the bare name). classic: Prometheus _bucket series with an `le` label."
+        },
+        "selector": {
+          "type": "object",
+          "description": "Role -> PromQL label name for the engine series (roles: endpoint, variant, inference_component, deployment, namespace). Values are supplied at query time from the project config.",
+          "additionalProperties": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$" }
+        },
+        "gpu_selector": {
+          "type": "object",
+          "description": "Role -> PromQL label name for the DCGM GPU series, when they carry different labels than the engine series (HyperPod DCGM uses `container`).",
+          "additionalProperties": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$" }
+        },
+        "fallback": {
+          "type": "string",
+          "enum": ["engine-scrape"],
+          "description": "engine-scrape: when the store is absent or returns no series, use the opt-in port-forward /metrics poller sidecars (HP_BENCHMARK_METRICS_ENABLED)."
+        },
+        "dashboard": {
+          "type": "string",
+          "enum": ["sagemaker-ai-insights", "hyperpod-amg"],
+          "description": "The native AWS dashboard do/metrics and do/status point at."
+        },
+        "amp_discovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["addon", "endpoint_key"],
+          "description": "store amp only: the EKS add-on whose configurationValues JSON names the AMP workspace (dotted key path to the Prometheus endpoint URL) and, optionally, the AMG workspace name.",
+          "properties": {
+            "addon": { "type": "string", "minLength": 1 },
+            "endpoint_key": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.]*$" },
+            "amg_name_key": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.]*$" }
+          }
+        },
+        "copy_concurrency": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["namespace", "metric", "dimension"],
+          "description": "Classic CloudWatch metric for per-copy concurrency (do/metrics readout), read with GetMetricData.",
+          "properties": {
+            "namespace": { "type": "string", "minLength": 1 },
+            "metric": { "type": "string", "minLength": 1 },
+            "dimension": { "type": "string", "minLength": 1 }
+          }
+        }
+      },
+      "if": { "properties": { "store": { "enum": ["cloudwatch-promql", "amp"] } } },
+      "then": { "required": ["store", "histogram_form", "selector", "dashboard"] }
     },
     "answer_params": {
       "type": "array",

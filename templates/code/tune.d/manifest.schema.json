@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mlcc/tune.d/manifest.schema.json",
+  "title": "MLCC Tune Technique Manifest",
+  "description": "Per-technique tuning descriptor (BL129). The single source of truth for a managed-customization technique's reward kind, PEFT variants, dataset contract, and hyperparameter knobs. Two provenance-tagged layers: a hand-authored STRUCTURAL layer (reward_source, per-variant peft/artifact_kind/dataset_contract) and a SYNCED layer (per-variant hyperparameters + _synced) written by scripts/sync-model-families.js from AWS's recipe override-params. Mirrors templates/code/serve.d/manifest.schema.json (ADR-004 / ADR-008: derive, don't hardcode). The do/tune config UX (BL128), the register-side producer, and the do/tune preflight all read THIS file so they cannot disagree.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["technique", "reward_source", "variants"],
+  "$defs": {
+    "syncedProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "version"],
+      "description": "Where a backend's synced hyperparameter block came from, so a refresh is idempotent and auditable.",
+      "properties": {
+        "from": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The S3 URI of the override-params object this block was synced from (e.g. s3://jumpstart-cache-prod-us-west-2/recipes/..._override_params_sm_jobs_v2.2.7.json)."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "The override-params object version (semver). The sync is a no-op when this is unchanged."
+        },
+        "workload_kind": {
+          "type": "string",
+          "enum": ["HyperPodPyTorchJob", "RayJob"],
+          "description": "Wave 11 (R9.3), hp-eks only: the workload kind of AWS's HP-EKS payload template, read by sync from the template's `kind:`. do/tune --backend hp-eks runs HyperPodPyTorchJob variants and refuses RayJob (needs KubeRay, post-2.0)."
+        }
+      }
+    },
+    "hyperparameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "required"],
+      "description": "One synced knob. `type` and `required` are ALWAYS present (so the do/tune consumer can enforce required-knob behavior and type validation). `default` is OPTIONAL — a required knob may legitimately have none, in which case the builder prompts for it. `control` and `tier` are OPTIONAL — the leaner MTRL override-params omit them, and the do/tune builder DERIVES them when absent (enum -> dropdown, min/max -> number_input, else text_input; default tier primary). The canonical key names are `control` (synced from the override-param `control_type`) and `tier` (from `visibility_tier`); the sync does the rename.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["string", "integer", "number", "boolean"],
+          "description": "The knob's value type (from the override-param `type`)."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether the knob must have a value. Defaults to false when the override-param omits it."
+        },
+        "default": {
+          "description": "The knob's default value, when the override-param provides one. Type matches `type`. Absent when the source carries no default."
+        },
+        "min": {
+          "type": "number",
+          "description": "Inclusive lower bound for a numeric knob, where the source declares one."
+        },
+        "max": {
+          "type": "number",
+          "description": "Inclusive upper bound for a numeric knob, where the source declares one."
+        },
+        "step": {
+          "type": "number",
+          "description": "Numeric step, where the source declares one."
+        },
+        "enum": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The allowed choice-list, where the source declares one (drives a dropdown)."
+        },
+        "control": {
+          "type": "string",
+          "enum": ["number_input", "dropdown", "text_input"],
+          "description": "The input widget (synced from the override-param `control_type`). OPTIONAL; the builder derives it when absent."
+        },
+        "tier": {
+          "type": "string",
+          "enum": ["primary", "advanced", "tertiary"],
+          "description": "Progressive-disclosure tier (synced from the override-param `visibility_tier`). OPTIONAL; the builder derives `primary` when absent."
+        },
+        "display_name": {
+          "type": "string",
+          "description": "Human-readable label (where the source declares one)."
+        },
+        "description": {
+          "type": "string",
+          "description": "One-line help text (where the source declares one)."
+        },
+        "hint": {
+          "type": "string",
+          "description": "Short input hint (where the source declares one)."
+        }
+      }
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["peft", "artifact_kind", "dataset_contract"],
+      "description": "A PEFT variant of the technique (keyed 'lora' or 'full'). Carries the hand-authored structural fields plus the synced hyperparameters/_synced blocks. `peft` -> `artifact_kind` is schema-enforced so the artifact classification cannot drift from the recipe's PEFT mode.",
+      "properties": {
+        "peft": {
+          "type": "string",
+          "enum": ["lora", "none"],
+          "description": "PEFT mode for this variant."
+        },
+        "artifact_kind": {
+          "type": "string",
+          "enum": ["lora_adapter", "full_model"],
+          "description": "The output artifact kind, DERIVED from `peft` (lora -> lora_adapter, none -> full_model) and enforced below. Declared here so later waves (BL136/BL137 registry metadata, the do/adapter filter, the three-way deploy split) consume it; BL129 only DECLARES it."
+        },
+        "dataset_contract": {
+          "$ref": "#/$defs/datasetContract"
+        },
+        "hyperparameters": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/hyperparameter" },
+          "description": "SYNCED. Per-knob map written by sync-model-families (category:hyperparameter for the tagged flavor; denylist-filtered for the leaner MTRL flavor). Never hand-edited. Empty {} before the first sync."
+        },
+        "_synced": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "SYNCED. Per-backend provenance for the hyperparameters block. A map keyed by backend so a technique present on only one backend (MTRL is SMTJ-only: HpEksOverrideParamsS3Uri is None) validates with just that key. Empty {} in a pre-sync (hand-authored) descriptor; populated with the backends that exist after sync-model-families runs. The conformance test (not the schema) asserts a synced descriptor carries at least `smtj`.",
+          "properties": {
+            "smtj": { "$ref": "#/$defs/syncedProvenance" },
+            "hp-eks": { "$ref": "#/$defs/syncedProvenance" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "peft": { "const": "lora" } },
+            "required": ["peft"]
+          },
+          "then": {
+            "properties": { "artifact_kind": { "const": "lora_adapter" } },
+            "description": "A LoRA variant produces a LoRA adapter artifact."
+          }
+        },
+        {
+          "if": {
+            "properties": { "peft": { "const": "none" } },
+            "required": ["peft"]
+          },
+          "then": {
+            "properties": { "artifact_kind": { "const": "full_model" } },
+            "description": "A full-rank variant produces a full-model artifact."
+          }
+        }
+      ]
+    },
+    "datasetContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "schema", "prompt_shape", "verified"],
+      "description": "STRUCTURAL. The required training-data shape for this technique+variant — the contract the register-side producer writes against and the do/tune preflight validates against. `reward_model_style` is present ONLY for the verl-5field schema (enforced below).",
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": ["jsonl", "parquet"],
+          "description": "On-the-wire format the managed trainer reads. verl-based RL techniques are parquet; sft/dpo are jsonl."
+        },
+        "schema": {
+          "type": "string",
+          "enum": ["sft-prompt-completion", "dpo-preference", "verl-5field", "mtrl-rollout"],
+          "description": "The row schema. verl-5field = {data_source, prompt, ability, reward_model{style,ground_truth}, extra_info}. mtrl-rollout is the agent_env/rollout shape (unverified)."
+        },
+        "prompt_shape": {
+          "type": "string",
+          "enum": ["string", "message-list"],
+          "description": "How the `prompt` column is shaped. message-list = [{role,content},...] (what verl's RLHFDataset wants); string = flattened. Managed RL uses message-list."
+        },
+        "reward_model_style": {
+          "type": "string",
+          "enum": ["rule", "model"],
+          "description": "The verl reward_model.style the producer stamps per row. rule = verifiable ground-truth reward (rlvr); model = judge/model-scored reward (rlaif). Present ONLY for verl-5field (see if/then). Derived from the technique's reward_source, not hardcoded."
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "Whether MLCC has verified this row schema against a real job. false for mtrl-rollout (its shape is declared-unverified until exercised — BL139)."
+        }
+      },
+      "if": {
+        "properties": { "schema": { "const": "verl-5field" } },
+        "required": ["schema"]
+      },
+      "then": {
+        "required": ["reward_model_style"],
+        "description": "A verl-5field dataset MUST declare its reward_model_style; the field is meaningless (and omitted) for the other schemas."
+      },
+      "else": {
+        "not": { "required": ["reward_model_style"] },
+        "description": "Non-verl-5field schemas MUST NOT carry reward_model_style."
+      }
+    }
+  },
+  "properties": {
+    "technique": {
+      "type": "string",
+      "enum": ["sft", "dpo", "rlvr", "rlaif", "mtrl"],
+      "description": "Technique id; matches the plugin directory name (governance cross-check in validate-tune-manifests.js). The enum mirrors KNOWN_TECHNIQUES (src/lib/managed-techniques.js)."
+    },
+    "reward_source": {
+      "type": "string",
+      "enum": ["none", "rule", "preset", "judge", "agent_env"],
+      "description": "The reward mechanism family. none (sft), preset (dpo preference), rule (rlvr verifiable reward), judge (rlaif LLM-as-judge), agent_env (mtrl rollout). Drives the dataset_contract.reward_model_style derivation (rule/preset -> rule, judge -> model) so the style lives in one place."
+    },
+    "variants": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "description": "PEFT variants of this technique, keyed 'lora' and/or 'full'. A technique that ships only LoRA (mtrl) has just the 'lora' key.",
+      "properties": {
+        "lora": { "$ref": "#/$defs/variant" },
+        "full": { "$ref": "#/$defs/variant" }
+      }
+    }
+  }
+}

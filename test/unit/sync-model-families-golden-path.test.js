@@ -13,7 +13,55 @@ import assert from 'assert';
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { loadBenchmarkEligibility } from '../../scripts/sync-model-families.js';
+import { loadBenchmarkEligibility, correctHuggingFaceIdCasing } from '../../scripts/sync-model-families.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+describe('correctHuggingFaceIdCasing (HF id casing corrections)', () => {
+    it('corrects the known mis-cased Gemma VLM id to the canonical HF casing', () => {
+        // AWS Hub doc records lowercase e4b; the real repo is E4B (case-sensitive).
+        assert.strictEqual(
+            correctHuggingFaceIdCasing('google/gemma-4-e4b-it'),
+            'google/gemma-4-E4B-it'
+        );
+    });
+
+    it('matches case-insensitively on the Hub id', () => {
+        assert.strictEqual(
+            correctHuggingFaceIdCasing('GOOGLE/GEMMA-4-E4B-IT'),
+            'google/gemma-4-E4B-it'
+        );
+    });
+
+    it('passes an unknown id through unchanged', () => {
+        assert.strictEqual(
+            correctHuggingFaceIdCasing('Qwen/Qwen2.5-7B-Instruct'),
+            'Qwen/Qwen2.5-7B-Instruct'
+        );
+    });
+
+    it('is a no-op for empty/undefined', () => {
+        assert.strictEqual(correctHuggingFaceIdCasing(''), '');
+        assert.strictEqual(correctHuggingFaceIdCasing(undefined), undefined);
+    });
+
+    it('drift guard: the committed catalog gemma id equals the correction target', () => {
+        // If the catalog entry drifts back to lowercase (e.g. a raw re-sync without
+        // the correction), this fails loudly — the id the generator yields MUST be the
+        // canonical casing that resolves on HF.
+        const __dirname = path.dirname(fileURLToPath(import.meta.url));
+        const catalogPath = path.resolve(__dirname, '..', '..', 'config', 'tune-catalog.json');
+        const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
+        const entry = catalog.models['huggingface-vlm-gemma-4-e4b-it'];
+        assert.ok(entry, 'gemma-4 VLM catalog entry present');
+        assert.strictEqual(entry.huggingFaceId, 'google/gemma-4-E4B-it');
+        assert.strictEqual(
+            entry.huggingFaceId,
+            correctHuggingFaceIdCasing('google/gemma-4-e4b-it'),
+            'catalog id must equal the correction target (no drift)'
+        );
+    });
+});
 
 describe('loadBenchmarkEligibility', () => {
     let tmpDir;

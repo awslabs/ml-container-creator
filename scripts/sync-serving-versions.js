@@ -47,8 +47,19 @@ export const SERVER_SOURCES = {
     'tensorrt-llm': {
         registry: 'ngc',
         org: 'nvidia',
-        repository: 'tensorrt-llm/release',
-        imagePrefix: 'nvcr.io/nvidia/tensorrt-llm'
+        // NGC groups this container under a TEAM, and its tags live at a `/repos/`
+        // path (verified live): /v2/org/nvidia/team/tensorrt-llm/repos/release/tags
+        // (catalog UI: catalog.ngc.nvidia.com/orgs/nvidia/teams/tensorrt-llm/containers/release).
+        team: 'tensorrt-llm',
+        repository: 'release',
+        imagePrefix: 'nvcr.io/nvidia/tensorrt-llm',
+        // NOTE: NGC publishes TensorRT-LLM as a rolling PRE-RELEASE stream only — every
+        // tag is `<X.Y.Z>rcN.devYYYYMMDD...` (no clean `X.Y.Z` releases). isValidSemver
+        // intentionally rejects pre-releases (so vLLM/SGLang don't pick up rc tags), so
+        // this server reports "no valid semver tags found" and keeps its curated
+        // entries. Auto-tracking the nightly stream is a follow-up (allowPrerelease,
+        // per-server) — do NOT loosen isValidSemver globally.
+        prereleaseOnly: true
     }
 };
 
@@ -151,19 +162,40 @@ export async function fetchDockerHubTags(namespace, repository, fetchImpl) {
 /**
  * Fetch tags from the NGC container registry.
  *
+ * The NGC tags endpoint requires authentication. Supply an NGC API key (an `nvapi-…`
+ * token) via the `NGC_API_KEY` environment variable; it is sent as a Bearer token.
+ * Without it, NGC returns HTTP 401 and this server is warn-and-skipped by the caller
+ * (its existing catalog entries are retained). The key is NEVER logged or persisted.
+ *
  * @param {string} org - NGC organization (e.g., 'nvidia')
- * @param {string} repository - Repository path (e.g., 'tensorrt-llm/release')
+ * @param {string} repository - Container name (e.g., 'release')
  * @param {Function} [fetchImpl] - Fetch implementation (for dependency injection)
+ * @param {string} [apiKey] - NGC API key (defaults to process.env.NGC_API_KEY)
+ * @param {string} [team] - NGC team segment (e.g., 'tensorrt-llm'); omit for org-level
+ *   containers. The container's catalog URL shows whether it is under a team:
+ *   `.../orgs/<org>/teams/<team>/containers/<repo>`.
  * @returns {Promise<Array<{name: string, lastUpdated: string}>>}
  */
-export async function fetchNgcTags(org, repository, fetchImpl) {
+export async function fetchNgcTags(org, repository, fetchImpl, apiKey = process.env.NGC_API_KEY, team) {
     const fetchFn = fetchImpl || fetch;
     const tags = [];
-    const url = `https://api.ngc.nvidia.com/v2/org/${org}/containers/${repository}/tags`;
+    // NGC's v2 tags endpoint is `/repos/<name>/tags` (NOT `/containers/...`), and the
+    // container lives under a team: `/org/<org>/team/<team>/repos/<repo>/tags`.
+    // Verified against the live API (org nvidia / team tensorrt-llm / repo release).
+    const teamSegment = team ? `/team/${team}` : '';
+    const url = `https://api.ngc.nvidia.com/v2/org/${org}${teamSegment}/repos/${repository}/tags`;
 
-    const response = await fetchFn(url);
+    const headers = {};
+    if (apiKey) {
+        headers.Authorization = `Bearer ${apiKey}`;
+    }
+
+    const response = await fetchFn(url, { headers });
     if (!response.ok) {
-        throw new Error(`NGC API returned HTTP ${response.status}`);
+        const hint = !apiKey && response.status === 401
+            ? ' (set NGC_API_KEY with an nvapi-… token to enable TensorRT-LLM sync)'
+            : '';
+        throw new Error(`NGC API returned HTTP ${response.status}${hint}`);
     }
     const data = await response.json();
     for (const tag of data.tags || []) {
@@ -382,7 +414,7 @@ export async function syncServingVersions(options = {}) {
             if (source.registry === 'dockerhub') {
                 tags = await fetchDockerHubTags(source.namespace, source.repository, fetchImpl);
             } else {
-                tags = await fetchNgcTags(source.org, source.repository, fetchImpl);
+                tags = await fetchNgcTags(source.org, source.repository, fetchImpl, undefined, source.team);
             }
 
             // Select target versions

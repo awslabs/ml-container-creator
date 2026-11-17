@@ -13,6 +13,7 @@ import {
     baseImageSearchPrompts,
     formatImageChoices
 } from './prompts/index.js';
+import { listManagedModels } from './tune-catalog-reader.js';
 
 const __mcp_filename = fileURLToPath(import.meta.url);
 const __mcp_dirname = path.dirname(__mcp_filename);
@@ -30,6 +31,47 @@ function resolveMcpArgs(args) {
         }
         return arg;
     });
+}
+
+/**
+ * Merge managed-capable tune-catalog models with serving-catalog ids into the picker's
+ * ordered choice list + a per-model capability map (BL144, task 3). Pure — no I/O — so
+ * the merge contract is unit-testable independent of catalog files on disk.
+ *
+ * - Managed models come FIRST (they are the badged, honest-about-capability set), in the
+ *   order `listManagedModels()` returned them.
+ * - Serving-only ids follow, de-duped against the managed set.
+ * - A model present in BOTH appears ONCE, as the managed (badged) entry — managed wins.
+ * - `capabilities[hfId]` is set ONLY for managed models; a serving-only id is absent from
+ *   the map, which is how task 4 decides "no badge".
+ *
+ * @param {Array<{hfId: string, techniques: string[], family?: string, provider?: string}>} managed
+ *   - from listManagedModels()
+ * @param {string[]} servingIds - from the serving catalog (popular-transformers.json)
+ * @returns {{ orderedIds: string[], capabilities: Record<string, string[]>,
+ *             meta: Record<string, {family: string, provider: string}> }}
+ */
+export function mergeModelChoices(managed, servingIds) {
+    const capabilities = {};
+    const meta = {};
+    const orderedIds = [];
+    const seen = new Set();
+
+    for (const m of (Array.isArray(managed) ? managed : [])) {
+        if (!m || typeof m.hfId !== 'string' || seen.has(m.hfId)) continue;
+        seen.add(m.hfId);
+        orderedIds.push(m.hfId);
+        capabilities[m.hfId] = Array.isArray(m.techniques) ? m.techniques : [];
+        meta[m.hfId] = { family: m.family || '', provider: m.provider || '' };
+    }
+
+    for (const id of (Array.isArray(servingIds) ? servingIds : [])) {
+        if (typeof id !== 'string' || seen.has(id)) continue;
+        seen.add(id);
+        orderedIds.push(id);
+    }
+
+    return { orderedIds, capabilities, meta };
 }
 
 export default class McpQueryRunner {
@@ -484,10 +526,74 @@ export default class McpQueryRunner {
     }
 
     /**
-     * Query model-picker MCP server catalog for model choices.
-     * Reads the architecture-specific catalog (popular-transformers.json or
-     * popular-diffusors.json) to populate the model selection prompt.
-     * @param {string} [architecture] - Current architecture ('transformers', 'diffusors', etc.)
+     * Read the model-picker server's architecture-specific serving catalog
+     * (popular-transformers.json / popular-diffusors.json) and return its non-glob
+     * model ids. This is the pre-BL144 behavior, extracted so the transformers path can
+     * MERGE it with the tune catalog. Returns `[]` on any read/resolve failure.
+     * @param {string} [architecture]
+     * @returns {string[]} serving-catalog model ids (no glob patterns)
+     * @private
+     */
+    _readServingCatalogIds(architecture) {
+        try {
+            const mcpConfigPath = path.join(GENERATOR_ROOT, 'config', 'mcp.json');
+            if (!fs.existsSync(mcpConfigPath)) return [];
+
+            const mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf8'));
+            const serverConfig = mcpConfig.mcpServers?.['model-picker'];
+            if (!serverConfig?.args?.length) return [];
+
+            // Resolve the server entry point directory from the args
+            const serverEntryPoint = serverConfig.args[serverConfig.args.length - 1];
+            const serverDir = path.dirname(serverEntryPoint);
+
+            // Read manifest to find catalog path
+            const manifestPath = path.join(serverDir, 'manifest.json');
+            if (!fs.existsSync(manifestPath)) return [];
+
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+            // Select catalog based on architecture
+            const catalogKey = architecture === 'diffusors'
+                ? 'popular-diffusors'
+                : 'popular-transformers';
+            const catalogRelPath = manifest.catalogs?.[catalogKey];
+            if (!catalogRelPath) return [];
+
+            const catalogPath = path.resolve(serverDir, catalogRelPath);
+            if (!fs.existsSync(catalogPath)) return [];
+
+            const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+
+            // Extract model IDs, filtering out glob patterns (entries with *)
+            return Object.keys(catalog).filter(id => !id.includes('*'));
+        } catch {
+            // Silently fall back — the caller decides what to do with an empty list.
+            return [];
+        }
+    }
+
+    /**
+     * Populate the model-selection prompt's auto-list (BL144).
+     *
+     * For `transformers`: MERGE the managed-capable models from the tune catalog (with
+     * their technique sets, used for capability badges + the post-gen warning) with the
+     * serving models from `popular-transformers.json`. De-dupe by model id; the managed
+     * (badged) entry wins on overlap. If the tune catalog is empty/unreadable, fall back
+     * to the serving list alone (no regression). `popular-transformers.json` is NOT
+     * retired — merge only.
+     *
+     * For `diffusors` / any other architecture: unchanged — the serving catalog only,
+     * no managed capabilities (managed tuning is a transformers concern).
+     *
+     * Sets:
+     *   - `runner._mcpModelChoices`      — ordered string[] of model ids (managed first)
+     *   - `runner._mcpModelCapabilities` — { [hfId]: string[] } technique sets for the
+     *                                      managed models (absent id ⇒ serving-only, no
+     *                                      badge). Consumed by tasks 4 (badges) + 5
+     *                                      (warning).
+     *
+     * @param {string} [architecture] - Current architecture ('transformers', 'diffusors', ...)
      * @private
      */
     _queryMcpForModels(architecture) {
@@ -497,45 +603,27 @@ export default class McpQueryRunner {
         const mcpServers = cm.getMcpServerNames();
         if (!mcpServers.includes('model-picker')) return;
 
-        try {
-            const mcpConfigPath = path.join(GENERATOR_ROOT, 'config', 'mcp.json');
-            if (!fs.existsSync(mcpConfigPath)) return;
+        const servingIds = this._readServingCatalogIds(architecture);
 
-            const mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf8'));
-            const serverConfig = mcpConfig.mcpServers?.['model-picker'];
-            if (!serverConfig?.args?.length) return;
-
-            // Resolve the server entry point directory from the args
-            const serverEntryPoint = serverConfig.args[serverConfig.args.length - 1];
-            const serverDir = path.dirname(serverEntryPoint);
-
-            // Read manifest to find catalog path
-            const manifestPath = path.join(serverDir, 'manifest.json');
-            if (!fs.existsSync(manifestPath)) return;
-
-            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-
-            // Select catalog based on architecture
-            const catalogKey = architecture === 'diffusors'
-                ? 'popular-diffusors'
-                : 'popular-transformers';
-            const catalogRelPath = manifest.catalogs?.[catalogKey];
-            if (!catalogRelPath) return;
-
-            const catalogPath = path.resolve(serverDir, catalogRelPath);
-            if (!fs.existsSync(catalogPath)) return;
-
-            const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
-
-            // Extract model IDs, filtering out glob patterns (entries with *)
-            const modelIds = Object.keys(catalog).filter(id => !id.includes('*'));
-
-            if (modelIds.length > 0) {
-                this.runner._mcpModelChoices = modelIds;
+        // Non-transformers: existing behavior, no managed capabilities.
+        if (architecture !== 'transformers') {
+            if (servingIds.length > 0) {
+                this.runner._mcpModelChoices = servingIds;
             }
-        } catch {
-            // Silently fall back to hardcoded defaults
+            this.runner._mcpModelCapabilities = {};
+            this.runner._mcpModelMeta = {};
+            return;
         }
+
+        // transformers: merge managed (tune catalog) + serving, managed wins on overlap.
+        const managed = listManagedModels(); // [] on missing/malformed → serving-only
+        const { orderedIds, capabilities, meta } = mergeModelChoices(managed, servingIds);
+
+        if (orderedIds.length > 0) {
+            this.runner._mcpModelChoices = orderedIds;
+        }
+        this.runner._mcpModelCapabilities = capabilities;
+        this.runner._mcpModelMeta = meta;
     }
 
     /**
@@ -720,11 +808,17 @@ export default class McpQueryRunner {
                 console.log(`   • Family: ${modelFamily}`);
             }
             if (chatTemplate) {
-                console.log('   • Chat Template: ✅ Available');
-                console.log('     (Will be injected into generated files)');
+                console.log('   • Chat Template: ✅ Fetched — will be baked into the generated project');
             } else {
-                console.log('   • Chat Template: ❌ Not available');
-                console.log('     (Chat endpoints may require manual configuration)');
+                // We could NOT read a chat template at generation time. We can't tell
+                // "the model has none" apart from "we couldn't fetch it" (gated models
+                // need auth; the probe is unauthenticated) — so don't imply it's broken.
+                // Most modern models ship their chat template inside the model repo, and
+                // vLLM/SGLang load it automatically at runtime. MLCC only needs to inject
+                // one as an override/fallback.
+                console.log('   • Chat Template: ℹ️  Not fetched at generation time');
+                console.log('     The serving engine will use the model\'s built-in template at runtime if present.');
+                console.log('     (Gated models are expected here — the template downloads with the weights.)');
             }
             console.log(`   • Sources: ${sources.join(', ')}`);
         } else {

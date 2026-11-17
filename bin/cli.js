@@ -25,6 +25,53 @@ function collect(value, previous) {
     return previous.concat([value]);
 }
 
+/**
+ * Build the detailed `after` help block for `bootstrap --help`. The MODULES list is
+ * DERIVED from module-manifest.json (not hardcoded) so it never drifts from the real
+ * module set. Falls back to a minimal block if the manifest can't be read.
+ * @returns {string}
+ */
+function buildBootstrapHelpText() {
+    let modulesBlock = '';
+    try {
+        const manifestPath = path.join(__dirname, '..', 'infra', 'bootstrap-modules', 'module-manifest.json');
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+        const rows = Object.entries(manifest.modules).map(([name, mod]) => {
+            const cost = mod.estimatedMonthlyCost ? `  (${mod.estimatedMonthlyCost})` : '';
+            const dep = (mod.depends && mod.depends.length) ? ` [requires: ${mod.depends.join(', ')}]` : '';
+            return `  ${name.padEnd(20)} ${mod.displayName || ''}${dep}${cost}`;
+        });
+        modulesBlock = `\nMODULES:\n${rows.join('\n')}\n`;
+    } catch {
+        modulesBlock = '';
+    }
+
+    return `
+SUBCOMMANDS:
+  (no subcommand)        Status + next steps if a profile exists, else getting-started guidance
+  add <profile>          Create a new bootstrap profile (interactive setup + module selection)
+  remove <profile>       Remove a bootstrap profile (config only)
+  add-module <module>    Add a single module to the active profile
+  remove-module <module> Remove a module (cdk destroy + purge profile memory)
+  status [--verify]      Show active profile, per-layer module state, and resources
+  use <profile>          Switch the active bootstrap profile
+  list                   List all bootstrap profiles
+${modulesBlock}
+EKS / HyperPod (BL143 layered modules):
+  bootstrap add-module eks            Standalone EKS cluster (vanilla-EKS users stop here)
+  bootstrap add-module hyperpod       Pulls eks; adds HyperPod + Inference Operator (2-worker floor)
+  bootstrap remove-module hyperpod    Tear down the HyperPod layer (keeps eks)
+  bootstrap remove-module eks         Tear down EKS (removes dependent hyperpod too) — DESTROYS the cluster
+
+  One-time v2.0.0 cutover from the old combined module:
+  bootstrap remove-module hyperpod-cluster   Tear down the pre-split 3-stack module
+  bootstrap add-module hyperpod              Bring up the new layered eks + hyperpod
+
+  --skip-teardown        Forget a module from the profile without a cdk destroy
+                         (use when the stacks were already deleted out-of-band)
+`;
+}
+
 program
     .name('ml-container-creator')
     .version(version)
@@ -233,7 +280,7 @@ program.configureHelp({
 
 program
     .command('bootstrap')
-    .description('Set up modular AWS infrastructure (core, benchmark, registry, training, ci)')
+    .description('Set up modular AWS infrastructure (per-module CDK stacks; `bootstrap --help` lists the modules)')
     .passThroughOptions()
     .argument('[action]', 'Bootstrap action (add, remove, add-module, remove-module, add-secret, status, use, list, scan, prune, update, migrate, sync-schemas, sync-model-families)')
     .argument('[args...]', 'Additional arguments')
@@ -243,8 +290,10 @@ program
     .option('--non-interactive', 'Run without prompts (requires --profile and --region)')
     .option('--name <name>', 'Bootstrap profile name (default: "default")')
     .option('--with <modules>', 'Comma-separated modules to provision (non-interactive; default: core,registry)')
-    .option('--module <name>', 'Redeploy only the named module\'s CDK stack (for update)')
+    .option('--module <names>', 'Redeploy only these modules\' CDK stacks, comma-separated (for update, e.g. training,core)')
     .option('--force', 'Force removal without confirmation')
+    .option('--force-delete', 'Also destroy retained roles/buckets on remove-module (eks/hyperpod)')
+    .option('--skip-teardown', 'Forget a module from the profile without a cdk destroy (stacks already deleted out-of-band)')
     .option('--dry-run', 'Preview module changes (stacks, resources, profile updates) without provisioning or destroying anything')
     .option('--verify', 'Verify resources exist (for status)')
     .option('--delete-stack', 'Delete CloudFormation stack on remove')
@@ -254,6 +303,7 @@ program
     .option('--skip-ci', 'Skip CI infrastructure provisioning')
     .option('--skip-s3', 'Skip S3 bucket creation')
     .option('--skip-post-setup', 'Skip post-setup chain (mcp init, sync-architectures, sync-schemas)')
+    .addHelpText('after', buildBootstrapHelpText())
     .action(async (action, args, options) => {
         const { default: BootstrapCommandHandler } = await import('../src/lib/bootstrap-command-handler.js');
         const handler = new BootstrapCommandHandler();

@@ -321,6 +321,52 @@ class TestCLIParsing:
             with patch("sys.argv", ["prog", "register-model"]):
                 _register_helper.main()
 
+    @patch("os.environ", {"AWS_DEFAULT_REGION": "us-west-2", "AWS_REGION": "us-west-2"})
+    def test_register_model_registers_via_bridge_as_full_model_with_inference_spec(self, capsys):
+        """BL164: cmd_register_model registers a FULL model through the MLflow
+        bridge, carrying a deployable inference spec built from the serving config."""
+        from argparse import Namespace
+        args = Namespace(
+            project_name="test-project", region="us-west-2",
+            deployment_config="gpu-vllm", architecture="transformers", backend="vllm",
+            instance_type="ml.g6.12xlarge", model_name="Qwen/Qwen3-8B",
+            base_image="", model_format="safetensors", generator_version="2.0.0",
+            container_image="763104351884.dkr.ecr.us-west-2.amazonaws.com/djl-inference:latest",
+            model_data_url="s3://bucket/models/qwen/", role_arn="",
+            benchmark_results=None, artifact_kind=None,
+        )
+        mock_mpg = MagicMock()
+        mock_mpg.model_package_group_arn = "arn:aws:sagemaker:us-west-2:123:model-package-group/test-project"
+        with patch.dict("sys.modules", {
+            "sagemaker": MagicMock(), "sagemaker.core": MagicMock(),
+            "sagemaker.core.resources": MagicMock(),
+        }):
+            with patch("register_model._check_sagemaker_core"):
+                mock_resources = MagicMock()
+                mock_resources.ModelPackageGroup.create.return_value = mock_mpg
+                with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}), \
+                     patch("mlcc_mlflow._mlflow_configured", return_value=True), \
+                     patch("mlcc_mlflow.register_via_bridge") as mock_bridge:
+                    mock_bridge.return_value = {
+                        "registered_model_name": "test-project", "logged_model_id": "m-xyz",
+                        "version": 1,
+                        "sagemaker_model_package_arn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project-c76813/1",
+                    }
+                    with pytest.raises(SystemExit) as exc_info:
+                        _register_helper.cmd_register_model(args)
+
+                    assert exc_info.value.code == 0
+                    kw = mock_bridge.call_args.kwargs
+                    assert kw["artifact_kind"] == "full_model"
+                    # A full model carries a deployable inference spec from serving config.
+                    spec = kw["inference_spec"]
+                    assert spec is not None
+                    assert spec["Containers"][0]["Image"] == args.container_image
+                    assert spec["SupportedRealtimeInferenceInstanceTypes"] == ["ml.g6.12xlarge"]
+                    output = json.loads(capsys.readouterr().out)
+                    assert output["model_package_arn"].endswith("/1")
+                    assert output["version"] == 1
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. Adapter Metadata Building (AC-2.2)
@@ -517,17 +563,14 @@ class TestCmdRegisterAdapter:
         return Namespace(**defaults)
 
     @patch("os.environ", {"AWS_DEFAULT_REGION": "us-west-2", "AWS_REGION": "us-west-2"})
-    def test_register_adapter_creates_model_package_with_adapter_metadata(self):
-        """cmd_register_adapter calls create_model_package with adapter metadata."""
+    def test_register_adapter_registers_via_bridge_as_lora_adapter(self):
+        """BL164: cmd_register_adapter registers through the MLflow bridge as a
+        lora_adapter (NO inference spec), carrying adapter lineage tags — not a
+        hand-rolled create_model_package with base serving config."""
         args = self._make_adapter_args()
 
         mock_mpg = MagicMock()
         mock_mpg.model_package_group_arn = "arn:aws:sagemaker:us-west-2:123:model-package-group/test-project"
-
-        mock_sm_client = MagicMock()
-        mock_sm_client.create_model_package.return_value = {
-            "ModelPackageArn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project/2"
-        }
 
         with patch.dict("sys.modules", {
             "sagemaker": MagicMock(),
@@ -538,21 +581,33 @@ class TestCmdRegisterAdapter:
                 mock_resources = MagicMock()
                 mock_resources.ModelPackageGroup.create.return_value = mock_mpg
                 mock_resources.ModelPackage.get_all.return_value = []
+                with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}), \
+                     patch("mlcc_mlflow._mlflow_configured", return_value=True), \
+                     patch("mlcc_mlflow.register_via_bridge") as mock_bridge, \
+                     patch("mlcc_mlflow.add_derived_from_edge"):
+                    mock_bridge.return_value = {
+                        "registered_model_name": "test-project",
+                        "logged_model_id": "m-abc",
+                        "version": 2,
+                        "sagemaker_model_package_arn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project-c76813/2",
+                    }
+                    with pytest.raises(SystemExit) as exc_info:
+                        _register_helper.cmd_register_adapter(args)
 
-                with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}):
-                    with patch("boto3.client", return_value=mock_sm_client):
-                        with pytest.raises(SystemExit) as exc_info:
-                            _register_helper.cmd_register_adapter(args)
-
-                        assert exc_info.value.code == 0
-
-                        # Verify create_model_package was called with adapter metadata
-                        create_call = mock_sm_client.create_model_package.call_args
-                        metadata = create_call[1]["CustomerMetadataProperties"]
-                        assert metadata["isAdapter"] == "true"
-                        assert metadata["parentModelVersionArn"] == args.parent_version_arn
-                        assert metadata["tuneTechnique"] == "sft"
-                        assert metadata["datasetS3Uri"] == "s3://bucket/datasets/train/"
+                    assert exc_info.value.code == 0
+                    # Registered through the bridge as a lora_adapter, NO inference spec.
+                    kw = mock_bridge.call_args.kwargs
+                    assert kw["artifact_kind"] == "lora_adapter"
+                    assert kw["inference_spec"] is None
+                    tags = kw["tags"]
+                    assert tags["isAdapter"] == "true"
+                    assert tags["parentModelVersionArn"] == args.parent_version_arn
+                    assert tags["tuneTechnique"] == "sft"
+                    assert tags["datasetS3Uri"] == "s3://bucket/datasets/train/"
+                    # The base serving config is NOT stamped on the adapter (R4).
+                    assert "deploymentConfig" not in tags
+                    assert "baseImage" not in tags
+                    assert "instanceType" not in tags
 
     @patch("os.environ", {"AWS_DEFAULT_REGION": "us-west-2", "AWS_REGION": "us-west-2"})
     def test_register_adapter_json_output_includes_parent_arn(self, capsys):
@@ -562,11 +617,6 @@ class TestCmdRegisterAdapter:
         mock_mpg = MagicMock()
         mock_mpg.model_package_group_arn = "arn:aws:sagemaker:us-west-2:123:model-package-group/test-project"
 
-        mock_sm_client = MagicMock()
-        mock_sm_client.create_model_package.return_value = {
-            "ModelPackageArn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project/2"
-        }
-
         with patch.dict("sys.modules", {
             "sagemaker": MagicMock(),
             "sagemaker.core": MagicMock(),
@@ -576,21 +626,27 @@ class TestCmdRegisterAdapter:
                 mock_resources = MagicMock()
                 mock_resources.ModelPackageGroup.create.return_value = mock_mpg
                 mock_resources.ModelPackage.get_all.return_value = []
+                with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}), \
+                     patch("mlcc_mlflow._mlflow_configured", return_value=True), \
+                     patch("mlcc_mlflow.register_via_bridge") as mock_bridge, \
+                     patch("mlcc_mlflow.add_derived_from_edge"):
+                    mock_bridge.return_value = {
+                        "registered_model_name": "test-project", "logged_model_id": "m-abc",
+                        "version": 2,
+                        "sagemaker_model_package_arn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project-c76813/2",
+                    }
+                    with pytest.raises(SystemExit) as exc_info:
+                        _register_helper.cmd_register_adapter(args)
 
-                with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}):
-                    with patch("boto3.client", return_value=mock_sm_client):
-                        with pytest.raises(SystemExit) as exc_info:
-                            _register_helper.cmd_register_adapter(args)
+                    assert exc_info.value.code == 0
 
-                        assert exc_info.value.code == 0
-
-                        captured = capsys.readouterr()
-                        output = json.loads(captured.out)
-                        assert "mpg_arn" in output
-                        assert "model_package_arn" in output
-                        assert "version" in output
-                        assert output["parent_version_arn"] == args.parent_version_arn
-                        assert output["version"] == 2
+                    captured = capsys.readouterr()
+                    output = json.loads(captured.out)
+                    assert "mpg_arn" in output
+                    assert "model_package_arn" in output
+                    assert "version" in output
+                    assert output["parent_version_arn"] == args.parent_version_arn
+                    assert output["version"] == 2
 
     def test_register_adapter_requires_project_name_at_runtime(self, capsys):
         """cmd_register_adapter exits with error if project_name is empty."""
@@ -1346,7 +1402,7 @@ class TestAdapterDedup:
 
     @patch("os.environ", {"AWS_DEFAULT_REGION": "us-west-2", "AWS_REGION": "us-west-2"})
     def test_no_dedup_when_no_matching_adapter_exists(self, capsys):
-        """When no matching adapter exists, registration proceeds normally."""
+        """When no matching adapter exists, registration proceeds to the bridge."""
         args = self._make_adapter_args()
 
         mock_mpg = MagicMock()
@@ -1362,11 +1418,6 @@ class TestAdapterDedup:
             "datasetS3Uri": "s3://bucket/datasets/other/",
         }
 
-        mock_sm_client = MagicMock()
-        mock_sm_client.create_model_package.return_value = {
-            "ModelPackageArn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project/3"
-        }
-
         with patch.dict("sys.modules", {
             "sagemaker": MagicMock(),
             "sagemaker.core": MagicMock(),
@@ -1376,33 +1427,33 @@ class TestAdapterDedup:
                 mock_resources = MagicMock()
                 mock_resources.ModelPackageGroup.create.return_value = mock_mpg
                 mock_resources.ModelPackage.get_all.return_value = [mock_non_matching_pkg]
+                with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}), \
+                     patch("mlcc_mlflow._mlflow_configured", return_value=True), \
+                     patch("mlcc_mlflow.register_via_bridge") as mock_bridge, \
+                     patch("mlcc_mlflow.add_derived_from_edge"):
+                    mock_bridge.return_value = {
+                        "registered_model_name": "test-project", "logged_model_id": "m-abc",
+                        "version": 3,
+                        "sagemaker_model_package_arn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project-c76813/3",
+                    }
+                    with pytest.raises(SystemExit) as exc_info:
+                        _register_helper.cmd_register_adapter(args)
 
-                with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}):
-                    with patch("boto3.client", return_value=mock_sm_client):
-                        with pytest.raises(SystemExit) as exc_info:
-                            _register_helper.cmd_register_adapter(args)
-
-                        assert exc_info.value.code == 0
-                        captured = capsys.readouterr()
-                        output = json.loads(captured.out)
-                        # Should NOT be deduplicated
-                        assert "deduplicated" not in output
-                        assert output["version"] == 3
-                        # Verify create_model_package WAS called
-                        mock_sm_client.create_model_package.assert_called_once()
+                    assert exc_info.value.code == 0
+                    captured = capsys.readouterr()
+                    output = json.loads(captured.out)
+                    # Not a dedup hit → proceeds to the bridge.
+                    assert "deduplicated" not in output
+                    assert output["version"] == 3
+                    mock_bridge.assert_called_once()
 
     @patch("os.environ", {"AWS_DEFAULT_REGION": "us-west-2", "AWS_REGION": "us-west-2"})
     def test_dedup_check_failure_is_non_fatal(self, capsys):
-        """When dedup check fails, registration proceeds normally (best-effort)."""
+        """When the dedup scan fails, registration proceeds via the bridge (best-effort)."""
         args = self._make_adapter_args()
 
         mock_mpg = MagicMock()
         mock_mpg.model_package_group_arn = "arn:aws:sagemaker:us-west-2:123:model-package-group/test-project"
-
-        mock_sm_client = MagicMock()
-        mock_sm_client.create_model_package.return_value = {
-            "ModelPackageArn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project/2"
-        }
 
         with patch.dict("sys.modules", {
             "sagemaker": MagicMock(),
@@ -1414,22 +1465,26 @@ class TestAdapterDedup:
                 mock_resources.ModelPackageGroup.create.return_value = mock_mpg
                 # get_all raises an exception (e.g. permission denied)
                 mock_resources.ModelPackage.get_all.side_effect = Exception("Access denied")
+                with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}), \
+                     patch("mlcc_mlflow._mlflow_configured", return_value=True), \
+                     patch("mlcc_mlflow.register_via_bridge") as mock_bridge, \
+                     patch("mlcc_mlflow.add_derived_from_edge"):
+                    mock_bridge.return_value = {
+                        "registered_model_name": "test-project", "logged_model_id": "m-abc",
+                        "version": 2,
+                        "sagemaker_model_package_arn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project-c76813/2",
+                    }
+                    with pytest.raises(SystemExit) as exc_info:
+                        _register_helper.cmd_register_adapter(args)
 
-                with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}):
-                    with patch("boto3.client", return_value=mock_sm_client):
-                        with pytest.raises(SystemExit) as exc_info:
-                            _register_helper.cmd_register_adapter(args)
-
-                        assert exc_info.value.code == 0
-                        captured = capsys.readouterr()
-                        output = json.loads(captured.out)
-                        # Dedup check failed but registration succeeded
-                        assert "deduplicated" not in output
-                        assert output["version"] == 2
-                        # Verify create_model_package WAS called
-                        mock_sm_client.create_model_package.assert_called_once()
-                        # Verify warning was printed
-                        assert "Dedup check failed" in captured.err
+                    assert exc_info.value.code == 0
+                    captured = capsys.readouterr()
+                    output = json.loads(captured.out)
+                    # Dedup scan failed but registration succeeded via the bridge.
+                    assert "deduplicated" not in output
+                    assert output["version"] == 2
+                    mock_bridge.assert_called_once()
+                    assert "Dedup check failed" in captured.err
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

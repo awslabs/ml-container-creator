@@ -239,12 +239,12 @@ describe('Feature: lora-adapter-lifecycle — do/adapter script structure (Req 2
             );
         });
 
-        it('update requires --weights or --from-hub flag', () => {
+        it('update requires --from-weights (or deprecated --weights) or --from-hub flag', () => {
             const rendered = renderAdapter();
             const updateSection = rendered.substring(rendered.indexOf('_adapter_update'));
             assert.ok(
-                updateSection.includes('Either --weights or --from-hub is required'),
-                'update must validate --weights or --from-hub is provided'
+                updateSection.includes('Either --from-weights or --from-hub is required'),
+                'update must validate --from-weights or --from-hub is provided'
             );
         });
     });

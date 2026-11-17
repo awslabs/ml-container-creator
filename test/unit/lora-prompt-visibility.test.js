@@ -17,6 +17,7 @@
 
 import { strict as assert } from 'node:assert';
 import { loraPrompts } from '../../src/lib/prompts/index.js';
+import { loraSizingDefaults } from '../../src/lib/serve-manifest-reader.js';
 
 describe('LoRA Prompt Visibility', () => {
 
@@ -164,9 +165,13 @@ describe('LoRA Prompt Visibility', () => {
             assert.equal(result, true);
         });
 
-        it('should have default value of 30', () => {
+        // Wave 6.1 (BL188): the default is DERIVED from the engine manifest
+        // (capability_map lora_max.default), not a literal 30.
+        it('defaults to the engine manifest lora_max default', () => {
             const prompt = findPrompt(loraPrompts, 'maxLoras');
-            assert.equal(prompt.default, 30);
+            assert.equal(typeof prompt.default, 'function');
+            assert.equal(prompt.default({ backend: 'vllm' }), loraSizingDefaults('vllm').maxLoras);
+            assert.ok(Number.isInteger(prompt.default({ backend: 'vllm' })));
         });
     });
 
@@ -177,9 +182,11 @@ describe('LoRA Prompt Visibility', () => {
             assert.equal(result, true);
         });
 
-        it('should have default value of 64', () => {
+        it('defaults to the engine manifest lora_max_rank default', () => {
             const prompt = findPrompt(loraPrompts, 'maxLoraRank');
-            assert.equal(prompt.default, 64);
+            assert.equal(typeof prompt.default, 'function');
+            assert.equal(prompt.default({ backend: 'vllm' }), loraSizingDefaults('vllm').maxLoraRank);
+            assert.ok(Number.isInteger(prompt.default({ backend: 'vllm' })));
         });
     });
 

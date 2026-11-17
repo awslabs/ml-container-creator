@@ -121,6 +121,13 @@ describe('deploy flag forwarding — descriptor conformance (ADR-008 / steering)
             assert.match(src, /_ANSWER_KEY_TO_VAR[^\n]*=\s*deploy_answers\.answer_key_to_var\("input"\)/);
         });
 
+        it('.deploy_helper.py accepts every per-target flag do/deploy forwards (argparse would exit 2 otherwise)', () => {
+            const src = read('templates/do/.deploy_helper.py');
+            for (const { flag } of flagParams()) {
+                assert.ok(src.includes(`"${flag}"`),
+                    `.deploy_helper.py prompt subparser must add_argument("${flag}") — do/deploy forwards it`);
+            }
+        });
         it('.deploy_helper.py derives flag_to_answer_key from the reader', () => {
             const src = read('templates/do/.deploy_helper.py');
             assert.match(src, /flag_to_answer_key[^\n]*=\s*deploy_answers\.flag_to_answer_key\(\)/);

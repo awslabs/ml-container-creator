@@ -42,6 +42,8 @@ def sandbox():
             fh.write("_require_python_env(){ :; }\n_require_guard(){ :; }\n")
         with open(os.path.join(lib, "profile.sh"), "w") as fh:
             fh.write(":\n")
+        # Bucket consolidation R3: do/tune sources the real s3_layout shell wrapper.
+        shutil.copy2(os.path.join(os.path.dirname(_TUNE), "lib", "s3-layout.sh"), os.path.join(lib, "s3-layout.sh"))
         with open(os.path.join(do, "config"), "w") as fh:
             fh.write(
                 'PROJECT_NAME="p"\nAWS_REGION="us-west-2"\n'

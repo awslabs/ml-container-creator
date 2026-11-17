@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — in progress (Wave 1)
+Accepted — in progress
 
 ## Context
 

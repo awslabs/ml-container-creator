@@ -183,9 +183,12 @@ describe('BL088: modelSourceConfig rendering (S3 vs Hugging Face)', () => {
             'driver must compute a modelName override');
         assert.ok(deploy.includes('OPTIMIZE_INFERENCE_SPEC'),
             'driver must read OPTIMIZE_INFERENCE_SPEC for the modelName override');
-        // The splice must rewrite the top-level spec.modelName line.
-        assert.ok(/name_re = re\.compile\(r"\^\( {2}modelName:/.test(deploy),
-            'driver splice must rewrite the top-level spec.modelName');
+        // The splice must rewrite the top-level spec.modelName line. Wave 11 R7.4:
+        // the splice lives in the shared lib the driver sources (do/add-pod reuses it).
+        const lib = readFileSync(resolve(templatesRoot, 'do/lib/hp-iec-render.sh'), 'utf8');
+        assert.ok(deploy.includes('lib/hp-iec-render.sh'), 'driver must source the shared IEC render');
+        assert.ok(/name_re = re\.compile\(r"\^\( {2}modelName:/.test(lib),
+            'the shared splice must rewrite the top-level spec.modelName');
     });
 });
 

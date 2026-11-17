@@ -262,6 +262,75 @@ describe('regenerate preserves config values (FR-9.3)', () => {
         });
     });
 
+    // Prefix-matched Tier-2 engine vars survive a regenerate (the eks deploy
+    // forwards any <ENGINE_PREFIX>* var unbounded, so regenerate must preserve them).
+    describe('regenerate preserves prefix-matched Tier-2 engine vars', () => {
+        it('_captureRuntimeVars keeps an arbitrary engine-prefixed var (not an enumerated suffix)', async () => {
+            const { _captureRuntimeVars } = await import('../../src/lib/regenerate-command-handler.js');
+            // VLLM_SCHEDULER_DELAY is NOT a dimension_map/capability_map suffix, so it
+            // is NOT in RUNTIME_OWNED_VARS — it was silently dropped before the
+            // prefix-match rule. The eks deploy forwards it (unbounded <PREFIX>*
+            // pass-through), so regenerate must preserve it too.
+            const configPath = path.join(tmpDir, 'config');
+            fs.writeFileSync(configPath, [
+                'export PROJECT_NAME="p"',
+                'export VLLM_SCHEDULER_DELAY="0.5"',
+                'export SGLANG_SCHEDULE_CONSERVATIVENESS="0.3"'
+            ].join('\n'));
+            const captured = _captureRuntimeVars(configPath);
+            assert.strictEqual(captured.VLLM_SCHEDULER_DELAY, '0.5',
+                'an arbitrary VLLM_* knob must be captured by the prefix rule');
+            assert.strictEqual(captured.SGLANG_SCHEDULE_CONSERVATIVENESS, '0.3',
+                'the prefix rule must be engine-agnostic (SGLANG_ too)');
+        });
+
+        it('excludes *SPECULATIVE* engine vars from the prefix rule (they are reassembled), but keeps HP_SPECULATIVE_* via SHARED', async () => {
+            const { _captureRuntimeVars, RUNTIME_OWNED_VARS } =
+                await import('../../src/lib/regenerate-command-handler.js');
+            const configPath = path.join(tmpDir, 'config');
+            fs.writeFileSync(configPath, [
+                'export VLLM_SPECULATIVE_DRAFT_TENSOR_PARALLEL_SIZE="1"',
+                'export HP_SPECULATIVE_ALGORITHM="eagle"'
+            ].join('\n'));
+            const captured = _captureRuntimeVars(configPath);
+            // The engine-prefixed speculative component is NOT preserved by the prefix
+            // rule (mirrors the deploy's `"SPECULATIVE" in k` exclusion) …
+            assert.ok(!('VLLM_SPECULATIVE_DRAFT_TENSOR_PARALLEL_SIZE' in captured),
+                'a *SPECULATIVE* engine var must be excluded from the prefix rule');
+            // … but the canonical HP_SPECULATIVE_* control vars still survive because
+            // they are enumerated in SHARED_RUNTIME_VARS (speculative config not lost).
+            assert.ok(RUNTIME_OWNED_VARS.has('HP_SPECULATIVE_ALGORITHM'),
+                'HP_SPECULATIVE_ALGORITHM must remain a shared runtime-owned var');
+            assert.strictEqual(captured.HP_SPECULATIVE_ALGORITHM, 'eagle');
+        });
+
+        it('the prefix set is DERIVED from the serve manifests (engine-agnostic)', async () => {
+            const { serveEnginePrefixes } = await import('../../src/lib/serve-manifest-reader.js');
+            const prefixes = serveEnginePrefixes();
+            // Grounding: the shipped serve.d carries vllm + sglang manifests with
+            // env_var_prefix VLLM_/SGLANG_. Assert the derivation returns engine
+            // prefixes (shape/behavior), not a hardcoded literal list.
+            assert.ok(Array.isArray(prefixes) && prefixes.length > 0,
+                'serveEnginePrefixes must derive at least one engine prefix');
+            assert.ok(prefixes.every((p) => typeof p === 'string' && p.endsWith('_')),
+                'each derived prefix is a non-empty string ending in _');
+            assert.ok(prefixes.includes('VLLM_'),
+                'the vllm engine prefix must be derived from its manifest');
+        });
+
+        it('does not capture a non-engine, non-runtime var (no over-capture)', async () => {
+            const { _captureRuntimeVars } = await import('../../src/lib/regenerate-command-handler.js');
+            const configPath = path.join(tmpDir, 'config');
+            fs.writeFileSync(configPath, [
+                'export SOME_UNRELATED_VAR="x"',
+                'export PROJECT_NAME="p"'
+            ].join('\n'));
+            const captured = _captureRuntimeVars(configPath);
+            assert.ok(!('SOME_UNRELATED_VAR' in captured),
+                'a var that is neither runtime-owned nor engine-prefixed must NOT be captured');
+        });
+    });
+
     describe('end-to-end regeneration preserves status vars', () => {
         it('simulates regeneration: parse config → answers → render preserves status', () => {
             // Simulate a do/config file that has been deployed with status vars set

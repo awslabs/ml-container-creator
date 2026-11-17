@@ -179,6 +179,52 @@ function validateModelSizesMerge() {
 }
 
 validateModelSizesMerge();
+// ── 4. Wave 9 pricing snapshot + Bedrock equivalents (R7.3, R9.1) ───────────
+// Shape-only checks (never frozen prices): every snapshot entry carries a
+// positive USD value, a unit, a source and a retrieval date; every Bedrock
+// mapping records the live verification date and >= 1 verified region.
+function validatePricingCatalogs() {
+    const snapPath = resolve(ROOT, 'servers/lib/catalogs/pricing-snapshot.json');
+    try {
+        const snap = JSON.parse(readFileSync(snapPath, 'utf8'));
+        const entries = snap.entries || {};
+        let bad = 0;
+        if (!snap.generatedAt || !snap.source) {
+            bad++;
+            errors.push('pricing-snapshot.json: generatedAt and source are required');
+        }
+        for (const [key, e] of Object.entries(entries)) {
+            if (!(typeof e.usd === 'number' && e.usd > 0) || !e.unit || !e.source || !e.as_of) {
+                bad++;
+                errors.push(`pricing-snapshot.json entry "${key}": needs usd > 0, unit, source, as_of`);
+            }
+        }
+        if (bad === 0) {
+            console.log(`✓ pricing-snapshot.json: ${Object.keys(entries).length} entries carry source + date`);
+        }
+    } catch (e) {
+        errors.push(`pricing-snapshot.json: not valid JSON: ${e.message}`);
+    }
+    const bedrockPath = resolve(ROOT, 'servers/lib/catalogs/bedrock-equivalents.json');
+    try {
+        const doc = JSON.parse(readFileSync(bedrockPath, 'utf8'));
+        const models = doc.models || {};
+        let bad = 0;
+        for (const [hfId, e] of Object.entries(models)) {
+            if (!e.bedrockModelId || !e.priceListModel || !e.verifiedAt
+                || !Array.isArray(e.verifiedRegions) || e.verifiedRegions.length === 0) {
+                bad++;
+                errors.push(`bedrock-equivalents.json "${hfId}": needs bedrockModelId, priceListModel, verifiedAt, verifiedRegions`);
+            }
+        }
+        if (bad === 0) {
+            console.log(`✓ bedrock-equivalents.json: ${Object.keys(models).length} live-verified mappings`);
+        }
+    } catch (e) {
+        errors.push(`bedrock-equivalents.json: not valid JSON: ${e.message}`);
+    }
+}
+validatePricingCatalogs();
 
 // ── Report ────────────────────────────────────────────────────────────────────
 if (errors.length) {

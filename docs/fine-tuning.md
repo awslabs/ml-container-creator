@@ -24,7 +24,7 @@ by technique flavor. Pick the surface first, then the technique.
 !!! info "GRPO is on `do/train`, not `do/tune`"
     GRPO (Group Relative Policy Optimization) is **self-managed** reinforcement
     learning: the reward is an in-process Python callable you author in the recipe
-    (`training/grpo/reward_example.py`), with no managed evaluator service in the
+    (`do/training/grpo/reward_example.py`), with no managed evaluator service in the
     loop. See [Custom Training → GRPO](custom-training.md#grpo-group-relative-policy-optimization).
     The managed RL path on `do/tune` is the opposite: its reward is a
     separately-registered evaluator asset (an ARN). Both are called a "reward
@@ -34,12 +34,12 @@ by technique flavor. Pick the surface first, then the technique.
 
 | Requirement | Details |
 |---|---|
-| Deployed endpoint | Endpoint must be `InService` (run `./do/deploy` first) |
+| Deployed endpoint | Needed only for the automatic adapter deploy after the job (run `./do/deploy` first); pass `--no-register` to tune without one |
 | AWS credentials | Configured via `aws configure` or environment variables |
 | Framework | `transformers` only |
 | Deployment target | Any target except `batch-transform` |
 | Bootstrapped account | Run `ml-container-creator bootstrap` to provision IAM permissions and tune S3 bucket |
-| Python SDK | `sagemaker-core>=1.0.0` — install via `uv pip install -r requirements.txt` |
+| Python SDK | `sagemaker[train]>=3.0.0` and the rest of `requirements.txt` — install via `uv pip install -r requirements.txt` |
 
 !!! note "Supported Models Only"
     `do/tune` works with models in the Supported Model Catalog. If your model isn't supported, the script will tell you which models are available and suggest `do/train` for custom training workflows.
@@ -66,8 +66,8 @@ graph LR
 
 3. **Adapter automatically deployed** — When `do/tune` completes a LoRA job, it automatically:
    1. Stages adapter weights to S3 via a Processing Job
-   2. Deploys the adapter as an inference component on your endpoint
-   3. Registers the adapter in the deployment Model Package Group
+   2. Deploys the adapter: an adapter inference component on `realtime-inference`, a vLLM hot-load into the running pod on `hyperpod-eks` / `eks`
+   3. Registers the adapter through the MLflow → Model Registry bridge (as a `lora_adapter`, linked to its base) — see [Deployment Registry](deployment-registry.md)
 
    The auto-deployed adapter is named `tuned-<technique>-<dataset-slug>` (e.g. `tuned-sft-alpaca`).
 
@@ -103,7 +103,16 @@ When `do/tune` completes, it stores the output artifact path in `do/config` and 
 
 The `--from-tune` flag reads the output path from `do/config` automatically — no need to copy S3 URIs manually.
 
-By default, `--from-tune` stages adapter weights via a **SageMaker Processing Job** (no local disk usage). Use `--local` to download and package locally instead.
+When a tune completes, `do/tune` **promotes** the servable output from the artifacts bucket to its canonical home in the core bucket (adapters: `models/<org>/<base>/.mlcc-adapters/<project>/<name>/v<hash12>/`; full models: `models/mlcc-<project>/<name>/`) with a manifest, and records that URI in `TUNE_ADAPTER_PATH_<TECHNIQUE>` / `TUNE_MODEL_PATH_<TECHNIQUE>`. The raw job output stays in `TUNE_OUTPUT_PATH_<TECHNIQUE>`. `do/adapter add` loads the canonical version on every target. A source that isn't canonical yet is promoted first, with a server-side S3 copy that uses your credentials. For projects tuned before this change, backfill with `./do/adapter promote <name> --from-tune <technique> --update-config`. See [S3 buckets & layout](architecture/s3-layout.md).
+
+Adapter versions are content-addressed: `v<hash12>` is the first 12 hex digits of the adapter's content hash.
+
+- **Same files, same version.** Re-promoting or re-adding identical files is `unchanged`, and nothing is copied.
+- **New files, new version.** New content gets a new version directory, and older versions are never rewritten.
+- **`update` on realtime-inference.** `./do/adapter update <name>` points the adapter inference component at the new version's `ArtifactUrl`. When the content is unchanged, it sends no `UpdateInferenceComponent` call.
+- **`update` on hyperpod-eks / eks.** It unloads and reloads `<name>` from the new version's path on every pod.
+- **Rollback.** Run `./do/adapter update <name> --from-weights <previous version URI>`. The previous URI is printed by `update` and recorded in `do/adapters/<name>.conf`.
+- **Pre-versioning adapters.** Adapter prefixes promoted before versioning existed, and hand copies, keep working as-is.
 
 ### Adapter output (LoRA)
 
@@ -114,12 +123,22 @@ By default, `--from-tune` stages adapter weights via a **SageMaker Processing Jo
 # Use a specific technique's output
 ./do/adapter add tuned-sft --from-tune sft
 
-# Or pass the S3 path explicitly
-./do/adapter add tuned-sft --weights s3://mlcc-tune-123456789012-us-east-1/output/adapter.tar.gz
+# Or pass the S3 path explicitly (--weights still works as a deprecated alias)
+./do/adapter add tuned-sft --from-weights s3://<artifacts-bucket>/<project>/tune/sft/<job>/output/model/checkpoints/hf/
 
-# Stage locally instead of via Processing Job
-./do/adapter add tuned-sft --from-tune --local
+# Backfill an adapter tuned before canonical promotion existed
+./do/adapter promote tuned-sft --from-tune sft --update-config
 ```
+
+!!! tip "Post-tune deploy-fit (rank/alpha)"
+    When a LoRA tune completes, `do/tune` surfaces the adapter's effective rank and
+    alpha (read from its `adapter_config.json`) and compares the rank with the
+    EFFECTIVE serving `max_lora_rank` — the value the next deploy applies (an explicit
+    `VLLM_MAX_LORA_RANK`, else derived from the recorded adapters and the engine
+    default). Above it, the note says the next `./do/deploy` raises the limit
+    automatically (or, with an explicit value, that you must raise it); redeploy before
+    hot-loading. The note never blocks the tune or lowers its rank. See
+    [LoRA delivery and rank fit on Kubernetes](architecture/k8s-lora-delivery.md).
 
 ### Full model output
 
@@ -127,12 +146,56 @@ By default, `--from-tune` stages adapter weights via a **SageMaker Processing Jo
 # Deploy as a new inference component
 ./do/add-ic tuned-v1 --from-tune
 
-# Or pass the S3 path explicitly
-./do/add-ic tuned-v1 --model-data s3://mlcc-tune-123456789012-us-east-1/output/model.tar.gz
+# Or pass the S3 path explicitly (--model-data still works as a deprecated alias)
+./do/add-ic tuned-v1 --from-weights s3://<artifacts-bucket>/<project>/tune/sft/<job>/output/model/checkpoints/hf_merged/
 
-# Replace the current base model
-./do/deploy --force-ic --model-data s3://mlcc-tune-123456789012-us-east-1/output/model.tar.gz
+# Or a registered full-model version
+./do/add-ic tuned-v1 --from-registry arn:aws:sagemaker:us-east-1:123456789012:model-package/my-project/3
+
+# Swap the current base IC's artifact in place
+./do/add-ic default --update --from-weights s3://<artifacts-bucket>/<project>/tune/sft/<job>/output/model/checkpoints/hf_merged/
 ```
+
+### One `--from-*` family on every target
+
+Both additive verbs take the same source flags (`--from-weights <s3-uri>`,
+`--from-tune [technique]`, `--from-train [technique]`, `--from-registry <arn>`,
+and, for `do/adapter`, `--from-hub <repo>`) and resolve them the same way on
+every deployment target ([ADR-013](adr/ADR-013-additive-deploy-artifact-kind-contract.md)).
+The target only picks the load mechanism:
+
+| Target | `do/adapter` (LoRA adapter) | Full fine-tuned model |
+|---|---|---|
+| `realtime-inference` | adapter Inference Component | `do/add-ic` — Inference Component |
+| `hyperpod-eks` | vLLM hot-load into the running pod | `do/add-pod` — a second InferenceEndpointConfig ([details](deployments.md#serving-a-full-fine-tune-next-to-the-base-doadd-pod)) |
+| `eks` | vLLM hot-load into the running pod | not supported yet (planned post-2.0) |
+
+The full verb × target matrix is in [Adding models to a live deployment](deployments.md#adding-models-to-a-live-deployment).
+
+On a cluster, a tuned LoRA hot-loads straight from the tune output. There is no
+hand-copied S3 URI and no new pod:
+
+```bash
+./do/adapter add tuned-sft --from-tune        # hyperpod-eks / eks
+./do/adapter list
+./do/adapter remove tuned-sft
+```
+
+The artifact kind decides which verb is legal. `do/adapter` refuses a full
+fine-tuned model, and `do/add-ic` / `do/add-pod` refuse a LoRA adapter, each
+pointing at the right verb. A full model on `hyperpod-eks` goes through
+`./do/add-pod <name> --from-tune`; on plain `eks` it is refused as "not servable
+on this target yet" (planned post-2.0), so deploy it on `realtime-inference` with
+`do/add-ic` or on `hyperpod-eks` with `do/add-pod`. When a
+source has no recorded kind (a raw `--from-weights` URI, a Hub repo, or an older
+registry version), nothing is blocked; the verb runs an advisory
+`adapter_config.json` check and proceeds.
+
+!!! note "Deprecated flags"
+    `do/adapter --weights` and `do/add-ic --model-data` are deprecated aliases of
+    `--from-weights`. They keep working and print a one-line notice. Switch to
+    `--from-weights` at your convenience. `do/register --model-data-url` is a
+    different flag and is unchanged.
 
 ### Multiple techniques
 
@@ -154,7 +217,7 @@ Each technique's output is tracked independently. You can tune with SFT, then tu
 
 ## Supported Models
 
-The following model families support managed customization via `do/tune`:
+The table below shows representative model families that support managed customization via `do/tune`. The catalog (`config/tune-catalog.json`) is synced from the SageMaker AI model-customization documentation and grows over time; it also includes newer families such as NVIDIA Nemotron 3, Gemma 4 and Ministral 3. `./do/tune --list-models` prints the current list:
 
 | Provider | Model Family | Sizes | Techniques |
 |---|---|---|---|
@@ -169,7 +232,7 @@ The following model families support managed customization via `do/tune`:
 | Meta | Llama 3.3 Instruct | 70B | SFT, DPO, RLAIF, RLVR |
 | OpenAI | GPT-OSS | 20B, 120B | SFT, DPO, RLAIF, RLVR |
 
-**26 models total** across 10 families. VLM (Vision-Language) models support SFT, RLAIF, and RLVR but not DPO.
+VLM (Vision-Language) models support SFT, RLAIF, and RLVR but not DPO.
 
 View the full catalog at any time:
 
@@ -289,7 +352,7 @@ The required format differs by technique family:
 - **SFT / DPO** — **JSONL** (one JSON object per line). `do/tune` validates the first
   10 lines before submitting.
 - **RLVR / RLAIF** — **Parquet** in verl's 5-field schema (see
-  [Managed RL dataset format](#managed-rl-dataset-format-rlvr--rlaif) below). The
+  [Managed RL dataset format](#managed-rl-dataset-format-rlvr-rlaif) below). The
   managed RL trainer's loader is parquet-only; a JSONL file fails in-container with
   `ArrowInvalid: Parquet magic bytes not found`. `do/tune` enforces parquet for these
   techniques in preflight and skips the JSONL line-check.
@@ -342,8 +405,23 @@ row** (verl's documented GSM8K prep format):
 | `reward_model` | **struct** `{"style": "rule", "ground_truth": "<str>"}` | NOT a flat string. A missing `reward_model` fails with "Missing required field: 'reward_model'" |
 | `extra_info` | struct | e.g. `{"split","index"}` — recorded, not used by training |
 
-Build it with pyarrow and register the prefix (RLVR and RLAIF use the **same** dataset
-schema — they differ only in the reward asset):
+RLVR and RLAIF use the **same** dataset schema — they differ only in the reward asset
+and in `reward_model.style` (RLVR = `rule`, RLAIF = `model`, set automatically from the
+technique).
+
+**You usually don't hand-build this.** `do/register dataset --technique rlvr|rlaif`
+runs a Producer that transforms a source dataset into the verl 5-field parquet for you:
+it keeps `prompt` as a chat message list, and **lifts a flat top-level ground-truth
+column** (`ground_truth` / `answer` / `solution` / …) into the nested `reward_model`
+struct with the right `style`. The produced parquet is validated at registration time,
+so a shape error fails there — not deep in a GPU job.
+
+```bash
+# Produce verl 5-field parquet from a HuggingFace dataset (prompt + a ground-truth column)
+./do/register dataset gsm8k-rlvr --hf-id openai/gsm8k --technique rlvr
+```
+
+If you prefer to build it yourself with pyarrow, the row shape is:
 
 ```python
 import pyarrow as pa, pyarrow.parquet as pq
@@ -361,8 +439,12 @@ pq.write_table(pa.table(rows), "train-00000-of-00001.parquet")
     SageMaker mounts the whole dataset S3 prefix as the training channel. Any
     non-parquet file in it — notably the registry's `_dataset.json` sidecar — is read
     as parquet and fails the job. Stage RL datasets so the prefix holds only the
-    parquet data file(s). `do/tune` enforces parquet for RL techniques in preflight
-    (it fails loud if the dataset is not parquet, before provisioning GPUs).
+    parquet data file(s). The Producer stages RL parquet under a channel-pure
+    `datasets/<name>/data/` subprefix (the `_dataset.json` sidecar sits one level up,
+    outside the channel). `do/tune` enforces this in preflight: it fails loud if the
+    dataset is not parquet AND — the field-schema check — if the parquet is missing a
+    required verl field (e.g. `reward_model`), naming the field, all before provisioning
+    GPUs.
 
 Run RLVR / RLAIF by resolving a registered evaluator (see
 [Managed RL evaluators](#managed-rl-evaluators-rlvr-rlaif-mtrl)):
@@ -840,40 +922,51 @@ When auto-flatten converts columns, you'll see:
     Format: extracted content field
 ```
 
-**Disabling auto-flatten:**
-
-If you need to preserve the original column structure (e.g., for debugging or custom preprocessing):
-
-```bash
-./do/tune --technique dpo --dataset hf://my-org/my-dataset --no-transform
-```
-
-With `--no-transform` active, the pipeline still detects chat-format columns and logs what it found, but halts with an actionable error instead of converting:
-
-```text
-❌ Column 'chosen' contains chat-format data (detected: single_dict) but --no-transform is active.
-
-   Remove --no-transform to enable automatic conversion:
-   ./do/tune --technique dpo --dataset hf://my-org/my-dataset
-```
+`do/tune` has no flag to disable auto-flatten for `hf://` datasets. To keep the original column structure, preprocess the dataset yourself before tuning.
 
 !!! note "Pipeline ordering"
     The full staging pipeline runs in this order: **download** → **column rename** (`--column-map`) → **detect chat-format** → **flatten** → **type validation** → **write JSONL** → **upload to S3**. Column rename always happens before flatten, so `--column-map` and auto-flatten compose correctly.
 
-## `do/tune` vs `do/train`
+## Running on HyperPod EKS (`--backend hp-eks`)
 
-ML Container Creator offers two paths for model customization:
+On a `hyperpod-eks` project, `do/tune --backend hp-eks` runs AWS's own HyperPod EKS recipe for
+the model (the Hub `HpEksPayloadTemplateS3Uri`, recorded in the tune catalog) as a single-node
+HyperPodPyTorchJob on your cluster. SageMaker training jobs stay the default.
 
-| | `do/tune` (Managed Serverless) | `do/train` (Bespoke Training) |
-|---|---|---|
-| **Status** | Available now | Available now |
-| **Infrastructure** | Fully managed by SageMaker AI | You choose instance types and containers |
-| **Supported models** | Models in the Supported Model Catalog | Any model |
-| **Techniques** | SFT, DPO, RLAIF, RLVR | Any training script |
-| **Configuration** | Minimal — dataset + technique | Full control over training code |
-| **When to use** | Your model is supported and you want the fastest path | You need custom training logic or an unsupported model |
+- **Techniques.** SFT and DPO only (their recipes are HyperPodPyTorchJobs). RLVR and RLAIF recipes
+  are RayJobs: they need KubeRay installed by the cluster owner and are post-2.0, so they're
+  refused with that reason. MTRL has no HP-EKS recipe at all.
+- **Prerequisites.** The same cluster contract and training identity as
+  [`do/train --backend hp-eks`](custom-training.md#hyperpod-eks-backend-backend-hp-eks), plus a
+  Bound `fsx-claim` PVC (the AWS recipes require it) and the base model staged to S3
+  (`./do/stage`).
+- **Always-on fixes.** MLCC renders the template itself (an unfilled placeholder is fatal) and
+  fixes what doesn't run as published on the current operator and image: the reserved
+  `JOB_NAME` env, a `SCRIPT_PATH` missing from the image, the config `.yaml` suffix, the per-job
+  log path, the instance-group `nodeSelector`, the ServiceAccount, `runPolicy`, scratch and the
+  S3 hand-off. Every patched site asserts its original value first; a moved site stops the run
+  with `template drift at <site>`.
+- **Data.** SFT `prompt`/`completion` rows are converted to the recipe's `messages` column; DPO
+  keeps `prompt`/`chosen`/`rejected`. Other formats are refused, never guessed.
 
-**Recommendation**: Start with `do/tune` if your model is in the Supported Model Catalog. It's the fastest path from dataset to deployed adapter with zero infrastructure management. Use `do/train` when you need custom training logic or your model isn't supported — see [Custom Training](custom-training.md).
+!!! warning "`--adapt-shape` is EXPERIMENTAL"
+    Every AWS HP-EKS recipe is written for 8 GPUs and 32 EFA interfaces (p4d / p5). On a smaller
+    instance group the run stops (exit 4) unless you pass `--adapt-shape`, which rewrites the
+    recipe's GPU and EFA counts to the group's allocatable, sets the per-GPU token budget to
+    `dataset_max_len` (override with `--set max_token_len_per_gpu=N`) and
+    `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. AWS does not support this shape; memory
+    headroom on 24 GB GPUs is about 1 GB for 8B-class models, and MLCC refuses when the bf16
+    weights exceed 90% of per-GPU memory.
+
+```bash
+./do/tune --technique sft --dataset <name> --backend hp-eks --adapt-shape
+./do/tune --technique sft --dataset <name> --backend hp-eks --adapt-shape --dry-run      # print only
+./do/tune --technique sft --dataset <name> --backend hp-eks --adapt-shape --render-only  # stage data + write the manifest
+./do/tune --technique sft --status
+```
+
+On success the adapter (or full model) found under `s3://<artifacts>/<project>/tune/<job>/output/`
+is promoted and the `TUNE_*` variables are written exactly as for a SageMaker training job.
 
 ## CLI Reference
 
@@ -890,8 +983,8 @@ ML Container Creator offers two paths for model customization:
 
 | Flag | Values | Description |
 |---|---|---|
-| `--technique` | `sft`, `dpo`, `rlaif`, `rlvr` | Customization technique to apply |
-| `--dataset` | S3 URI (`s3://bucket/path.jsonl`) or a registered dataset name (optionally `@v<N>`-pinned) | Training dataset location. `hf://` references are not accepted here — stage them with `do/register dataset --hf-id` first. |
+| `--technique` | `sft`, `dpo`, `rlaif`, `rlvr`, `mtrl` | Customization technique to apply (`mtrl` needs `--agent-env`) |
+| `--dataset` | S3 URI (`s3://bucket/path.jsonl`), `hf://org/name[/split][?file=pattern]`, or a registered dataset name (optionally `@v<N>`-pinned) | Training dataset location. An `hf://` dataset is staged to S3 automatically on first use. Quote the value if it contains `?` or `*`. |
 
 ### Training type
 
@@ -899,37 +992,59 @@ ML Container Creator offers two paths for model customization:
 |---|---|---|---|
 | `--training-type` | `lora`, `full-rank` | `lora` | Whether to produce LoRA adapter weights or a full merged model |
 
-### Hyperparameter overrides (all optional)
+### Hyperparameters — technique-aware
+
+`do/tune`'s hyperparameters are **technique-aware**: the knobs you can set, their defaults,
+ranges, and choice-lists come from the selected technique's tune descriptor
+(`templates/code/tune.d/<technique>/manifest.json`, synced from SageMaker's recipe
+override-params — see [Per-technique tune descriptor](architecture/tune-descriptor.md)).
+Run `do/tune` interactively and it prompts for the technique's `primary` knobs (pre-filled
+with their defaults, dropdowns for enum knobs); pass `--advanced` to also be prompted for the
+`advanced` knobs.
 
 | Flag | Type | Description |
 |---|---|---|
-| `--epochs` | integer | Number of training epochs (typically 1–5) |
-| `--learning-rate` | float | Learning rate (e.g., `2e-4`) |
-| `--max-seq-length` | integer | Maximum sequence length in tokens |
-| `--lora-rank` | integer | LoRA rank (e.g., 16, 32, 64). Only applies when `--training-type lora` |
-| `--lora-alpha` | integer | LoRA alpha scaling factor. Only applies when `--training-type lora` |
-| `--batch-size` | integer | Global batch size |
+| `--set KNOB=VALUE` | repeatable | Set any knob the selected technique's descriptor declares, keyed by its canonical name (e.g. `--set learning_rate=1e-5 --set global_batch_size=256`). A knob the technique does not declare is rejected, naming the valid set. Values are validated against the descriptor (range / enum / type) in sub-second preflight — before the job is submitted. |
+| `--advanced` | flag | Also prompt for `advanced`-tier knobs interactively (otherwise they take their descriptor default). |
+| `--non-interactive` | flag | Apply descriptor defaults without prompting (same validation). Also the automatic behavior when there is no TTY. |
+
+**Legacy flags (kept as aliases):** the previous fixed flags still work and map onto the same
+descriptor knobs, so existing scripts keep running:
+
+| Legacy flag | Equivalent `--set` | 
+|---|---|
+| `--epochs <n>` | `--set max_epochs=<n>` |
+| `--learning-rate <f>` | `--set learning_rate=<f>` |
+| `--max-seq-length <n>` | `--set dataset_max_len=<n>` |
+| `--lora-rank <n>` | `--set lora_rank=<n>` |
+| `--batch-size <n>` | `--set global_batch_size=<n>` |
+
+Each alias is validated against the selected technique's descriptor exactly like a `--set`.
 
 ### Dataset options
 
 | Flag | Type | Description |
 |---|---|---|
 | `--column-map` | string | Rename source columns to target columns (e.g., `"input:prompt,output:completion"`) |
-| `--no-transform` | flag | Disable auto-flatten — halt with error if chat-format data is detected |
+| `--take <n>` | integer | Take only the first N records from the dataset |
+| `--dataset-name <name>` | string | Use a registered dataset by name |
 
 ### Evaluator flags (RLVR/RLAIF only)
 
 | Flag | Type | Description |
 |---|---|---|
-| `--reward-function` | Lambda ARN | ARN of the reward function Lambda (RLVR) |
-| `--reward-prompt` | S3 URI | S3 path to reward prompt file (RLAIF) |
+| `--evaluator-name <name>` | string | Registered evaluator to resolve from the AI Registry (RLVR: a reward function from `./do/register evaluator`; RLAIF: a reward prompt from `./do/register prompt`) |
+| `--reward-function` | ARN | Lambda / hub-content ARN of the reward function (RLVR), bypassing the registry |
+| `--reward-prompt` | ARN | Hub-content evaluator ARN of a reward prompt (RLAIF) — not a bare name or S3 URI; register the file with `./do/register prompt` first |
+| `--agent-env <arn>` | ARN | CustomAgentLambda ARN (MTRL only; MTRL's reward lives in the agent) |
 
 ### Model and infrastructure overrides
 
 | Flag | Type | Description |
 |---|---|---|
-| `--model` | HuggingFace model ID | Override the model to customize (defaults to `MODEL_ID` from `do/config`) |
-| `--output-bucket` | S3 bucket name | Override the output bucket (defaults to `TUNE_S3_BUCKET`) |
+| `--model` | Hub content name | Override the model to customize, e.g. `huggingface-reasoning-qwen3-8b` (defaults to `TUNE_MODEL_ID` from `do/config`) |
+| `--lora-alpha <n>` | integer | LoRA alpha scaling factor |
+| `--output-bucket` | S3 bucket name | Override the output bucket (defaults to the profile's artifacts bucket, `ARTIFACTS_S3_BUCKET`) |
 | `--role` | IAM role ARN | Override the execution role |
 
 ### Job control
@@ -937,11 +1052,27 @@ ML Container Creator offers two paths for model customization:
 | Flag | Description |
 |---|---|
 | `--force` | Force a new job even if a previous job exists for this technique |
+| `--accept-eula` | Accept the model EULA (required for gated models like Llama) |
+| `--no-register` | Skip the automatic adapter stage + deploy + register after a LoRA job; prints the next-step commands instead |
 | `--no-wait` | Submit the job and exit immediately without polling |
 | `--status` | Show status of all tracked tune jobs |
 | `--dry-run` | Validate inputs and show what would be submitted without creating a job |
 | `--list-models` | Print the Supported Model Catalog and exit |
+| `--discover [filter]` | Query the SageMaker Hub for tune-eligible models (optionally filtered by keyword) |
+| `--no-stale-warning` | Suppress catalog staleness warnings (also `MCC_NO_STALE_WARNING=true`) |
 | `--help` | Show usage information |
+
+### HP-EKS backend (`--backend hp-eks`)
+
+See [Running on HyperPod EKS](#running-on-hyperpod-eks-backend-hp-eks).
+
+| Flag | Description |
+|---|---|
+| `--backend <b>` | `smtj` (default, SageMaker training job) or `hp-eks` (hyperpod-eks projects; SFT / DPO only) |
+| `--instance-group <g>` | Pin the HyperPod instance group |
+| `--startup-timeout <s>` / `--stall-timeout <s>` | Watcher limits (defaults 1200 / 1800 seconds) |
+| `--adapt-shape` | EXPERIMENTAL: rewrite the recipe's 8-GPU / EFA shape to the instance group's allocatable |
+| `--render-only` | Stage the data and write the patched manifest; apply nothing |
 
 ## Examples
 
@@ -1008,9 +1139,9 @@ Use `--force` to explicitly start a new job, overriding the previous one for tha
 
 ## MLflow Integration
 
-When an MLflow tracking server is configured in your SageMaker AI domain, customization jobs automatically log training metrics, hyperparameters, and model artifacts to MLflow. The script displays the MLflow experiment URL after job submission.
+When the bootstrap profile has an MLflow App (the `training` module, `MLFLOW_APP_ARN`), `do/tune` logs to a per-project experiment named after your project, and registers adapters through the MLflow → SageMaker Model Registry bridge (see [Deployment Registry](deployment-registry.md)). The script displays the MLflow experiment URL after job submission.
 
-If no MLflow server is configured, the script proceeds without tracking and prints a note suggesting MLflow setup for experiment comparison.
+If no MLflow App is configured, the script proceeds without tracking and prints a note suggesting MLflow setup for experiment comparison.
 
 ## Future: Bedrock Custom Model Import
 
@@ -1033,7 +1164,7 @@ For **SFT/DPO**, `do/tune` validates the first 10 JSONL lines. Check that:
 The error message shows the first malformed line and the expected format.
 
 For **RLVR/RLAIF**, the dataset must be **parquet** in the verl 5-field schema (see
-[Managed RL dataset format](#managed-rl-dataset-format-rlvr--rlaif)). Common failures,
+[Managed RL dataset format](#managed-rl-dataset-format-rlvr-rlaif)). Common failures,
 all caught in preflight or early in the job:
 
 - `do/tune` refuses a non-parquet RL dataset before submitting (fail-loud guard).
@@ -1048,10 +1179,6 @@ all caught in preflight or early in the job:
 
 Your HuggingFace dataset has files with different column sets. Use `?file=<pattern>` to select only the files matching your technique's schema. The error message shows each file's columns and suggests a pattern.
 
-### "Column contains chat-format data but --no-transform is active"
-
-You passed `--no-transform` but the dataset has chat-format columns that need flattening. Remove `--no-transform` to enable automatic conversion, or preprocess the data manually.
-
 ### "Technique not supported for this model"
 
 Not all models support all techniques. Run `./do/tune --list-models` to see which techniques are available for your model.
@@ -1062,10 +1189,10 @@ Run `ml-container-creator bootstrap` to provision the required IAM permissions. 
 
 ### Python SDK not installed
 
-The `do/tune` script requires `sagemaker>=3.0.0` and several other Python packages. These are installed automatically when you run `npm install`. If you manage Python environments manually:
+The `do/tune` script requires `sagemaker>=3.0.0` and several other Python packages. `npm install` does not install them; install them in the Python environment the `do/` scripts use:
 
 ```bash
-pip install -r requirements.txt
+uv pip install -r requirements.txt   # or: pip install -r requirements.txt
 ```
 
 See [`requirements.txt`](https://github.com/awslabs/ml-container-creator/blob/main/requirements.txt) for the full list.

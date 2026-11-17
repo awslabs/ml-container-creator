@@ -15,13 +15,20 @@
   },
   "runtime_owned_vars": ["DEPLOYMENT_TARGET_BATCH_STATUS"],
   "serving_config_source": "sagemaker-ic",
+  "service_quota_usage": "transform job usage",
+  "pricing": { "service": "AmazonSageMaker", "component": "BatchTransform", "instance_count": { "basis": "not-benchmarked" } },
+  "compute_backends": ["smtj"],
+  "scale_to_zero": { "support": "not-applicable", "mechanism": null, "wake_signal": null, "requests_at_zero": "n/a", "idle_billing": "n/a", "enabled": false, "reason": "batch transform jobs do not idle: a job releases its instances when it completes (ADR-014)" },
   "verbs": {
     "optimize": false,
     "add-ic": false,
+    "add-pod": false,
     "ci": false,
     "adapter": false,
-    "draft": false
+    "draft": false,
+    "metrics": false
   },
+  "observability": { "store": "none" },
   "answer_params": [
     { "answerKey": "target", "configVar": "DEPLOYMENT_TARGET", "flag": "--target", "roles": ["flag-input", "prompt-core"] },
     { "answerKey": "instance_type", "configVar": "INSTANCE_TYPE", "flag": "--instance-type", "roles": ["flag-input", "prompt-core"] },

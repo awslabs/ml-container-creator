@@ -8,7 +8,7 @@
             "openai",
             "conversational"
         ],
-        "architecture": "GPT2LMHeadModel",
+        "architecture": "GptOssForCausalLM",
         "framework_compatibility": {
             "vllm": ">=0.3.0",
             "tensorrt-llm": ">=0.8.0",

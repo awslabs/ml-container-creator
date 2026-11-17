@@ -71,11 +71,14 @@ is first-class; each writes its own `DEPLOYMENT_TARGET_<T>_STATUS` variable that
 | `eks` | EKS **without** the HyperPod Inference Operator — standard Deployment + Service + ConfigMap | `DEPLOYMENT_TARGET_EKS_STATUS` | `Running` |
 
 > **`eks` status:** `eks` is a first-class, supported target — *not* legacy. It is
-> currently **untested / unvalidated** end-to-end (BL103). Because it serves vLLM
-> as plain Kubernetes pods without the operator, verbs that operate on the serving
-> pod directly (`do/adapter`, `do/test`, `do/benchmark`) treat it like
-> `hyperpod-eks` via a direct-pod `kubectl port-forward`; verbs that require a
-> SageMaker endpoint (`do/optimize`, `do/add-ic`, `do/ci`) do not apply to it.
+> a bring-your-own cluster target: MLCC consumes a cluster you provisioned and
+> validates a deploy-time contract (pod identity, CSI driver, volume backing)
+> rather than creating the cluster. Because it serves vLLM as plain Kubernetes
+> pods without the operator, verbs that operate on the serving pod directly
+> (`do/adapter`, `do/test`, `do/benchmark`) treat it like `hyperpod-eks` via a
+> direct-pod `kubectl port-forward` (including `do/adapter add <name> --from-tune`
+> hot-loading a tuned LoRA); verbs that require a SageMaker endpoint
+> (`do/optimize`, `do/add-ic`, `do/ci`) do not apply to it.
 
 To add your own target, see
 [Adding a Deployment Target](deployment-target-authoring.md) — the full
@@ -107,6 +110,11 @@ Guard predicates and public API:
 | `_restrict_targets <list>` | enforce a target allow-list; exit 3 on mismatch |
 | `_contract_violation guard reason remedy` | the standard `❌` message + exit 3 |
 | `_require_python_env` | ensure a Python venv (in-venv → `.mlcc/hey-venv` → exit 1) |
+| `_additive_verb_supported_on <verb> <target>` | derived additive-deploy target gate (see below); exit 3 + guidance |
+| `_additive_accepts_kind <verb>` | the artifact kind(s) an additive verb accepts (from the contract table) |
+| `_guard_artifact_kind <kind> <accepted> [guidance]` | additive-deploy kind gate; unknown kind degrades, mismatch exits 3 |
+| `_resolve_additive_source <from-verb> <arg> <name>` | the shared `--from-*` source resolver (see below) |
+| `_deprecated_flag_alias <old> <new>` | the standard deprecated-flag notice (stderr) |
 
 ### Exit codes
 
@@ -121,6 +129,52 @@ Exit `3` is reserved so CI and the advisory agent can distinguish "couldn't
 start (preconditions unmet)" from "ran and failed." Target restrictions go
 through `_restrict_targets`, so they all speak this one code and format —
 replacing the hand-rolled `exit 1` blocks that used to drift per script.
+
+## Additive deploy: one resolver, one contract (ADR-013)
+
+"Additive" verbs put an artifact onto an **already-deployed** endpoint or cluster:
+`do/adapter` (hot-load a LoRA adapter) and `do/add-ic` (add a full model as a
+SageMaker Inference Component). They follow ADR-013's three axes, all implemented
+once in `script-contract.sh`:
+
+1. **Source → uniform reference.** Every source is a `--from-*` flag resolved by
+   `_resolve_additive_source`, identically on every target:
+
+   | Flag | Resolves from | `artifact_kind` |
+   |---|---|---|
+   | `--from-weights <s3-uri>` | the URI as given (fast path) | unknown |
+   | `--from-tune [technique]` | `TUNE_ADAPTER_PATH_<T>[_<SLUG>]` / `TUNE_MODEL_PATH_<T>` / `TUNE_OUTPUT_PATH_LATEST` | from the recorded output (`adapter` → `lora_adapter`, `model` → `full_model`) |
+   | `--from-train [technique]` | `TRAIN_ADAPTER_PATH_<T>` / `TRAIN_OUTPUT_PATH_LATEST` | recorded type, else unknown |
+   | `--from-registry <version-arn>` | `.register_helper.py get-version` | the version's `mlcc.artifact_kind` tag (BL164), else unknown |
+   | `--from-hub <hf-repo>` | `do/adapter`'s `_download_from_hub` (stage to S3) | unknown |
+
+   A failed resolution exits non-zero with the helper's real error — never a
+   silent empty. Adding a source is one `case` arm in the resolver.
+2. **Kind → legal verb.** `_additive_verb_kinds` declares what each verb accepts
+   (`adapter` → `lora_adapter`, `add-ic` → `full_model`). `_guard_artifact_kind`
+   reads it via `_additive_accepts_kind`, so no script passes a literal kind. An
+   **unknown** kind (raw S3, HF, pre-BL164 registry versions) is never a hard
+   block: the gate degrades to an advisory `adapter_config.json` content check.
+3. **Target → load mechanism.** `_additive_verb_mechanisms` (`adapter` →
+   `vllm-hotload smai-ic`, `add-ic` → `smai-ic`) intersected with
+   `_additive_target_mechanisms` (`realtime-inference` → `smai-ic`,
+   `hyperpod-eks` → `vllm-hotload pod-apply`, `eks` → `vllm-hotload`). The legal verb×target matrix is
+   **derived** from that intersection by `_additive_verb_supported_on`; nothing
+   hand-lists it. `do/adapter` also picks its k8s path from the derived mechanism.
+
+The tables are bash-3.2-safe `case` lookup functions inside one
+`# >>> ADDITIVE-DEPLOY CONTRACT … # <<< END` block (no `declare -A`: the do/
+scripts run under macOS's stock `/bin/bash` 3.2). `do/add-pod`
+(BL149, `full_model` via `pod-apply`) is live on `hyperpod-eks`; plain `eks` stays
+deferred (post-2.0), so a full model there gets an honest "not servable on this
+target yet" refusal. `test/unit/additive-deploy-contract.test.js` asserts the derivation
+agrees with the target descriptors' `verbs` flags, each script's `# targets:`
+header, and the real scripts' accept/refuse behavior.
+
+**Deprecated aliases.** `do/adapter --weights` and `do/add-ic --model-data` (and
+`ic_update.py --model-data`) are deprecated aliases of `--from-weights`: they
+still work and print a one-line notice. `do/register`'s `--model-data-url` is a
+different flag (model-package registration input) and is unchanged.
 
 ## Shared library
 

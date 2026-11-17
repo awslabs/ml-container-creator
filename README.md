@@ -7,16 +7,19 @@ A CLI tool that creates SageMaker-compatible Docker containers for deploying ML 
 | Architecture | Model Servers | Use Case |
 |---|---|---|
 | HTTP (traditional ML) | Flask, FastAPI | sklearn, XGBoost, TensorFlow |
-| Transformers (LLMs) | vLLM, SGLang, TensorRT-LLM, DJL/LMI | HuggingFace models, JumpStart, S3 |
+| Transformers (LLMs) | vLLM, SGLang, TensorRT-LLM, LMI, DJL, llama.cpp | HuggingFace model IDs, `s3://` artifacts, `registry://` model packages |
 | Triton | FIL, ONNX, Python, TensorRT-LLM, vLLM | Multi-framework serving |
-| Diffusors | vLLM | Image generation models |
+| Diffusors | vLLM-Omni | Image generation models |
 
 | Deployment Target | Description |
 |---|---|
-| Real-Time Inference | SageMaker real-time endpoints |
-| Async Inference | SageMaker async endpoints with S3 output |
-| Batch Transform | SageMaker batch processing |
-| HyperPod EKS | Kubernetes-based deployment |
+| Real-Time Inference (`realtime-inference`) | SageMaker real-time endpoints |
+| Async Inference (`async-inference`) | SageMaker async endpoints with S3 output |
+| Batch Transform (`batch-transform`) | SageMaker batch processing |
+| HyperPod EKS (`hyperpod-eks`) | Kubernetes on an existing SageMaker HyperPod cluster |
+| Plain EKS (`eks`) | Bring-your-own EKS cluster (Deployment + Service + ConfigMap), no operator |
+
+The target is chosen at deploy time: `./do/deploy --target <target>`.
 
 ## Quick Start
 
@@ -46,7 +49,7 @@ npm install && npm link
 ml-container-creator bootstrap
 ```
 
-Sets up an IAM execution role, ECR repository, optional S3 buckets, and optional CI Integration Harness for automated testing. Configuration is saved to `~/.ml-container-creator/config.json`.
+Provisions modular CDK stacks: `core` (IAM execution role + ECR) and, by default, `registry`; opt in to `benchmark`, `training`, `ci`, `sagemaker-domain` and `eks` (`ml-container-creator bootstrap --help` lists every module). Configuration is saved to `~/.ml-container-creator/config.json`.
 
 ### Generate a project
 
@@ -66,10 +69,11 @@ ml-container-creator my-model \
 ### Build, push, deploy
 
 ```bash
-./do/build        # Build Docker image
-./do/push         # Push to Amazon ECR
-./do/deploy       # Deploy to SageMaker
-./do/test         # Test the endpoint
+cd my-model
+./do/submit       # Build and push with CodeBuild (or: ./do/build && ./do/push)
+./do/deploy       # Deploy to the target in do/config (realtime-inference by default; --target <t> to choose)
+./do/test         # Test the deployment
+./do/benchmark --workload multi-turn-chat
 ```
 
 ### Get help from the advisor
@@ -85,8 +89,14 @@ Ask questions about your project, get optimization recommendations, troubleshoot
 Full documentation is available at [awslabs.github.io/ml-container-creator](https://awslabs.github.io/ml-container-creator/).
 
 - [Getting Started](https://awslabs.github.io/ml-container-creator/getting-started/) — Installation and walkthroughs
+- [Upgrading to v2](https://awslabs.github.io/ml-container-creator/upgrading-to-v2/) — What changed and how to migrate
+- [Bootstrap](https://awslabs.github.io/ml-container-creator/bootstrap/) — One-time AWS infrastructure
+- [Secrets](https://awslabs.github.io/ml-container-creator/secrets/) — Hugging Face / NGC tokens in Secrets Manager
 - [Configuration](https://awslabs.github.io/ml-container-creator/configuration/) — CLI flags, env vars, config files, MCP servers
 - [Deployment Guide](https://awslabs.github.io/ml-container-creator/deployments/) — All deployment targets and lifecycle scripts
+- [Fine-Tuning](https://awslabs.github.io/ml-container-creator/fine-tuning/) — Managed fine-tuning and LoRA adapters
+- [Custom Training](https://awslabs.github.io/ml-container-creator/custom-training/) — Your own training code with `do/train`
+- [Scale-to-Zero](https://awslabs.github.io/ml-container-creator/scale-to-zero/) — Idle real-time endpoints at zero instances
 - [CI Integration](https://awslabs.github.io/ml-container-creator/ci-integration/) — Automated lifecycle testing for all deployment configurations
 - [Examples](https://awslabs.github.io/ml-container-creator/EXAMPLES/) — Framework-specific walkthroughs
 - [Advisory Agent](https://awslabs.github.io/ml-container-creator/agent/) — Conversational AI advisor (`ml-container-creator hey`)

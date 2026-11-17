@@ -1,0 +1,26 @@
+{
+  "_comment": "Recorded from the live vLLM v0.31.0 pod fresh-ai-ml-5c68b9746-55p6l (kubectl logs, read-only, 2026-10-23). Model google/gemma-4-E4B-it (config: gemma-4-e4b-it-config.json), ml.g7.12xlarge, TP 2. Inputs are the deployment's settings; observed are vLLM's own log lines. Used by test_right_sizing_w8.py to assert the right-sizing estimate is not above what vLLM actually allocated.",
+  "engine_version": "0.31.0",
+  "inputs": {
+    "catalog_gpu_memory_gib": 32,
+    "gpus": 2,
+    "tp": 2,
+    "gpu_memory_utilization": 0.92,
+    "max_model_len": 131072,
+    "max_loras": 4,
+    "max_lora_rank": 64,
+    "measured_safetensors_bytes": 15992595884,
+    "max_num_batched_tokens": 2048
+  },
+  "observed": {
+    "visible_gpu_memory_gib": 31.38,
+    "requested_memory_gib": 28.87,
+    "model_loading_gib": 9.0,
+    "weights_plus_non_torch_gib": 9.33,
+    "peak_activation_gib": 1.23,
+    "cuda_graph_gib": 0.36,
+    "available_kv_cache_gib": 18.3,
+    "gpu_kv_cache_tokens": 2203985,
+    "max_concurrency_at_max_model_len": 16.82
+  }
+}

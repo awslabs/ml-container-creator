@@ -420,7 +420,7 @@ Since `pypi-token` is build-time only, no changes are needed in `templates/do/se
 
 ### Step 4: IAM Considerations
 
-The existing IAM policy in `config/bootstrap-stack.json` already covers new secret types because it scopes to the `mlcc/*` naming prefix:
+The existing core execution-role policy (`infra/bootstrap-modules/core/stack.ts`, `SecretsManagerRead`) already covers new secret types because it scopes to the `mlcc/*` naming prefix:
 
 ```json
 {

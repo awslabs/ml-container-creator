@@ -318,20 +318,20 @@ describe('Feature: lora-adapter-lifecycle — do/adapter update (Req 2.5)', () =
             );
         });
 
-        it('--weights and --from-hub are mutually exclusive', () => {
+        it('--from-weights and --from-hub are mutually exclusive', () => {
             const rendered = renderAdapter();
             const updateSection = getUpdateSection(rendered);
             assert.ok(
-                updateSection.includes('--weights and --from-hub are mutually exclusive'),
-                'Must enforce mutual exclusivity of --weights and --from-hub'
+                updateSection.includes('--from-weights and --from-hub are mutually exclusive'),
+                'Must enforce mutual exclusivity of --from-weights and --from-hub'
             );
         });
 
-        it('requires either --weights or --from-hub', () => {
+        it('requires either --from-weights or --from-hub', () => {
             const rendered = renderAdapter();
             const updateSection = getUpdateSection(rendered);
             assert.ok(
-                updateSection.includes('Either --weights or --from-hub is required'),
+                updateSection.includes('Either --from-weights or --from-hub is required'),
                 'Must require one of --weights or --from-hub'
             );
         });
@@ -349,8 +349,9 @@ describe('Feature: lora-adapter-lifecycle — do/adapter update (Req 2.5)', () =
             const rendered = renderAdapter();
             const updateSection = getUpdateSection(rendered);
             assert.ok(
-                updateSection.includes('_download_from_hub "${from_hub}" "${adapter_name}"'),
-                'Must call _download_from_hub with repo ID and adapter name'
+                // Wave 6: routed through the shared resolver, which calls _download_from_hub.
+                updateSection.includes('_resolve_additive_source from-hub "${from_hub}" "${adapter_name}"'),
+                'Must stage --from-hub via the shared resolver with repo ID and adapter name'
             );
         });
 

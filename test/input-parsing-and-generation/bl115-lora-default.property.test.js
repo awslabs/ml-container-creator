@@ -114,10 +114,12 @@ function renderConfig(answers = {}) {
 // ── Requirement 1 / Property 1 ────────────────────────────────────────────────
 // For any LoRA param p and any vLLM target t, t ∈ p.appliesTo.deploymentTargets.
 describe('BL115 — LoRA params apply to every vLLM target (Req 1)', () => {
-    it('retains enableLora default true, maxLoras 30, maxLoraRank 64', () => {
+    // Defaults lowered 30→4 / 64→16 (owner decision, 2026-10 live rehearsal) to match the
+    // managed recipe's conservative LoRA footprint; enableLora stays true.
+    it('retains enableLora default true, maxLoras 4, maxLoraRank 16', () => {
         assert.strictEqual(schema.parameters.enableLora.default, true);
-        assert.strictEqual(schema.parameters.maxLoras.default, 30);
-        assert.strictEqual(schema.parameters.maxLoraRank.default, 64);
+        assert.strictEqual(schema.parameters.maxLoras.default, 4);
+        assert.strictEqual(schema.parameters.maxLoraRank.default, 16);
     });
 
     // Feature: v18-w4-04-bl115, Property 1: LoRA parameters apply to every vLLM target

@@ -1,0 +1,14 @@
+{
+  "$comment": "Single declared source for the S3 buckets the core stack owns (ADR-008 derive-dont-hardcode, bucket consolidation R1.2). core/stack.ts, module-runner.cjs (adopt flags + implicit import) and every derived consumer read this file. Placeholders: {account} {region} {profile}. test/unit/no-literal-bucket-names.test.js allows each name ONLY here.",
+  "stack": "core",
+  "buckets": {
+    "ModelsBucketResource": {
+      "name": "mlcc-core-{account}-{region}",
+      "adoptContext": "adoptExistingBuckets",
+      "output": "ModelsBucket",
+      "profileKey": "coreS3Bucket",
+      "envVar": "CORE_S3_BUCKET",
+      "purpose": "Shared, servable assets: staged base models, datasets, reward prompts, lifecycle scripts, staging jobs"
+    }
+  }
+}

@@ -8,7 +8,7 @@
     "watch": "tsc -w",
     "cdk": "cdk",
     "synth": "cdk synth",
-    "test": "mocha --require ts-node/register test/**/*.test.ts --exit --reporter spec"
+    "test": "mocha"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.260.0",

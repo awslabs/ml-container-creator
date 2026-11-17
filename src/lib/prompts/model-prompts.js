@@ -23,6 +23,13 @@ import {
     isLlm as tritonIsLlm,
     modelFormats as tritonModelFormats
 } from '../triton-backend-reader.js';
+// Capability badges/legend derive from the single shared technique enum (BL144) —
+// never a hand-maintained list.
+import {
+    techniqueBadge,
+    partitionTechniques,
+    buildLegend
+} from '../managed-techniques.js';
 
 /**
  * Engine-specific feature prompts (ADR-004 §c), built from the serve-plugin
@@ -35,6 +42,140 @@ import {
  * CLI flag produces). Reads the manifests as data — no engine-name branching.
  */
 export const ENGINE_FEATURE_ANSWER_PREFIX = '__engine_feature__';
+
+/**
+ * The sentinel the model prompt appends for manual free-entry (Req 1.6).
+ */
+export const CUSTOM_MODEL_SENTINEL = 'Custom (enter manually)';
+
+/**
+ * Suffix on a capability badge for a technique the model advertises but MLCC cannot yet
+ * drive (e.g. MTRL). Its meaning is explained once in the static legend.
+ */
+export const UNIMPLEMENTED_MARKER = '*';
+
+/**
+ * Human-readable group label for a managed model, derived from its catalog PROVIDER
+ * (fallback: family). Groups the picker by who makes the model — Alibaba (Qwen 2.5 +
+ * Qwen 3), Meta (Llama), DeepSeek, OpenAI — rather than by family. e.g.
+ * 'alibaba' → 'Alibaba', 'openai' → 'OpenAI'.
+ * @param {{family?: string, provider?: string}} meta
+ * @returns {string}
+ */
+function groupLabel(meta) {
+    const raw = (meta && (meta.provider || meta.family)) || 'Other';
+    // Known providers with non-title-case canonical spellings (brand casing the hub
+    // document may not match exactly).
+    const canonical = {
+        openai: 'OpenAI',
+        deepseek: 'DeepSeek',
+        nvidia: 'NVIDIA',
+        ai21: 'AI21',
+        huggingface: 'HuggingFace'
+    };
+    if (canonical[raw.toLowerCase()]) return canonical[raw.toLowerCase()];
+    return raw
+        .split(/[-_\s]+/)
+        .filter(Boolean)
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+}
+
+/**
+ * Build the `modelName` prompt choices from the MCP merge results (BL144, task 4).
+ *
+ * Rendering contract:
+ *   - `value` is ALWAYS the bare model id (no badge text) — the badge is a display aid,
+ *     never part of what threads downstream, so Req 2.6 holds by construction.
+ *   - `name` carries the id + an inline bracket of ALL advertised techniques, e.g.
+ *     `Qwen/Qwen3.6-27B  [SFT · DPO · RLVR · RLAIF · MTRL*]`. Implemented techniques are
+ *     plain; a KNOWN-but-unimplemented one (e.g. MTRL) is suffixed with
+ *     UNIMPLEMENTED_MARKER (`*`). A model with no advertised techniques gets no bracket;
+ *     serving-only models get no bracket.
+ *   - Provider separators group the managed models (by catalog `provider`, fallback
+ *     `family`), restoring the visual grouping of the hand-curated list.
+ *   - `description` (shown by @inquirer/select for the highlighted row, in its dim
+ *     style) is a STATIC legend — identical on every managed row, including the `*`
+ *     gloss. It NEVER changes to reflect the individual model; the badge carries that.
+ *
+ * Badges/legend derive from the shared technique enum (managed-techniques.js) — a novel
+ * technique is labeled with no change here.
+ *
+ * @param {string[]} mcpChoices - merged model ids from _queryMcpForModels
+ * @param {Record<string, string[]>} [capabilities] - { hfId: techniques[] } for managed
+ *   models; an id absent from this map is serving-only (no bracket).
+ * @param {Record<string, {family?: string, provider?: string}>} [modelMeta] - optional
+ *   per-id grouping metadata (family/provider); drives the separator rows. When absent,
+ *   no separators are inserted (flat list).
+ * @returns {Array<object>} choices (with `{type:'separator'}` rows interleaved)
+ */
+export function buildTransformerModelChoices(mcpChoices, capabilities = {}, modelMeta = {}) {
+    // Static legend, identical on every managed row. Includes the `*` gloss so the
+    // marker on unimplemented-technique badges is self-explaining without the legend
+    // ever changing per model.
+    const legend = `${buildLegend()}  ·  ${UNIMPLEMENTED_MARKER} = advertised, not yet driven by MLCC`;
+
+    /** Render one managed model into a choice row (badge + static legend). */
+    const managedRow = (id, techniques) => {
+        // Badge carries ALL advertised techniques: implemented ones plain,
+        // known-but-unimplemented ones suffixed with UNIMPLEMENTED_MARKER (`*`). The
+        // `*` meaning is explained once in the static legend — so the BADGE (not the
+        // legend) reflects per-model capability.
+        const { implemented, unimplemented } = partitionTechniques(techniques);
+        const implementedBadges = implemented.map(techniqueBadge);
+        const unimplementedBadges = unimplemented.map(t => `${techniqueBadge(t)}${UNIMPLEMENTED_MARKER}`);
+        const badges = [...implementedBadges, ...unimplementedBadges].join(' · ');
+        const name = badges ? `${id}  [${badges}]` : id;
+        return { name, value: id, description: legend };
+    };
+
+    // Partition into managed (grouped by provider) + serving-only, in a FIRST pass so a
+    // provider's models are collated under ONE header even when the catalog interleaves
+    // providers. Group order = first appearance; within a group, catalog order.
+    const groupOrder = [];           // provider label, first-appearance order
+    const groups = new Map();        // label → [{id, techniques}]
+    const servingOnly = [];          // ids with no managed capabilities
+
+    for (const id of mcpChoices) {
+        const techniques = capabilities[id];
+        if (!Array.isArray(techniques)) {
+            servingOnly.push(id);
+            continue;
+        }
+        const meta = modelMeta[id];
+        // No meta → single unlabeled bucket (flat list, backward compatible).
+        const label = meta ? groupLabel(meta) : null;
+        const key = label === null ? '' : label;
+        if (!groups.has(key)) {
+            groups.set(key, []);
+            groupOrder.push(key);
+        }
+        groups.get(key).push({ id, techniques });
+    }
+
+    const choices = [];
+    for (const key of groupOrder) {
+        if (key) choices.push({ type: 'separator', separator: `── ${key} ──` });
+        for (const { id, techniques } of groups.get(key)) {
+            choices.push(managedRow(id, techniques));
+        }
+    }
+
+    // Serving-only models (no managed capability) after the managed groups, ungrouped.
+    for (const id of servingOnly) {
+        choices.push({
+            name: id,
+            value: id,
+            description: 'Serving model — no managed tuning capabilities listed.'
+        });
+    }
+
+    // Free-entry lives under its own header — it is not a provider, it is "bring your
+    // own HuggingFace id".
+    choices.push({ type: 'separator', separator: '── HuggingFace ──' });
+    choices.push({ name: CUSTOM_MODEL_SENTINEL, value: CUSTOM_MODEL_SENTINEL });
+    return choices;
+}
 
 function buildEngineFeaturePrompts() {
     const prompts = [];
@@ -312,9 +453,15 @@ const modelFormatPrompts = [
         name: 'modelName',
         message: 'Which model do you want to use?',
         choices: (answers) => {
-            // Use MCP model-picker choices when available
+            // Use MCP model-picker choices when available (BL144: inline implemented-
+            // technique brackets + family separators; the legend is the highlighted-row
+            // description; value stays the bare id).
             if (answers._mcpModelChoices && answers._mcpModelChoices.length > 0) {
-                return [...answers._mcpModelChoices, 'Custom (enter manually)'];
+                return buildTransformerModelChoices(
+                    answers._mcpModelChoices,
+                    answers._mcpModelCapabilities || {},
+                    answers._mcpModelMeta || {}
+                );
             }
             // Fallback to hardcoded defaults based on architecture
             const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];

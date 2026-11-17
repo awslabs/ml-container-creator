@@ -199,6 +199,23 @@ derived from the descriptor.
 7. **Declare verb support** — for each `do/` verb, set its `@mlcc-script` `targets:`
    or add a `_restrict_targets` / `_contract_violation` guard (exit 3). Keep the
    verb's descriptor `verbs` map in step 1 in agreement.
+8. **Declare the metrics store** (Wave 9) — the descriptor's `observability` block
+   (`store: cloudwatch-promql | amp | none`, plus `selector`, `histogram_form`,
+   `dashboard` for a real store) and `verbs.metrics` (must equal `store != none`).
+   `do/benchmark`'s GPU/engine columns, `do/metrics` and the `do/status` dashboard
+   line derive from it; a target with `store: none` gets the `do/metrics` skip notice.
+9. **Declare scale-to-zero** (Wave 10, [ADR-014](../adr/ADR-014-scale-from-zero.md)) —
+   the descriptor's required `scale_to_zero` block: `support` (`native` |
+   `pod-only` | `requires-cluster-addon` | `not-applicable`), `mechanism`,
+   `wake_signal`, `requests_at_zero` (`fail` | `queued` | `unknown` | `n/a`),
+   `idle_billing`, `enabled`, and a `reason` whenever `enabled` is false. The schema
+   allows `enabled: true` only with `support: native` plus a mechanism and wake
+   signal. `do/deploy --scale-to-zero` acceptance (declare `--scale-to-zero` /
+   `--scale-max` in `answer_params` only when enabled), the refusal reason, the
+   cold-start warning wording, `do/status` and `do/clean` all derive from it, and
+   the matrix in [scale-to-zero.md](../scale-to-zero.md) is rendered from it. A new
+   target that cannot scale to zero declares `enabled: false` with its reason;
+   enabling one means adding its `mechanism` arm to `do/lib/scale-to-zero.sh`.
 
 Everything else — the guard's status-var case, `do-config.js` `SHELL_VAR_TO_ANSWER`,
 `regenerate`'s `RUNTIME_OWNED_VARS`, `deploy_schema.py`'s `SCHEMAS` / `STATUS_VARS`
@@ -303,8 +320,15 @@ For every `do/` verb, decide whether it applies to your target:
     its own distinct message.
 
   Both exit `3` (the reserved contract-violation code). Example: `do/optimize`
-  refuses `eks` because AI Recommendations need a SageMaker endpoint; `do/adapter`
-  *accepts* `eks` because vLLM LoRA hot-load works over a pod port-forward.
+  refuses `eks` because AI Recommendations need a SageMaker endpoint.
+- **Additive-deploy verbs (`do/adapter`, `do/add-ic`) are the exception** — do not
+  add a per-target guard to them. Their legality is derived from the ADR-013
+  contract in `script-contract.sh`: add your target to
+  `_additive_target_mechanisms` with the load mechanism(s) it exposes (e.g.
+  `vllm-hotload` for a vLLM pod you can port-forward to), and `do/adapter` accepts
+  it automatically (`eks` is accepted this way). Set the descriptor's
+  `verbs.adapter` / `verbs.add-ic` to match — `additive-deploy-contract.test.js`
+  fails if they disagree.
 
 ## Worked example — how `eks` was wired
 
@@ -322,7 +346,8 @@ touchpoint set:
 | 5 | regenerate | `src/lib/regenerate-command-handler.js` | STATUS_VARS += `DEPLOYMENT_TARGET_EKS_STATUS` |
 | 6 | contract enum | `test/unit/do-contract-conformance.test.js` | `VALID_TARGETS += 'eks'` |
 | 7 | dispatcher + menus | `templates/do/deploy`, `templates/do/clean` | `eks)` case + menu entries |
-| 9 | verb support | `do/adapter`, `do/benchmark`, `do/test` (accept) / `do/optimize`, `do/add-ic`, `do/ci` (refuse via exit 3) | per-verb target guards |
+| 9 | verb support | `do/benchmark`, `do/test` (accept) / `do/optimize`, `do/ci` (refuse via exit 3) | per-verb target guards |
+| 9 | additive verbs | `do/adapter` (accept) / `do/add-ic` (refuse) | derived from `_additive_target_mechanisms` (`eks) echo "vllm-hotload"`) — no per-script guard |
 
 If any one of these is missing, the target half-works. The bug that motivated
 this guide: `eks` had #1, #2, #3-write, #7 (deploy), and #9-accept-for-benchmark,

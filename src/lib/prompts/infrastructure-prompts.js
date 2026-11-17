@@ -480,7 +480,7 @@ const infraAsyncPrompts = [
     {
         type: 'input',
         name: 'asyncS3OutputPath',
-        message: 'S3 output path for async results (leave empty for default: s3://ml-container-creator-async-{region}-{account-id}/{project-name}/output/):',
+        message: 'S3 output path for async results (leave empty for default: s3://<core bucket from your bootstrap profile>/async-output/{project-name}/):',
         when: answers => answers.deploymentTarget === 'async-inference'
     },
     {
@@ -512,13 +512,13 @@ const infraBatchTransformPrompts = [
     {
         type: 'input',
         name: 'batchInputPath',
-        message: 'S3 input path for batch transform data (leave empty for default: s3://ml-container-creator-batch-{region}-{account-id}/{project-name}/input/):',
+        message: 'S3 input path for batch transform data (leave empty for default: s3://<core bucket from your bootstrap profile>/batch-input/{project-name}/):',
         when: answers => answers.deploymentTarget === 'batch-transform'
     },
     {
         type: 'input',
         name: 'batchOutputPath',
-        message: 'S3 output path for batch transform results (leave empty for default: s3://ml-container-creator-batch-{region}-{account-id}/{project-name}/output/):',
+        message: 'S3 output path for batch transform results (leave empty for default: s3://<core bucket from your bootstrap profile>/batch-output/{project-name}/):',
         when: answers => answers.deploymentTarget === 'batch-transform'
     },
     {

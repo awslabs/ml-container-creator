@@ -82,10 +82,59 @@
         "format": { "type": "string", "enum": ["prometheus", "json", "text"] }
       }
     },
+    "metric_signals": {
+      "type": "object",
+      "description": "Wave 9 (R2.1, ADR-008): the engine's Prometheus metric names for the abstract signals MLCC reads, so gpu_metrics.py (Phase 1 CloudWatch PromQL, HyperPod AMP, and the port-forward scrape) and do/metrics derive them instead of hardcoding per-engine names. Keys are MLCC-stable signal names (kv_cache_util, queue_depth_running, queue_depth_waiting, prefix_cache_hit_rate, spec_decode_acceptance_rate, ttft_seconds, e2e_seconds). gauge / counter / histogram signals carry `name` (counters include their `_total` suffix, as exported to CloudWatch and AMP). A `ratio` signal is a counter pair evaluated over the run window (increase(num) / increase(den)), never as a lifetime ratio. Declare only names verified against the engine; an engine without verified names omits the block.",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type"],
+        "properties": {
+          "type": { "type": "string", "enum": ["gauge", "counter", "histogram", "ratio"] },
+          "name": { "type": "string", "pattern": "^[a-zA-Z_:][a-zA-Z0-9_:]*$" },
+          "num": { "type": "string", "pattern": "^[a-zA-Z_:][a-zA-Z0-9_:]*$" },
+          "den": { "type": "string", "pattern": "^[a-zA-Z_:][a-zA-Z0-9_:]*$" }
+        },
+        "if": { "properties": { "type": { "const": "ratio" } } },
+        "then": { "required": ["num", "den"], "not": { "required": ["name"] } },
+        "else": { "required": ["name"], "not": { "anyOf": [{ "required": ["num"] }, { "required": ["den"] }] } }
+      }
+    },
     "dimension_map": {
       "type": "object",
       "additionalProperties": { "type": "string", "minLength": 1 },
       "description": "Maps a benchmark dimension to an engine config key / flag suffix. Combined with env_var_prefix to yield the full config key."
+    },
+    "sizing_map": {
+      "type": "object",
+      "description": "Wave 8 (right-sizing, R1.3): engine settings the deploy-fit checks (do/lib/python/right_sizing.py) read that are NOT benchmark dimensions (so they stay out of dimension_map and its regenerate / optimize consumers). Keyed by an MLCC-stable sizing input name (e.g. gpu_memory_utilization, max_num_seqs, dtype, tensor_parallel_degree); `suffix` composes the env var with env_var_prefix, `default` is the value the engine uses when the var is unset (omit when it varies by engine version / hardware, so the check reports it as unknown rather than guessing).",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "suffix": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "default": { "type": ["number", "string"] },
+          "default_by_gpu_memory_gib": {
+            "type": "object",
+            "description": "Hardware-tiered default: keys are per-GPU memory floors in GiB (numeric strings), values the default from that floor up (the largest floor <= the GPU's memory wins; below every floor, `default` applies).",
+            "propertyNames": { "pattern": "^[0-9]+(\\.[0-9]+)?$" },
+            "additionalProperties": { "type": "number" }
+          },
+          "in_flight_batches": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "max_num_batched_tokens only: scheduler batches the engine keeps in flight at once (async scheduling), so sliding-window KV holds window + this x the batch."
+          },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "quantization_methods": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "Wave 8 (right-sizing quant-engine check): quantization methods this engine accepts for its quantization setting. Optional: when absent, the quant-engine check reports `skip` (MLCC never guesses an engine's support list)."
     },
     "capability_map": {
       "type": "object",
@@ -125,6 +174,17 @@
               "description": "One AND-group: capability_map keys that must ALL resolve together."
             },
             "description": "Companion contract, OR of AND-groups: the capability is emittable if AT LEAST ONE inner group fully resolves (every key in that group resolves). Expresses engine rules like SGLang `--enable-lora` needs (max_lora_rank AND lora_target_modules) OR (lora_paths). When no group is fully satisfiable the capability is OMITTED (never emitted bare). The engine itself declares which groups it accepts; MLCC never branches on the engine name. Mutually exclusive with requires. An empty inner group [] means 'this group needs nothing' (always satisfiable)."
+          },
+          "default": {
+            "type": ["string", "integer"],
+            "description": "Wave 6.1 (BL188): the MLCC default value deploy fills for this capability when LoRA is on and the user set none (e.g. vLLM lora_max=4, lora_max_rank=16). The SINGLE source for that default: the deploy drivers, the generator resolver/prompt, the Dockerfile and the parameter-schema default all derive from it (drift-tested). Omit when MLCC supplies no default."
+          },
+          "allowed": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1 },
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "Wave 6.1 (BL188): the discrete values the engine accepts for this capability, ascending (e.g. vLLM max_lora_rank ∈ {1,8,16,32,64,128,256,320,512}). A derived value is snapped UP to the next allowed entry. Omit when the engine accepts any positive integer."
           }
         }
       }

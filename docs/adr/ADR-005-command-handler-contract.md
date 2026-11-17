@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — in progress (Wave 4)
+Accepted — in progress
 
 ## Context
 
@@ -63,7 +63,7 @@ intentionally NOT uniform.
   rule is calling `super()`.
 
 ### Scope
-Wave 4 migrates the three handlers that shared the `GENERATOR_ROOT` block —
+This change migrates the three handlers that shared the `GENERATOR_ROOT` block —
 **import, update, regenerate** — onto `BaseCommandHandler` (extend + `super()`,
 import the shared paths). The other five (bootstrap, architecture, mcp, prove,
 secrets) may adopt it incrementally; they are not forced to, because they do not
@@ -86,5 +86,5 @@ migrated handlers extend the base and expose `handle`.
 
 - `src/lib/base-command-handler.js` — the base class
 - `docs/architecture/command-handlers.md` — the handler map + which extend the base
-- `src/lib/do-config.js` — the shared do/config parser (Wave 4 Task 1)
+- `src/lib/do-config.js` — the shared do/config parser
 - ADR-002 — the consolidation program

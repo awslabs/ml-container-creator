@@ -13,14 +13,31 @@
     "IC_GPU_COUNT": "auto",
     "INSTANCE_TYPES": ""
   },
-  "runtime_owned_vars": ["DEPLOYMENT_TARGET_SMAI_STATUS"],
+  "runtime_owned_vars": ["DEPLOYMENT_TARGET_SMAI_STATUS", "SCALE_TO_ZERO", "SCALE_MAX_CAPACITY", "SCALE_TO_ZERO_STATUS"],
   "serving_config_source": "sagemaker-ic",
+  "service_quota_usage": "endpoint usage",
+  "pricing": { "service": "AmazonSageMaker", "component": "Hosting", "instance_count": { "basis": "endpoint-current" } },
+  "compute_backends": ["smtj"],
+  "scale_to_zero": { "support": "native", "mechanism": "sagemaker-ic-step", "wake_signal": "NoCapacityInvocationFailures", "requests_at_zero": "fail", "idle_billing": "none-at-zero", "enabled": true },
   "verbs": {
     "optimize": true,
     "add-ic": true,
+    "add-pod": false,
     "ci": true,
     "adapter": true,
-    "draft": false
+    "draft": false,
+    "metrics": true
+  },
+  "observability": {
+    "store": "cloudwatch-promql",
+    "histogram_form": "native",
+    "selector": {
+      "endpoint": "aws.sagemaker.endpoint.name",
+      "variant": "aws.sagemaker.variant.name",
+      "inference_component": "aws.sagemaker.inference_component.name"
+    },
+    "dashboard": "sagemaker-ai-insights",
+    "copy_concurrency": { "namespace": "AWS/SageMaker", "metric": "ConcurrentRequestsPerCopy", "dimension": "InferenceComponentName" }
   },
   "answer_params": [
     { "answerKey": "target", "configVar": "DEPLOYMENT_TARGET", "flag": "--target", "roles": ["flag-input", "prompt-core"] },
@@ -29,6 +46,8 @@
     { "answerKey": "endpoint_strategy", "configVar": "ENDPOINT_STRATEGY", "flag": "--endpoint-strategy", "roles": ["flag-input"] },
     { "answerKey": "instance_types", "configVar": "INSTANCE_TYPES", "flag": "--instance-types", "roles": ["flag-input"] },
     { "answerKey": "gpu_count", "configVar": "IC_GPU_COUNT", "flag": "--gpu-count", "roles": ["flag-input"] },
+    { "answerKey": "scale_to_zero", "configVar": "SCALE_TO_ZERO", "flag": "--scale-to-zero", "roles": ["flag-input", "input-only"] },
+    { "answerKey": "scale_max", "configVar": "SCALE_MAX_CAPACITY", "flag": "--scale-max", "roles": ["flag-input", "input-only"] },
     { "answerKey": "smai_instance_type", "configVar": "SMAI_INSTANCE_TYPE", "roles": ["builder-output"] },
     { "answerKey": "smai_endpoint_name", "configVar": "SMAI_ENDPOINT_NAME", "roles": ["builder-output"] },
     { "answerKey": "inference_ami_version", "configVar": "INFERENCE_AMI_VERSION", "roles": ["builder-output"] }

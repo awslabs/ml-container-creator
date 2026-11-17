@@ -83,15 +83,23 @@ describe('Multi-IC cleanup in do/clean (Requirements 5.2, 5.3)', () => {
             );
         });
 
-        it('should wait for deletion to complete', () => {
+        it('should pause after deletion without a nonexistent CLI waiter', () => {
             const output = renderClean(baseVars);
             const cleanIcStart = output.indexOf('clean_ic()');
             const cleanIcEnd = output.indexOf('cleaned"', cleanIcStart);
             const cleanIcBlock = output.substring(cleanIcStart, cleanIcEnd);
 
+            // The AWS CLI has no `wait inference-component-deleted` waiter (rc 252,
+            // "invalid choice"), so the old call always fell through to `|| sleep 15`.
+            // test/unit/test_aws_cli_flags.py rejects the nonexistent waiter.
+            const deletePos = cleanIcBlock.indexOf('delete-inference-component');
             assert.ok(
-                cleanIcBlock.includes('wait inference-component-deleted'),
-                'clean_ic must wait for IC deletion'
+                deletePos >= 0 && cleanIcBlock.indexOf('sleep 15', deletePos) > deletePos,
+                'clean_ic must pause after IC deletion'
+            );
+            assert.ok(
+                !cleanIcBlock.includes('wait inference-component-deleted'),
+                'clean_ic must not call the nonexistent IC-deleted waiter'
             );
         });
 
@@ -174,7 +182,7 @@ describe('Multi-IC cleanup in do/clean (Requirements 5.2, 5.3)', () => {
             );
         });
 
-        it('should wait for each IC deletion sequentially', () => {
+        it('should pause after each IC deletion sequentially', () => {
             const output = renderClean(baseVars);
 
             const cleanEndpointStart = output.indexOf('clean_endpoint()');
@@ -182,9 +190,15 @@ describe('Multi-IC cleanup in do/clean (Requirements 5.2, 5.3)', () => {
             const cleanEndpointBlock = output.substring(cleanEndpointStart, cleanEndpointEnd);
 
             // The multi-IC iteration block should wait for each IC
+            // No CLI waiter exists for IC deletion (see the clean_ic test above).
+            const deletePos = cleanEndpointBlock.indexOf('delete-inference-component');
             assert.ok(
-                cleanEndpointBlock.includes('wait inference-component-deleted'),
-                'clean_endpoint must wait for IC deletion'
+                deletePos >= 0 && cleanEndpointBlock.indexOf('sleep 15', deletePos) > deletePos,
+                'clean_endpoint must pause after IC deletion'
+            );
+            assert.ok(
+                !cleanEndpointBlock.includes('wait inference-component-deleted'),
+                'clean_endpoint must not call the nonexistent IC-deleted waiter'
             );
         });
 

@@ -6,7 +6,7 @@
  *
  * Mocha does NOT set NODE_ENV automatically, and this project runs with
  * `--parallel`, so each worker process must independently mark itself as a
- * test context. This file is loaded via `--require` in .mocharc.json for every
+ * test context. This file is loaded via `--require` in .mocharc.cjs for every
  * mocha process (main and parallel workers) BEFORE any test module is imported.
  *
  * We set ONLY `MLCC_SKIP_SECRET_DISCOVERY=1`. It fully activates the guard in
@@ -23,4 +23,15 @@
  */
 if (!process.env.MLCC_SKIP_SECRET_DISCOVERY) {
     process.env.MLCC_SKIP_SECRET_DISCOVERY = '1';
+}
+
+// Keep generation hermetic: --include-sample (on by default for the sklearn /
+// xgboost / lightgbm http-flask paths) would otherwise run `pip install -r
+// requirements.txt`, download the UCI abalone dataset and train a model inside
+// every generator subprocess. Locally pip usually fails fast (PEP 668) so this
+// went unnoticed; on GitHub runners it really installs and, under --parallel
+// load, exceeds runGenerator's timeout (exit code null). Tests assert the
+// generated sample_model/ files, never the trained artifact.
+if (!process.env.MLCC_SKIP_SAMPLE_TRAINING) {
+    process.env.MLCC_SKIP_SAMPLE_TRAINING = '1';
 }

@@ -199,7 +199,10 @@ def cmd_list_datasets(args):
         # _mlflow_configured() predicate so list/resolve/register stay consistent.
         if mlcc_mlflow._mlflow_configured():
             try:
-                inputs = mlcc_mlflow.list_dataset_inputs()
+                inputs = mlcc_mlflow.list_dataset_inputs(
+                    project_name=getattr(args, 'project_name', None),
+                    all_projects=getattr(args, 'all_projects', False),
+                )
             except mlcc_mlflow.MlflowUnavailableError as e:
                 # Configured-but-unreachable is a hard error on a read path (no
                 # durable side effect to protect); do not silently read the
@@ -378,6 +381,8 @@ def cmd_list_adapters(args):
 
         _output({"adapters": adapters})
 
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
     except Exception as e:
         error_msg = str(e).lower()
         if "does not exist" in error_msg or "not found" in error_msg:
@@ -440,6 +445,8 @@ def cmd_list_models(args):
 
         _output({"models": models})
 
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
     except Exception as e:
         error_msg = str(e).lower()
         if "does not exist" in error_msg or "not found" in error_msg:

@@ -15,6 +15,7 @@ import fc from 'fast-check';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { _ensureTemplateVariables } from '../../src/lib/template-variable-resolver.js';
+import { loraSizingDefaults } from '../../src/lib/serve-manifest-reader.js';
 import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -63,7 +64,7 @@ describe('Feature: lora-benchmark-simplification, Property 1: LoRA always enable
         ), { numRuns: PROPERTY_CONFIG.numRuns });
     });
 
-    it('for any LoRA-compatible backend, maxLoras defaults to 30 and maxLoraRank defaults to 64', { timeout: 30000 }, async () => {
+    it('for any LoRA-compatible backend, maxLoras and maxLoraRank default to the serve manifest values (BL188)', { timeout: 30000 }, async () => {
         /**
          * **Validates: Requirements 1.1, 1.2**
          */
@@ -83,10 +84,15 @@ describe('Feature: lora-benchmark-simplification, Property 1: LoRA always enable
 
                 await _ensureTemplateVariables(answers, null);
 
-                assert.strictEqual(answers.maxLoras, 30,
-                    `maxLoras must default to 30 for backend "${backend}" but got ${answers.maxLoras}`);
-                assert.strictEqual(answers.maxLoraRank, 64,
-                    `maxLoraRank must default to 64 for backend "${backend}" but got ${answers.maxLoraRank}`);
+                // Derived from serve.d/<engine>/manifest.json capability_map
+                // defaults (single source, BL188) — never a pinned literal.
+                const expected = loraSizingDefaults(backend);
+                assert.ok(Number.isInteger(expected.maxLoras) && expected.maxLoras > 0);
+                assert.ok(Number.isInteger(expected.maxLoraRank) && expected.maxLoraRank > 0);
+                assert.strictEqual(answers.maxLoras, expected.maxLoras,
+                    `maxLoras must default to the manifest value for backend "${backend}" but got ${answers.maxLoras}`);
+                assert.strictEqual(answers.maxLoraRank, expected.maxLoraRank,
+                    `maxLoraRank must default to the manifest value for backend "${backend}" but got ${answers.maxLoraRank}`);
             }
         ), { numRuns: PROPERTY_CONFIG.numRuns });
     });

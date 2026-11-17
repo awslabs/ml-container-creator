@@ -1,0 +1,17 @@
+{
+  "_comment": "Wave 10 (ADR-014 R5.2): the ONLY measured scale-from-zero figures MLCC quotes. Every warning and cost caveat reads them from here (do/lib/python/scale_to_zero.py); no script repeats the numbers. Change only with owner approval, from a measured run (owner-validation runbook results go to an ADR-014 addendum first).",
+  "source": "owner study, AWS-documented IC scale-from-zero pattern (ADR-014 Context; tracker C3)",
+  "date": "2026-10",
+  "model": "Gemma-3-4B",
+  "instance": "ml.g7",
+  "engine": "vLLM 0.32.0",
+  "region": "us-east-1",
+  "runs_minutes": [10.9, 11.8, 12.9],
+  "recovery_mean_minutes": 11.9,
+  "breakdown_minutes": [
+    { "phase": "alarm and scaling decision", "minutes": 3.5 },
+    { "phase": "instance", "minutes": 2.1 },
+    { "phase": "container and model readiness", "minutes": 6.0 },
+    { "phase": "first token", "minutes": 0.2 }
+  ]
+}

@@ -57,6 +57,81 @@ def check_name_budget(name):
     )
 
 
+# ── MLCC-owned reward-Lambda deploy (--finalize) ───────────────────────────────
+
+
+def _resolve_evaluator_bucket(region):  # noqa: ARG001 — kept for call-site compatibility
+    """The bucket the reward-code backup is staged into: the CORE bucket (bucket
+    consolidation R3.9 — evaluators are shared registered assets, like reward
+    prompts, at evaluators/<name>/; the reward-Lambda role can read that prefix).
+    Comes ONLY from the profile-resolved env (CORE_S3_BUCKET, passed by do/register
+    from the profile key coreS3Bucket). Returns None when unset — the backup is
+    best-effort, so the caller skips it rather than guessing a bucket name."""
+    import os
+    return os.environ.get("CORE_S3_BUCKET") or None
+
+
+def _deploy_reward_lambda(*, name, local_py, role_arn, region):
+    """Deploy ``local_py`` as a reward-function Lambda MLCC owns, returning its ARN.
+
+    Mirrors what the SDK's Evaluator.create would do for a local source, but fixes
+    its breakages: stages the code backup into the core bucket evaluators/<name>/ (not the
+    nonexistent default), zips the file AS ``lambda_function.py`` so the standard
+    ``lambda_function.lambda_handler`` entrypoint resolves (the materialized sample
+    defines ``handler`` with a ``lambda_handler`` alias), and uses the dual-trust
+    ``role_arn``. Idempotent on the function name: updates code if it already exists.
+    """
+    import io
+    import os
+    import zipfile
+    import boto3
+
+    # (a) Stage a readable backup of the source into the core bucket (evaluators/<name>/).
+    import s3_layout  # noqa: PLC0415 — the single layout module
+    bucket = _resolve_evaluator_bucket(region)
+    key = s3_layout.evaluator_key(name)
+    try:
+        if not bucket:
+            raise RuntimeError(
+                "no core bucket in the active profile (coreS3Bucket); "
+                "run: ml-container-creator bootstrap update --module core"
+            )
+        boto3.client("s3", region_name=region).upload_file(local_py, bucket, key)
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
+    except Exception as e:  # noqa: BLE001 — backup is best-effort, not fatal
+        _warn(f"Could not stage reward-code backup to s3://{bucket}/{key}: {e}")
+
+    # (b) Build the ZIP with the file named lambda_function.py so the handler
+    # lambda_function.lambda_handler resolves (the sample exposes lambda_handler).
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.write(local_py, "lambda_function.py")
+    zip_buf.seek(0)
+    code_bytes = zip_buf.read()
+
+    lam = boto3.client("lambda", region_name=region)
+    fn_name = f"mlcc-reward-{name}"[:64]
+    handler = "lambda_function.lambda_handler"
+    runtime = "python3.12"
+
+    # (c) Create (or update) the function with the dual-trust role.
+    try:
+        resp = lam.create_function(
+            FunctionName=fn_name,
+            Runtime=runtime,
+            Role=role_arn,
+            Handler=handler,
+            Code={"ZipFile": code_bytes},
+            Timeout=60,
+            Description=f"MLCC reward function for evaluator '{name}'",
+        )
+        return resp["FunctionArn"]
+    except lam.exceptions.ResourceConflictException:
+        lam.update_function_code(FunctionName=fn_name, ZipFile=code_bytes)
+        return lam.get_function(FunctionName=fn_name)["Configuration"]["FunctionArn"]
+
+
 # ── Native evaluator create (both types) ───────────────────────────────────────
 
 
@@ -158,9 +233,9 @@ def _register(*, name, source, evaluator_type, region, description,
         _error_exit(
             f"Failed to create the native evaluator '{name}' ({e}).\n"
             "    The evaluator role must be a SageMaker-trusted role carrying the\n"
-            "    launch-gate IAM (provisioned by `ml-container-creator bootstrap`,\n"
-            "    module `training`). If this is a permissions error, run\n"
-            "    `mcc bootstrap update --module training` to refresh the role.",
+            "    launch-gate IAM (the core execution role provisioned by\n"
+            "    `ml-container-creator bootstrap`). If this is a permissions error, run\n"
+            "    `mcc bootstrap update --module core` to refresh the role.",
             code="EVALUATOR_CREATE_FAILED",
         )
 
@@ -232,8 +307,15 @@ def cmd_register_evaluator(args):
             sample_mod.cmd_materialize_sample(args)
             return
 
-        # Step 2 (--finalize): register the edited local .py via the managed-Lambda
-        # path. This is where the dual-trust role is required.
+        # Step 2 (--finalize): deploy the edited local .py as a Lambda WE own
+        # (MLCC-owned deploy, not the SDK's _create_lambda_function), then register
+        # the resulting ARN via the reliable --arn path. This fixes the SDK path's
+        # three breakages: (a) it uploaded to a nonexistent default bucket
+        # `sagemaker-<region>-<account>` → NoSuchBucket; we use the core bucket evaluators prefix;
+        # (b) it hardcodes handler `lambda_function.lambda_handler`; we zip the file
+        # AS `lambda_function.py` so that handler resolves; (c) it needs the
+        # dual-trust role, now provisioned by the training bootstrap module and
+        # threaded as MLCC_REWARD_LAMBDA_ROLE_ARN.
         if not os.path.exists(local_py):
             _error_exit(
                 f"No reward function found at {local_py}. Run "
@@ -244,21 +326,32 @@ def cmd_register_evaluator(args):
         ok, reason = check_name_budget(name)
         if not ok:
             _error_exit(reason, code="EVALUATOR_NAME_TOO_LONG")
-        _warn(
-            "Registering from a local reward function makes SageMaker create and "
-            "own a managed Lambda. This needs a DUAL-TRUST reward-Lambda role "
-            "(trusted by BOTH sagemaker.amazonaws.com AND lambda.amazonaws.com) "
-            "plus iam:PassRole \u2014 NOT the plain training role. Set "
-            "MLCC_REWARD_LAMBDA_ROLE_ARN to that role, or the create will fail "
-            "with a Lambda trust error. See docs/fine-tuning.md."
+
+        role_arn = os.environ.get("MLCC_REWARD_LAMBDA_ROLE_ARN")
+        if not role_arn:
+            _error_exit(
+                "MLCC_REWARD_LAMBDA_ROLE_ARN is not set. The reward Lambda needs the "
+                "dual-trust (sagemaker + lambda) role provisioned by the training "
+                "bootstrap module. Re-provision it with:\n"
+                "    ml-container-creator bootstrap --module training\n"
+                "then retry. (Alternatively, deploy your own Lambda and register it "
+                "with --arn <lambda-arn>.)",
+                code="MISSING_REWARD_LAMBDA_ROLE",
+            )
+
+        lambda_arn = _deploy_reward_lambda(
+            name=name, local_py=local_py, role_arn=role_arn, region=region,
         )
-        role_override = os.environ.get("MLCC_REWARD_LAMBDA_ROLE_ARN")
+        print(
+            f"\u2713 Deployed reward Lambda for '{name}': {lambda_arn}",
+            file=sys.stderr,
+        )
+        # Register the ARN we just created — the reliable, reference-only path.
         _register(
-            name=name, source=local_py, evaluator_type="reward_function",
+            name=name, source=lambda_arn, evaluator_type="reward_function",
             region=region,
             description=getattr(args, "description", None),
             verb="evaluator", register_hint="do/register evaluator",
-            role_override=role_override,
         )
         return
 
@@ -313,3 +406,42 @@ def cmd_register_prompt(args):
         description=getattr(args, "description", None),
         verb="prompt", register_hint="do/register prompt",
     )
+
+    # BL167 R2: ADDITIVELY register the reward prompt in the MLflow GenAI Prompt
+    # Registry (the AI-Registry evaluator above stays the Studio record + the
+    # deploy-time reference do/tune resolves). Under the OQ-1 hybrid: the AI
+    # Registry create already succeeded (fatal, done); the MLflow copy is
+    # additive — a transient unreachable App WARNS and reconciles on re-run, a
+    # real error is surfaced. Reward FUNCTIONS register nothing to MLflow.
+    try:
+        import mlcc_mlflow
+        if mlcc_mlflow._mlflow_configured() and source.startswith("s3://"):
+            template = _read_s3_text(source, region)
+            if template:
+                mlcc_mlflow.hybrid_record(
+                    local_write=lambda: None,  # AI Registry already wrote the record
+                    mlflow_write=lambda: mlcc_mlflow.register_prompt_native(name, template),
+                    name=name, kind="prompt",
+                )
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
+    except Exception as e:  # noqa: BLE001 — the AI Registry asset already stands
+        import sys
+        print(f"\u26a0\ufe0f  MLflow Prompt Registry copy skipped ({e}); the AI "
+              "Registry evaluator stands.", file=sys.stderr)
+
+
+def _read_s3_text(s3_uri, region=None):
+    """Read a small text object (a reward prompt file) from S3; '' on any failure."""
+    try:
+        import boto3
+        from urllib.parse import urlparse
+        p = urlparse(s3_uri)
+        obj = boto3.client("s3", region_name=region).get_object(
+            Bucket=p.netloc, Key=p.path.lstrip("/"),
+        )
+        return obj["Body"].read().decode("utf-8")
+    except (NameError, AttributeError):
+        raise  # R9.2/BL172: a programming error must never be swallowed as best-effort
+    except Exception:  # noqa: BLE001 — best-effort; no template → skip MLflow copy
+        return ""

@@ -103,10 +103,13 @@ class TestAdapterMetadataMirror:
         assert props["tuneTechnique"] == "lora"
         assert props["datasetS3Uri"] == "s3://b/ds/"
 
-    def test_empty_base_id_yields_empty_family_values(self):
+    def test_empty_base_id_omits_family_keys(self):
+        # SageMaker CreateModelPackage rejects a zero-length metadata value, so
+        # _truncate_metadata drops empty entries rather than sending "".
         props = _build_adapter_metadata(_args(base_id=""))
-        assert props["mlcc.family"] == ""
-        assert props["mlcc.base_model_id"] == ""
+        assert "mlcc.family" not in props
+        assert "mlcc.base_model_id" not in props
+        assert props["isAdapter"] == "true"
 
 
 # ---------------------------------------------------------------------------
@@ -253,46 +256,50 @@ class TestRegisterAdapterOrdering:
     def test_resolve_runs_before_register_and_run_id_propagates(self, monkeypatch):
         base = "meta-llama/Llama-3.1-8B"
         members = [_LoggedModel(base, "base", name="b1", run_id="run-base-777")]
-
         sm_client = MagicMock()
-        sm_client.create_model_package.return_value = {
-            "ModelPackageArn": "arn:aws:sagemaker:us-east-1:1:model-package/proj/2"
-        }
         self._install_mocks(monkeypatch, members, sm_client)
-
-        # Wire resolve + register onto a single parent to record call order.
+        # Wire resolve + register + bridge onto a single parent to record call order.
         recorder = mock.Mock()
         real_resolve = register_model._resolve_base_source_run_id
-
         def _resolve(base_id, client=None):
             recorder("resolve")
             return real_resolve(base_id, client=client)
-
         version = MagicMock()
         version.name = mlcc_mlflow.sanitize_name(f"{base}__adapter__my-lora")
         captured = {}
-
         def _register(**kwargs):
             recorder("register")
             captured.update(kwargs)
             return version
-
+        bridge = {}
+        def _register_via_bridge(**kwargs):
+            recorder("bridge")
+            bridge.update(kwargs)
+            return {"version": 2,
+                    "sagemaker_model_package_arn": "arn:aws:sagemaker:us-east-1:1:model-package/proj-abc/2"}
         monkeypatch.setattr(register_model, "_resolve_base_source_run_id", _resolve)
         monkeypatch.setattr(mlcc_mlflow, "register", _register)
-
+        # BL164: the adapter's Model Package is created BY the MLflow bridge
+        # (register_via_bridge), not by a hand-rolled create_model_package.
+        monkeypatch.setattr(mlcc_mlflow, "_mlflow_configured", lambda *a, **k: True)
+        monkeypatch.setattr(mlcc_mlflow, "register_via_bridge", _register_via_bridge)
+        monkeypatch.setattr(mlcc_mlflow, "add_derived_from_edge", lambda **k: None)
+        # No dataset URI: keeps the best-effort BL123 dataset-lineage run (real
+        # mlflow) out of this unit test.
         with pytest.raises(SystemExit) as exc:  # _output calls sys.exit(0)
-            register_model.cmd_register_adapter(_args())
+            register_model.cmd_register_adapter(_args(dataset_s3_uri=""))
         assert exc.value.code == 0
-
-        # Ordering: resolve strictly before register.
-        assert recorder.call_args_list == [call("resolve"), call("register")]
+        # Ordering: resolve strictly before the family register, then the bridge.
+        assert recorder.call_args_list == [call("resolve"), call("register"), call("bridge")]
         # Value propagation: resolved run id lands in base_model_run_id.
         assert captured["params"][mlcc_mlflow.PARAM_BASE_MODEL_RUN_ID] == "run-base-777"
-        # MPG mirror fired with both family keys.
-        _, sm_kwargs = sm_client.create_model_package.call_args
-        props = sm_kwargs["CustomerMetadataProperties"]
-        assert props["mlcc.family"] == base
-        assert props["mlcc.base_model_id"] == base
+        # Family linkage mirrored onto the bridge version: mlcc.base_model_id as a
+        # tag, and base_model_name (the bridge sets mlcc.family from it).
+        assert bridge["artifact_kind"] == "lora_adapter"
+        assert bridge["base_model_name"] == base
+        assert bridge["tags"]["mlcc.base_model_id"] == base
+        assert bridge["inference_spec"] is None
+        sm_client.create_model_package.assert_not_called()
 
     def test_base_run_not_found_exits_before_register(self, monkeypatch):
         base = "b"

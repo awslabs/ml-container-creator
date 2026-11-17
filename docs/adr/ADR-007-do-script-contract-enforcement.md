@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Status
 
-Accepted — in progress (Wave 6)
+Accepted — in progress
 
 ## Context
 
@@ -22,7 +22,7 @@ governs them, documented in [`docs/do-script-contract.md`](../do-script-contract
 - `_require_guard` for inline flag escalation and `_guard_met` for non-enforcing
   queries.
 
-The convention is sound. The problem Wave 6 addresses is that **reality has
+The convention is sound. The problem this ADR addresses is that **reality has
 drifted from it and nothing catches the drift**:
 
 1. **Header regressions.** `do/deploy` and `do/clean` are missing the
@@ -110,13 +110,13 @@ its `targets` with the shipped file, standardize the header example on
 cross-reference the shell↔JS contract enforced by `src/lib/do-config.js`
 (config lines must be single-line `export UPPER_SNAKE=…`; only the
 `SHELL_VAR_TO_ANSWER` keys round-trip to generator answers). Add
-`docs/architecture/do-scripts.md` as the Wave 6 corpus explainer.
+`docs/architecture/do-scripts.md` as the `do/`-subsystem corpus explainer.
 
 ### Out of scope (filed as backlog)
 
 The **JSON parse-back idiom** consolidation is deferred. It spans dozens of call
 sites inside the large helper-driven scripts (`register`, `train`, `tune`,
-`adapter`, …), is orthogonal to the *contract-convention* theme of this wave, and
+`adapter`, …), is orthogonal to the *contract-convention* theme of this ADR, and
 carries real behavioral risk (each site parses different fields with subtly
 different error handling). Filed as a backlog item to be tackled as its own
 focused pass, with the `aws-preflight.sh` extraction as the proven template.
@@ -133,17 +133,17 @@ focused pass, with the `aws-preflight.sh` extraction as the proven template.
 - **Risk:** low–medium. The `deploy.d/*` / `clean.d/*` migrations touch the
   deploy/teardown path; mitigated by keeping each script's behavior identical and
   verifying against the existing do-script / do-config suites plus a generation
-  smoke test. The JSON-idiom deferral keeps the high-risk change out of this wave.
+  smoke test. The JSON-idiom deferral keeps the high-risk change out of scope.
 
-## Follow-up (post-wave re-audit)
+## Follow-up (post-implementation re-audit)
 
-A per-script re-audit after the wave produced
+A per-script re-audit after the work produced
 [`do-scripts-wave6-changelog.md`](../architecture/do-scripts-wave6-changelog.md)
 (a reviewable before/after record) and caught one behavior change that had been
 made implicitly: `do/adapter` had started *rejecting* the `eks` target. `eks`
-(EKS without the HyperPod Inference Operator) is a first-class — if currently
-untested — target, so this was corrected to *allow* LoRA on `eks` (routed through
-the same vLLM hot-load path as `hyperpod-eks`). The audit also found `eks` was
+(EKS without the HyperPod Inference Operator) is a first-class target, so this was
+corrected to *allow* LoRA on `eks` (routed through the same vLLM hot-load path as
+`hyperpod-eks`). The audit also found `eks` was
 missing from `_guard_deployment_active`, the `config` status vars, `do-config.js`,
 the `regenerate` preservation list, and the conformance target enum; all were
 wired so `eks` is first-class at the guard/status layer. Adding a new target is
@@ -153,10 +153,10 @@ now documented in
 ## References
 
 - `docs/do-script-contract.md` — the contract convention + script registry
-- `docs/architecture/do-scripts.md` — how the `do/` subsystem works today (Wave 6)
+- `docs/architecture/do-scripts.md` — how the `do/` subsystem works today
 - `docs/architecture/deployment-target-authoring.md` — how to add a deployment target
 - `docs/architecture/do-scripts-wave6-changelog.md` — per-script before/after record
 - `templates/do/lib/script-contract.sh` — the guard enforcer (+ `_restrict_targets`)
 - `templates/do/lib/aws-preflight.sh` — the shared credential preflight
-- `src/lib/do-config.js` — the shell↔JS config contract (ADR-005, Wave 4)
+- `src/lib/do-config.js` — the shell↔JS config contract (ADR-005)
 - ADR-002 — the consolidation program

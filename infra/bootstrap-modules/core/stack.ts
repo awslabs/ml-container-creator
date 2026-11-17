@@ -6,6 +6,13 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
+import CORE_BUCKETS from './buckets.json';
+import {
+    StackBucketDeclarations, bucketDeclaration, declaredBucket, renderBucketName,
+} from '../bucket-declarations';
+
+/** The core stack's bucket declarations (single declared source, R1.2). */
+export const BUCKETS: StackBucketDeclarations = CORE_BUCKETS;
 
 export interface MlccCoreStackProps extends cdk.StackProps {
     profileName: string;
@@ -33,18 +40,28 @@ export class MlccCoreStack extends cdk.Stack {
 
         // ── Models bucket — staged model weights (do/stage → do/submit/deploy) ──
         // Bootstrap-owned; do/ scripts NEVER create buckets. RETAIN — staged
-        // weights are large and expensive to re-download. Adopt-if-exists so a
-        // re-provision against a retained bucket doesn't collide on create.
-        const modelsBucketName = `mlcc-core-${this.account}-${this.region}`;
-        this.modelsBucket = adoptExistingBuckets
-            ? s3.Bucket.fromBucketName(this, 'ModelsBucketResource', modelsBucketName)
-            : new s3.Bucket(this, 'ModelsBucketResource', {
-                bucketName: modelsBucketName,
-                versioned: true,
-                encryption: s3.BucketEncryption.S3_MANAGED,
-                removalPolicy: cdk.RemovalPolicy.RETAIN,
-                blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-            });
+        // weights are large and expensive to re-download. Declared in
+        // ./buckets.json; the runner adopts it by reference ONLY while it exists but
+        // is not yet a resource of this stack (stack creation; imported right after).
+        // Lifecycle (owner decision D1b): versioning + overwrite-on-promote would
+        // otherwise keep every old version forever, so noncurrent versions expire
+        // after 30 days; abandoned multipart uploads are aborted after 7 days.
+        const modelsBucketName = renderBucketName(
+            bucketDeclaration(BUCKETS, 'ModelsBucketResource'),
+            { account: this.account, region: this.region, profileName },
+        );
+        this.modelsBucket = declaredBucket(this, 'ModelsBucketResource', modelsBucketName, adoptExistingBuckets, {
+            versioned: true,
+            encryption: s3.BucketEncryption.S3_MANAGED,
+            blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+            lifecycleRules: [{
+                id: 'ExpireNoncurrentVersions',
+                noncurrentVersionExpiration: cdk.Duration.days(30),
+            }, {
+                id: 'AbortIncompleteMultipartUploads',
+                abortIncompleteMultipartUploadAfter: cdk.Duration.days(7),
+            }],
+        });
 
         // IAM Role for SageMaker execution
         this.role = new iam.Role(this, 'ExecutionRole', {
@@ -54,7 +71,7 @@ export class MlccCoreStack extends cdk.Stack {
         });
 
         // ── Execution role policy — full lifecycle permission set ──────────────
-        // Mirrors the validated v1.0/v1.1 monolithic role (config/bootstrap-stack.json).
+        // Mirrors the validated v1.0/v1.1 monolithic role (the retired monolithic bootstrap template).
         // The modular rewrite under-scoped this role; ported in full 2026-07-07 (BL055).
 
         this.role.addToPolicy(new iam.PolicyStatement({
@@ -115,6 +132,11 @@ export class MlccCoreStack extends cdk.Stack {
         }));
 
         // MLflow experiment tracking (tune/train).
+        // NOTE (BL163): MLCC uses the serverless MLflow *App* (the Ml*App* actions
+        // below). The *MlflowTrackingServer* actions are a vestige from the earlier
+        // tracking-server design and are no longer exercised by the shared-catalog
+        // flow. They are left in place deliberately (defensive, out of scope for
+        // BL163) and flagged here for a future IAM-minimization cleanup.
         this.role.addToPolicy(new iam.PolicyStatement({
             sid: 'SageMakerMLflow',
             actions: [
@@ -124,6 +146,23 @@ export class MlccCoreStack extends cdk.Stack {
                 'sagemaker:UpdateMlflowApp', 'sagemaker:DescribeMlflowApp',
                 'sagemaker:CreatePresignedMlflowAppUrl', 'sagemaker:CallMlflowAppApi',
                 'sagemaker-mlflow:*',
+            ],
+            resources: ['*'],
+        }));
+
+        // MLflow -> Model Registry bridge (BL164 / ADR-013). When the App has
+        // AutoModelRegistrationEnabled, mlflow.register_model makes THIS role
+        // auto-create a SageMaker Model Package (+ group) and its lineage edges.
+        // The bridge needs these three beyond the base MLflow actions above;
+        // without them lineage/lifecycle silently degrade (live-verified the role
+        // was missing them, BL168 §6). Model-package create/describe already exist
+        // elsewhere in this policy.
+        this.role.addToPolicy(new iam.PolicyStatement({
+            sid: 'SageMakerModelRegistryBridge',
+            actions: [
+                'sagemaker:UpdateModelPackage',   // lifecycle (alias -> stage/status)
+                'sagemaker:CreateAction',         // lineage: experiment/run -> package
+                'sagemaker:AddAssociation',       // lineage edges
             ],
             resources: ['*'],
         }));
@@ -183,14 +222,39 @@ export class MlccCoreStack extends cdk.Stack {
             ],
         }));
 
-        // Secrets Manager — server-side jobs resolve the HF token themselves.
+        // Secrets Manager — server-side jobs and serving containers resolve the
+        // HF token / NGC key themselves. BL212: do/deploy passes only
+        // HF_TOKEN_ARN / NGC_API_KEY_ARN in the container Environment and the
+        // container (code/serve) calls GetSecretValue as this role at startup.
+        // Scoped to the names MLCC creates:
+        //   • mlcc/<type>/<label>          — `ml-container-creator secrets create`
+        //   • ml-container-creator/...     — do/benchmark's HF token secret
+        //   • mlcc-hf-token-<project>      — default name from the generate-time prompt
+        // do/lib/secrets.sh warns when a configured secret is outside these
+        // (drift-checked by test/unit/test_container_secrets_guard.py).
+        const mlccSecretArns = [
+            `arn:aws:secretsmanager:*:${this.account}:secret:mlcc/*`,
+            `arn:aws:secretsmanager:*:${this.account}:secret:ml-container-creator/*`,
+            `arn:aws:secretsmanager:*:${this.account}:secret:mlcc-hf-token-*`,
+        ];
         this.role.addToPolicy(new iam.PolicyStatement({
             sid: 'SecretsManagerRead',
             actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
-            resources: [
-                `arn:aws:secretsmanager:*:${this.account}:secret:mlcc/*`,
-                `arn:aws:secretsmanager:*:${this.account}:secret:ml-container-creator/*`,
-            ],
+            resources: mlccSecretArns,
+        }));
+        // Customer-managed KMS keys (`secrets create --kms-key-id`): decrypt only
+        // when Secrets Manager calls KMS on our behalf for one of the secrets above.
+        // Secrets encrypted with the AWS-managed aws/secretsmanager key need no grant.
+        this.role.addToPolicy(new iam.PolicyStatement({
+            sid: 'SecretsManagerKmsDecrypt',
+            actions: ['kms:Decrypt'],
+            resources: [`arn:aws:kms:*:${this.account}:key/*`],
+            conditions: {
+                StringLike: {
+                    'kms:ViaService': 'secretsmanager.*.amazonaws.com',
+                    'kms:EncryptionContext:SecretARN': mlccSecretArns,
+                },
+            },
         }));
 
         this.role.addToPolicy(new iam.PolicyStatement({

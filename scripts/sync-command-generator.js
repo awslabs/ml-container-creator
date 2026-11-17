@@ -13,7 +13,8 @@
 
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
+import { listTargets } from '../src/lib/target-manifest-reader.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -181,11 +182,25 @@ function extractGpuInstances() {
     return instances;
 }
 
+/**
+ * Derive the deployment targets from templates/do/targets.d/<target>/manifest.json
+ * (ADR-008: one descriptor per target is the source of truth). The id doubles as
+ * the label so no per-target table lives here.
+ * @returns {{id: string, label: string}[]}
+ */
+export function deriveDeploymentTargets() {
+    return listTargets().map(id => ({ id, label: id }));
+}
+
 // ============================================================
 // LAYER 2: Manifest generation
 // ============================================================
 
-function buildManifest() {
+/**
+ * Build the cli-manifest.json object from the CLI, catalogs and target descriptors.
+ * @returns {Object}
+ */
+export function buildManifest() {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
     return {
         generatedAt: new Date().toISOString(),
@@ -193,12 +208,7 @@ function buildManifest() {
         cliOptions: extractCliOptions(),
         deploymentConfigs: extractDeploymentConfigs(),
         gpuInstances: extractGpuInstances(),
-        deploymentTargets: [
-            { id: 'realtime-inference', label: 'Real-Time Inference' },
-            { id: 'async-inference', label: 'Async Inference' },
-            { id: 'batch-transform', label: 'Batch Transform' },
-            { id: 'hyperpod-eks', label: 'HyperPod EKS' }
-        ],
+        deploymentTargets: deriveDeploymentTargets(),
         serverEnvVars: extractServerEnvVars(),
         icVars: extractIcVars(),
         adapterCommands: extractAdapterFlags(),
@@ -321,6 +331,20 @@ function checkDrift(manifest) {
     const newIc = (manifest.icVars || []).join(',');
     if (existingIc !== newIc) errors.push(`IC vars changed: [${existingIc}] → [${newIc}]`);
 
+    // Deployment targets (derived from targets.d descriptors)
+    const exTargets = (existing.deploymentTargets || []).map(t => t.id).join(',');
+    const newTargets = manifest.deploymentTargets.map(t => t.id).join(',');
+    if (exTargets !== newTargets) errors.push(`Deployment targets: [${exTargets}] → [${newTargets}]`);
+
+    // Synced catalogs must be byte-identical to servers/lib/catalogs/
+    for (const file of CATALOGS_TO_SYNC) {
+        const src = fs.readFileSync(path.join(CATALOG_DIR, file));
+        const dest = path.join(DOCS_DATA, file);
+        if (!fs.existsSync(dest) || !src.equals(fs.readFileSync(dest))) {
+            errors.push(`docs/data/${file} differs from servers/lib/catalogs/${file}`);
+        }
+    }
+
     // Instance count
     const exInstCount = Object.keys(existing.gpuInstances || {}).length;
     const newInstCount = Object.keys(manifest.gpuInstances || {}).length;
@@ -388,9 +412,12 @@ function generateCoverageFile(manifest) {
 // Main
 // ============================================================
 
-const manifest = buildManifest();
+const IS_MAIN = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+const manifest = IS_MAIN ? buildManifest() : null;
 
-if (CHECK_MODE) {
+if (!IS_MAIN) {
+    // Imported (tests): expose the derivations only, no side effects.
+} else if (CHECK_MODE) {
     checkDrift(manifest);
     validateCoverage(manifest);
 } else {

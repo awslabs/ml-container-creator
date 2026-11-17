@@ -1,6 +1,6 @@
 {
   "_comment": "Instance family \u2192 GPU driver version mapping for SageMaker inference fleet. Source: AWS docs (inference-gpu-drivers.html) + empirical validation. Updated quarterly or when AWS announces fleet driver updates.",
-  "_last_updated": "2026-09-10",
+  "_last_updated": "2026-10-26",
   "instance_families": {
     "g4dn": {
       "driver": "535.183",
@@ -58,43 +58,74 @@
     },
     "trn1": null,
     "trn2": null,
+    "inf1": null,
     "inf2": null,
     "g7": {
-      "driver": "570.86",
-      "cuda_native": "12.8",
+      "driver": "580",
+      "cuda_native": "13.0",
       "gpu": "RTX PRO 4500",
       "gpu_memory_gb": 32,
-      "inference_ami_version": "al2023-ami-sagemaker-inference-gpu-4-1"
+      "inference_ami_version": "al2023-ami-sagemaker-inference-gpu-4-1",
+      "_source": "https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html (ml.g7.* / ml.g7e.* default row: driver 580, CUDA 13.0, al2023-ami-sagemaker-inference-gpu-4-1). AWS publishes the driver major only (580)."
     },
     "g7e": {
-      "driver": "570.86",
-      "cuda_native": "12.8",
+      "driver": "580",
+      "cuda_native": "13.0",
       "gpu": "RTX PRO Server 6000",
       "gpu_memory_gb": 96,
-      "inference_ami_version": "al2023-ami-sagemaker-inference-gpu-4-1"
+      "inference_ami_version": "al2023-ami-sagemaker-inference-gpu-4-1",
+      "_source": "https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html (ml.g7.* / ml.g7e.* default row: driver 580, CUDA 13.0, al2023-ami-sagemaker-inference-gpu-4-1). AWS publishes the driver major only (580)."
+    },
+    "p6-b200": {
+      "driver": "580",
+      "cuda_native": "13.0",
+      "gpu": "B200",
+      "gpu_memory_gb": 179,
+      "inference_ami_version": "al2023-ami-sagemaker-inference-gpu-4-1",
+      "_source": "https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html (driver/CUDA/AMI: ml.p6.* default row); https://docs.aws.amazon.com/ec2/latest/instancetypes/ac.html (GPU model + per-GPU memory). AWS publishes the driver major only (580)."
+    },
+    "p6-b300": {
+      "driver": "580",
+      "cuda_native": "13.0",
+      "gpu": "B300",
+      "gpu_memory_gb": 268,
+      "inference_ami_version": "al2023-ami-sagemaker-inference-gpu-4-1",
+      "_source": "https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html (driver/CUDA/AMI: ml.p6.* default row); https://docs.aws.amazon.com/ec2/latest/instancetypes/ac.html (GPU model + per-GPU memory). AWS publishes the driver major only (580)."
     }
   },
   "ami_versions": {
-    "_comment": "InferenceAmiVersion enum \u2192 driver version mapping. From SDK enum + empirical.",
+    "_comment": "InferenceAmiVersion enum \u2192 driver version mapping (SDK enum + empirical) and, per AMI, the AWS compatibility allow-list (BL209). default_families = the 'Instance types (default)' column, override_families = the 'Compatible instance types with AMI version overrides' column of the Real-time and Asynchronous Inference rows (identical for both services) at https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html. Families are SageMaker family names without the ml. prefix; AWS writes ml.p6.* for the P6 families (p6-b200, p6-b300). servers/lib/image-filter.js resolveInferenceAmi() reads these lists; a family listed under neither column is not AWS-supported for that AMI. The driver-470 / CUDA 11.4 row has no AMI version name (it is the platform default for p4d, p4de, g4dn, g5), so it has no entry here.",
     "al2-ami-sagemaker-inference-gpu-2": {
       "driver": "535.183",
-      "cuda_native": "12.2"
+      "cuda_native": "12.2",
+      "default_families": ["p5", "g6", "g6e"],
+      "override_families": ["p4d", "p4de", "g4dn", "g5"],
+      "_source": "https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html (driver 535 / CUDA 12.2 row, Real-time + Asynchronous; retrieved 2026-10-26)"
     },
     "al2-ami-sagemaker-inference-gpu-2-1": {
       "driver": "535.216",
-      "cuda_native": "12.2"
+      "cuda_native": "12.2",
+      "default_families": ["p5", "g6", "g6e"],
+      "override_families": ["p4d", "p4de", "g4dn", "g5"],
+      "_source": "https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html (driver 535 / CUDA 12.2 row, which names gpu-2 and gpu-2-1 together; Real-time + Asynchronous; retrieved 2026-10-26)"
     },
     "al2-ami-sagemaker-inference-gpu-3-1": {
       "driver": "550.163",
-      "cuda_native": "12.4"
+      "cuda_native": "12.4",
+      "default_families": ["p5e", "p5en"],
+      "override_families": ["p4d", "p4de", "p5", "g4dn", "g5", "g6", "g6e"],
+      "_source": "https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html (driver 550 / CUDA 12.4 row, Real-time + Asynchronous; retrieved 2026-10-26)"
     },
     "al2023-ami-sagemaker-inference-gpu-4-1": {
-      "driver": "570.86",
-      "cuda_native": "12.8"
+      "driver": "580",
+      "cuda_native": "13.0",
+      "default_families": ["p6-b200", "p6-b300", "g7", "g7e"],
+      "override_families": ["p4d", "p4de", "p5", "p5e", "p5en", "g4dn", "g5", "g6", "g6e"],
+      "_source": "https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_ProductionVariant.html (InferenceAmiVersion enum) + https://docs.aws.amazon.com/sagemaker/latest/dg/inference-gpu-drivers.html (driver 580 / CUDA 13.0 row, Real-time + Asynchronous; AWS writes ml.p6.*; retrieved 2026-10-26). AWS publishes the driver major only (580)."
     }
   },
   "cuda_to_min_driver": {
-    "_comment": "CUDA toolkit version \u2192 minimum required driver (Linux data center). Source: NVIDIA CUDA compatibility docs.",
+    "_comment": "CUDA toolkit version \u2192 minimum required driver (Linux data center). Source: NVIDIA CUDA compatibility docs. 13.0: https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html (CUDA 13.0 \u2192 driver branch R580; CUDA 13.x minor-version compatibility needs driver >= 580).",
     "12.0": "525.60",
     "12.1": "525.60",
     "12.2": "535.54",
@@ -104,6 +135,7 @@
     "12.6": "560.28",
     "12.7": "565.57",
     "12.8": "570.86",
-    "12.9": "580.00"
+    "12.9": "580.00",
+    "13.0": "580.00"
   }
 }

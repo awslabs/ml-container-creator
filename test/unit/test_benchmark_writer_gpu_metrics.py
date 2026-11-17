@@ -125,20 +125,29 @@ class TestMetricsSourceProvenance:
             assert recs[0]['metrics_source'] == src
 
 
-# ── Target-aware provenance in _collect_gpu_signals ────────────────────────────
+# ── Provenance in _collect_gpu_signals (Wave 9: keyed by descriptor store) ────
+#
+# metrics_source records WHICH SOURCE contributed, from a table keyed by the
+# target descriptor's observability.store / fallback (not by target name):
+# cloudwatch_only (CloudWatch PromQL store), amp (HyperPod AMP store),
+# engine_metrics_only (port-forward scrape), both, none.
 
 
 class _Args:
     """Minimal args stand-in for _collect_gpu_signals (uses getattr)."""
 
-    def __init__(self, gpu_metrics_file=None):
+    def __init__(self, gpu_metrics_file=None, endpoint_name=None, run_start=None, run_end=None):
         self.gpu_metrics_file = gpu_metrics_file
-        # CloudWatch path disabled (no endpoint/window) so target logic is isolated.
-        self.endpoint_name = None
-        self.run_start = None
-        self.run_end = None
+        self.gpu_metrics_dir = None
+        self.endpoint_name = endpoint_name
+        self.run_start = run_start
+        self.run_end = run_end
         self.variant_name = None
-        self.ic_name = None
+        self.ic_name = 'ic-1' if endpoint_name else None
+        self.benchmark_job_name = None
+
+
+_WINDOW = ('2026-01-01T00:00:00Z', '2026-01-01T00:05:00Z')
 
 
 class TestCollectGpuSignalsProvenance:
@@ -147,53 +156,75 @@ class TestCollectGpuSignalsProvenance:
         p.write_text(_json.dumps(payload))
         return str(p)
 
-    def test_engine_metrics_only_for_hyperpod(self, tmp_path):
-        """hyperpod-eks + engine signals, no CloudWatch → 'engine_metrics_only'."""
-        f = self._engine_file(tmp_path, {'kv_cache_util_avg': 0.9,
-                                         'queue_depth_running_avg': 3.0})
-        signals = _bw._collect_gpu_signals(
-            _Args(gpu_metrics_file=f), {'deployment_target': 'hyperpod-eks'}
-        )
+    def _stub_store(self, monkeypatch, signals):
+        gm = _bw._load_gpu_metrics()
+        calls = []
+
+        def fake(target, values, engine, start, end, region, **kw):
+            calls.append((target, values, start, end))
+            return dict(signals), ('x' if signals else None)
+        monkeypatch.setattr(gm, 'collect_for_target', fake)
+        return calls
+
+    def test_scrape_only_on_hyperpod_is_engine_metrics_only(self, tmp_path):
+        """hyperpod-eks, no window → no store query; the scrape fallback contributes."""
+        f = self._engine_file(tmp_path, {'kv_cache_util_avg': 0.9, 'queue_depth_running_avg': 3.0})
+        signals = _bw._collect_gpu_signals(_Args(gpu_metrics_file=f), {'deployment_target': 'hyperpod-eks'})
         assert signals['metrics_source'] == 'engine_metrics_only'
         assert signals['kv_cache_util_avg'] == 0.9
 
-    def test_cloudwatch_only_for_realtime(self, tmp_path):
-        """realtime-inference + CloudWatch signals only → 'cloudwatch_only'.
-
-        We simulate CloudWatch signals via the engine-metrics file (both paths
-        merge into the same dict); the target + presence of only CW keys drives
-        the classification.
-        """
-        f = self._engine_file(tmp_path, {'gpu_utilization_avg': 60.0,
-                                         'gpu_memory_util_avg': 40.0})
+    def test_realtime_store_with_engine_signals_is_cloudwatch_only(self, monkeypatch):
+        """Realtime PromQL now returns BOTH GPU and vLLM engine signals — still one
+        source (CloudWatch), so cloudwatch_only (R15.1 expectation)."""
+        calls = self._stub_store(monkeypatch, {'gpu_utilization_avg': 60.0, 'kv_cache_util_avg': 0.4})
         signals = _bw._collect_gpu_signals(
-            _Args(gpu_metrics_file=f), {'deployment_target': 'realtime-inference'}
-        )
+            _Args(endpoint_name='ep', run_start=_WINDOW[0], run_end=_WINDOW[1]),
+            {'deployment_target': 'realtime-inference', 'region': 'us-west-2'})
         assert signals['metrics_source'] == 'cloudwatch_only'
+        assert calls and calls[0][1]['endpoint'] == 'ep'
 
-    def test_both_when_cw_and_engine(self, tmp_path):
-        f = self._engine_file(tmp_path, {'gpu_utilization_avg': 60.0,
-                                         'kv_cache_util_avg': 0.5})
+    def test_amp_store_is_amp(self, monkeypatch):
+        self._stub_store(monkeypatch, {'gpu_utilization_avg': 50.0})
         signals = _bw._collect_gpu_signals(
-            _Args(gpu_metrics_file=f), {'deployment_target': 'hyperpod-eks'}
-        )
+            _Args(run_start=_WINDOW[0], run_end=_WINDOW[1]),
+            {'deployment_target': 'hyperpod-eks', 'project_name': 'proj'})
+        assert signals['metrics_source'] == 'amp'
+
+    def test_store_plus_scrape_is_both(self, monkeypatch, tmp_path):
+        self._stub_store(monkeypatch, {'gpu_utilization_avg': 50.0})
+        f = self._engine_file(tmp_path, {'kv_cache_util_avg': 0.5})
+        signals = _bw._collect_gpu_signals(
+            _Args(gpu_metrics_file=f, run_start=_WINDOW[0], run_end=_WINDOW[1]),
+            {'deployment_target': 'hyperpod-eks', 'project_name': 'proj'})
         assert signals['metrics_source'] == 'both'
+        assert signals['gpu_utilization_avg'] == 50.0 and signals['kv_cache_util_avg'] == 0.5
 
-    def test_none_when_no_signals(self, tmp_path):
+    def test_store_wins_over_scrape_for_the_same_signal(self, monkeypatch, tmp_path):
+        self._stub_store(monkeypatch, {'kv_cache_util_avg': 0.7})
+        f = self._engine_file(tmp_path, {'kv_cache_util_avg': 0.1})
         signals = _bw._collect_gpu_signals(
-            _Args(), {'deployment_target': 'realtime-inference'}
-        )
+            _Args(gpu_metrics_file=f, run_start=_WINDOW[0], run_end=_WINDOW[1]),
+            {'deployment_target': 'hyperpod-eks', 'project_name': 'proj'})
+        assert signals['kv_cache_util_avg'] == 0.7
+
+    def test_scrape_on_plain_eks_is_engine_metrics_only(self, tmp_path):
+        """eks has no store; its descriptor declares the scrape fallback."""
+        f = self._engine_file(tmp_path, {'queue_depth_running_avg': 2.0})
+        signals = _bw._collect_gpu_signals(_Args(gpu_metrics_file=f, run_start=_WINDOW[0], run_end=_WINDOW[1]),
+                                           {'deployment_target': 'eks'})
+        assert signals['metrics_source'] == 'engine_metrics_only'
+
+    def test_none_when_no_signals(self):
+        signals = _bw._collect_gpu_signals(_Args(), {'deployment_target': 'realtime-inference'})
         assert signals['metrics_source'] == 'none'
 
-    def test_realtime_with_engine_signals_is_not_cloudwatch_only(self, tmp_path):
-        """realtime + engine signals present → not 'cloudwatch_only' (falls to none)."""
+    def test_realtime_ignores_a_scrape_file(self, tmp_path):
+        """realtime-inference declares no engine-scrape fallback, so a scrape file
+        is not a source there → none (nothing else contributed)."""
         f = self._engine_file(tmp_path, {'kv_cache_util_avg': 0.7})
-        signals = _bw._collect_gpu_signals(
-            _Args(gpu_metrics_file=f), {'deployment_target': 'realtime-inference'}
-        )
-        # realtime + engine-only + no CW → not cloudwatch_only, and not
-        # engine_metrics_only (that is hyperpod-only) → 'none'.
+        signals = _bw._collect_gpu_signals(_Args(gpu_metrics_file=f), {'deployment_target': 'realtime-inference'})
         assert signals['metrics_source'] == 'none'
+        assert 'kv_cache_util_avg' not in signals
 
 
 # ── Additive migration integrity ───────────────────────────────────────────────

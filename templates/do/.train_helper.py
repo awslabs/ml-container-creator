@@ -5,10 +5,13 @@
 """SageMaker Training Job helper (SDK v3).
 
 Subcommands:
-    submit  - Create a training job via TrainingJob.create()
-    status  - Get job status via TrainingJob.get()
-    resolve - Extract artifact path from completed job
-    stop    - Stop a running training job
+    submit       - Create a training job via TrainingJob.create()
+    status       - Get job status via TrainingJob.get()
+    resolve      - Extract artifact path from completed job
+    stop         - Stop a running training job
+    build-config - Resolve a technique's hyperparameters (BL154): through the shared
+                   config-builder core when the technique has a manifest.json, else
+                   the descriptor-less legacy merge
 
 All output is JSON on stdout for bash consumption.
 Pattern: grep -E '^\\{' | tail -1 to extract JSON from mixed output.
@@ -28,6 +31,10 @@ warnings.filterwarnings("ignore", message=".*urllib3.*")
 import logging as _logging
 _logging.disable(_logging.CRITICAL)
 os.environ.setdefault("SAGEMAKER_LOG_LEVEL", "CRITICAL")
+
+# Add lib/python to path for the shared config-builder core + train-manifest validator
+# (BL154 build-config), mirroring .tune_helper.py.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib', 'python'))
 
 
 # ── Utility functions ─────────────────────────────────────────────────────────
@@ -384,6 +391,133 @@ def cmd_stop(args):
         _error_exit(f"Failed to stop training job '{args.job_name}': {e}")
 
 
+# ── cmd_build_config (BL154) ──────────────────────────────────────────────────
+
+def _legacy_merge(defaults, config_hp, supplied):
+    """Descriptor-less hyperparameter merge — do/train's former inline
+    `_merge_hyperparameters`, moved here verbatim (R6.1): technique defaults <
+    config.yaml hyperparameters < CLI flags / --set, every value stringified, nothing
+    validated. Returns (merged, sources)."""
+    defaults = defaults or {}
+    config_hp = config_hp or {}
+    supplied = supplied or {}
+
+    # Layer 1: technique defaults as base
+    merged = {str(k): str(v) for k, v in defaults.items()}
+    sources = {k: "defaults.yaml" for k in merged}
+
+    # Layer 2: config.yaml hyperparameters override defaults
+    layer = {str(k): str(v) for k, v in config_hp.items()}
+    merged.update(layer)
+    sources.update({k: "config.yaml" for k in layer})
+
+    # Layer 3: CLI flags (legacy aliases + --set) override everything
+    layer = {str(k): str(v) for k, v in supplied.items()}
+    merged.update(layer)
+    sources.update({k: "flag" for k in layer})
+    return merged, sources
+
+
+def _parse_json_object(raw, flag):
+    try:
+        value = json.loads(raw) if raw else {}
+    except (ValueError, TypeError):
+        raise ValueError(f"{flag} is not valid JSON") from None
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{flag} must be a JSON object")
+    return value
+
+
+def _display_path(path, training_dir):
+    try:
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(training_dir)))
+        return os.path.relpath(path, project_root)
+    except ValueError:
+        return path
+
+
+def cmd_build_config(args):
+    """Resolve the technique's hyperparameters and print one JSON object on stdout:
+    {resolved, sources, passthrough, prompted, errors, notes, descriptor}.
+
+    Exit codes: 0 = resolved (knob errors, if any, are in `errors` — do/train exits 1);
+    2 = the technique's manifest.json is invalid (structured message on stderr, no
+    traceback); 1 = any other unexpected failure (message on stderr, no traceback).
+    Interactive prompts (questionary) render on STDERR so stdout stays clean JSON."""
+    try:
+        import train_manifest
+        import tune_config_builder as tcb
+    except Exception as exc:  # noqa: BLE001
+        print(f"\u274c Cannot load the hyperparameter resolver: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        defaults = _parse_json_object(args.defaults, "--defaults")
+        config_hp = _parse_json_object(args.config_hp, "--config-hp")
+        supplied = _parse_json_object(args.supplied, "--supplied")
+
+        interactive = bool(args.interactive) and sys.stdin.isatty()
+        notes = []
+        if args.interactive and not sys.stdin.isatty():
+            notes.append("--interactive: no TTY detected, hyperparameter prompts skipped "
+                         "(values resolve non-interactively).")
+
+        result = tcb.build_from_train_descriptor(
+            args.technique, supplied,
+            interactive=interactive,
+            include_advanced=bool(args.advanced),
+            prompter=tcb._questionary_prompter if interactive else None,
+            training_dir=args.training_dir,
+            defaults=defaults,
+            config_hp=config_hp,
+            allow_unknown=bool(args.allow_unknown),
+        )
+        if result is None:
+            # Descriptor-less technique (no manifest.json): today's behavior (R6).
+            merged, sources = _legacy_merge(defaults, config_hp, supplied)
+            if args.advanced:
+                notes.append(f"--advanced has no effect: technique '{args.technique}' has no "
+                             "manifest.json (descriptor-less), so there are no knob tiers.")
+            result = {
+                "resolved": merged,
+                "sources": sources,
+                "passthrough": [],
+                "prompted": {},
+                "errors": [],
+                "notes": [],
+                "descriptor": False,
+            }
+        result["notes"] = notes + list(result.get("notes") or [])
+
+        # Interactive write-back: persist the answers into config.yaml's
+        # hyperparameters block (targeted rewrite — nothing else in the file changes).
+        if args.write_config and result.get("prompted") and not result.get("errors"):
+            block = {str(k): str(v) for k, v in config_hp.items() if v is not None}
+            block.update(result["prompted"])
+            with open(args.write_config, "r", encoding="utf-8") as fh:
+                text = fh.read()
+            with open(args.write_config, "w", encoding="utf-8") as fh:
+                fh.write(tcb.rewrite_hyperparameters_block(text, block))
+            result["notes"].append(
+                f"Saved your answers to {_display_path(args.write_config, args.training_dir)} "
+                "(hyperparameters block only).")
+    except train_manifest.TrainManifestError as exc:
+        print(exc.format(_display_path(exc.path, args.training_dir)), file=sys.stderr)
+        sys.exit(2)
+    except KeyboardInterrupt:
+        print("\n\u26a0\ufe0f  Cancelled.", file=sys.stderr)
+        sys.exit(130)
+    except Exception as exc:  # noqa: BLE001 — surfaced, never a traceback (BL165)
+        print(f"\u274c Failed to resolve hyperparameters for '{args.technique}': "
+              f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    result.pop("typed", None)
+    _output(result)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -413,6 +547,27 @@ def main():
     stop_parser.add_argument('--job-name', required=True, help='Training job name')
     stop_parser.add_argument('--region', help='AWS region')
 
+    # build-config (BL154)
+    bc_parser = subparsers.add_parser(
+        'build-config', help="Resolve a technique's hyperparameters (manifest-aware)")
+    bc_parser.add_argument('--technique', required=True, help='Training technique (directory name)')
+    bc_parser.add_argument('--training-dir', required=True, dest='training_dir',
+                           help='Path to do/training')
+    bc_parser.add_argument('--supplied', default='{}',
+                           help='JSON {knob: value} from flags + --set (flag-wins merged)')
+    bc_parser.add_argument('--defaults', default='{}', help="JSON of the technique's defaults.yaml")
+    bc_parser.add_argument('--config-hp', default='{}', dest='config_hp',
+                           help='JSON of config.yaml hyperparameters')
+    bc_parser.add_argument('--interactive', action='store_true', default=False,
+                           help='Prompt for knobs (only when stdin is a TTY)')
+    bc_parser.add_argument('--advanced', action='store_true', default=False,
+                           help='Also prompt advanced-tier knobs (with --interactive)')
+    bc_parser.add_argument('--allow-unknown', action='store_true', default=False,
+                           dest='allow_unknown',
+                           help='Pass undeclared supplied knobs through instead of rejecting them')
+    bc_parser.add_argument('--write-config', default=None, dest='write_config',
+                           help="Interactive only: rewrite this config.yaml's hyperparameters block")
+
     args = parser.parse_args()
 
     commands = {
@@ -420,6 +575,7 @@ def main():
         'status': cmd_status,
         'resolve': cmd_resolve,
         'stop': cmd_stop,
+        'build-config': cmd_build_config,
     }
 
     handler = commands.get(args.command)

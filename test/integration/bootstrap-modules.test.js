@@ -107,18 +107,39 @@ describe('Bootstrap Modules Integration', () => {
     });
 
     describe('CDK stack infrastructure exists', () => {
-        it('all module directories have stack.ts and index.ts', () => {
+        it('single-stack module directories have stack.ts and index.ts', () => {
+            // Single-stack modules follow the `name → <name>/stack.ts` convention.
+            // Multi-stack modules (BL143: eks, hyperpod) are declared via `stacks[]` and
+            // their stack files may live in a shared stacks dir, so they do NOT follow
+            // this convention — covered separately below.
             const manifest = loadModuleManifest();
             const modulesDir = resolve(PROJECT_ROOT, 'infra/bootstrap-modules');
 
-            for (const [name] of Object.entries(manifest.modules)) {
-                // Use stackNameSuffix for hyperpod (dir is hyperpod-cluster but suffix is hyperpod)
-                const dirName = name; // Directory matches module key
-                const stackPath = resolve(modulesDir, dirName, 'stack.ts');
-                const indexPath = resolve(modulesDir, dirName, 'index.ts');
-
+            for (const [name, mod] of Object.entries(manifest.modules)) {
+                if (mod.stacks && Array.isArray(mod.stacks)) continue; // multi-stack: skip
+                const stackPath = resolve(modulesDir, name, 'stack.ts');
+                const indexPath = resolve(modulesDir, name, 'index.ts');
                 assert.ok(existsSync(stackPath), `${name} should have stack.ts at ${stackPath}`);
                 assert.ok(existsSync(indexPath), `${name} should have index.ts at ${indexPath}`);
+            }
+        });
+
+        it('every multi-stack module stack has a backing *-stack.ts source file', () => {
+            // BL143: eks-cluster lives under eks/stacks/; hyperpod-cluster +
+            // inference-operator under hyperpod/stacks/. Resolve each declared stack to a
+            // source file in EITHER module dir — so a stack can't be declared in the
+            // manifest without a backing file, wherever it was relocated.
+            const manifest = loadModuleManifest();
+            const base = resolve(PROJECT_ROOT, 'infra/bootstrap-modules');
+            const searchDirs = ['eks/stacks', 'hyperpod/stacks', 'hyperpod-cluster/stacks'];
+            for (const [name, mod] of Object.entries(manifest.modules)) {
+                if (!mod.stacks) continue;
+                for (const suffix of mod.stacks) {
+                    const found = searchDirs.some(d =>
+                        existsSync(resolve(base, d, `${suffix}-stack.ts`)));
+                    assert.ok(found,
+                        `${name} stack "${suffix}" should have a *-stack.ts source in one of ${searchDirs.join(', ')}`);
+                }
             }
         });
 

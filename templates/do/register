@@ -31,17 +31,49 @@ ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-con
 # same staging mechanism as `./do/tune --dataset hf://...`.
 HELPER_SCRIPT="${SCRIPT_DIR}/.tune_helper.py"
 
-# CORE_BUCKET is the mlcc-core bucket (e.g. mlcc-core-<account>-<region>). It is
-# recorded in the active profile as coreS3Bucket. Datasets registered
-# via do/register are moved to the canonical location:
+# CORE_BUCKET is the core models bucket, recorded in the active profile as
+# coreS3Bucket (CORE_S3_BUCKET via do/lib/profile.sh; modelsS3Bucket is the
+# deprecated alias key). Datasets registered via do/register are moved to the
+# canonical location:
 #   s3://<CORE_BUCKET>/datasets/<name>/
-# Prefer coreS3Bucket (the mlcc-core bucket); fall back to modelsS3Bucket; never use
-# the CodeBuild source bucket which is scoped to CI build artifacts, not shared data.
-CORE_BUCKET="${CORE_BUCKET:-${_PROFILE_coreS3Bucket:-${_PROFILE_modelsS3Bucket:-${CODEBUILD_SOURCE_S3_BUCKET:-}}}}"
+# Never the CodeBuild source bucket, which is scoped to CI build artifacts.
+CORE_BUCKET="${CORE_BUCKET:-${CORE_S3_BUCKET:-}}"
 
 # Resolve INSTANCE_TYPE for heterogeneous pool endpoints (may be empty from config,
 # filled by do/deploy after InService resolution)
 INSTANCE_TYPE="${INSTANCE_TYPE:-${DEPLOYED_INSTANCE_TYPE:-${BENCHMARK_INSTANCE_TYPE:-}}}"
+
+# ── BL165: capture-and-surface for PRIMARY operation failures ─────────────────
+# A `2>/dev/null` on the primary operation (a .register_helper.py subcommand, a
+# DynamoDB write) turned real failures — tracebacks, AWS AccessDenied, a
+# NameError in a helper (BL172) — into a generic message or a silent no-op.
+# Primary calls now capture stderr to a temp file and, on failure, call this to
+# surface the helper's structured {"error","code"} JSON (if any) PLUS the real
+# stderr. `2>/dev/null` remains only on genuinely optional probes / pretty-print
+# fallbacks, each commented with why it is safe.
+#   _surface_helper_failure <what-failed> <captured-stdout> <stderr-file> [guidance] [icon]
+# [icon] defaults to "❌"; non-fatal callers pass "⚠️ ".
+_surface_helper_failure() {
+    local _what="$1" _out="$2" _errf="$3" _hint="${4:-}" _icon="${5:-❌}"
+    local _json _msg="" _code=""
+    _json=$(printf '%s\n' "${_out}" | grep -E '^\{' | tail -1 || true)
+    if [ -n "${_json}" ]; then
+        # Parse-only: a malformed JSON line just leaves the fields empty — safe
+        # because the raw stderr below still carries the real cause.
+        _msg=$(printf '%s' "${_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',''))" 2>/dev/null) || _msg=""
+        _code=$(printf '%s' "${_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('code',''))" 2>/dev/null) || _code=""
+    fi
+    echo "${_icon} ${_what}${_msg:+: ${_msg}}"
+    [ -n "${_code}" ] && echo "   code: ${_code}"
+    if [ -n "${_errf}" ] && [ -s "${_errf}" ]; then
+        echo "   ── error output ─────────────────────────────────────" >&2
+        sed 's/^/   /' "${_errf}" >&2
+        echo "   ─────────────────────────────────────────────────────" >&2
+    fi
+    [ -n "${_errf}" ] && rm -f "${_errf}"
+    [ -n "${_hint}" ] && echo "   ${_hint}"
+    return 0
+}
 
 # ============================================================
 # Register deployment to the deployment registry
@@ -71,8 +103,8 @@ _show_usage() {
     echo "  Moves a dataset into the canonical MLCC datasets location on the mlcc-core"
     echo "  bucket and registers the resulting URI so it can be reused across tuning jobs:"
     echo "      s3://<CORE_BUCKET>/datasets/<name>/"
-    echo "  (CORE_BUCKET is the mlcc-core bucket recorded in your profile, e.g."
-    echo "   mlcc-core-<account>-<region>.)"
+    echo "  (CORE_BUCKET is the core models bucket recorded in your bootstrap profile"
+    echo "   as coreS3Bucket.)"
     echo ""
     echo "  Provide exactly one input source:"
     echo "  --s3-uri <s3://...> Existing S3 dataset. Copied to the canonical location with"
@@ -213,6 +245,7 @@ DATASET_LINEAGE=""
 DATASET_ORIGINATION=""
 DATASET_APPLICATION=""
 DATASET_LIST=false
+DATASET_LIST_ALL=false
 DATASET_LIST_VERSIONS=""
 DATASET_DISCOVER=""
 DATASET_DELETE=""
@@ -288,6 +321,7 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
             --dataset-column-schema) DATASET_COLUMN_SCHEMA="$2"; shift 2 ;;
             --force)        DATASET_FORCE=true; shift ;;
             --list|--list-datasets) DATASET_LIST=true; shift ;;
+            --all)          DATASET_LIST_ALL=true; shift ;;  # BL163: list/resolve across every project
             --json)         DATASET_JSON=true; shift ;;
             --list-versions)
                 DATASET_LIST_VERSIONS="$2"; shift 2 ;;
@@ -329,16 +363,19 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
                  --core-bucket "${CORE_BUCKET}" --region "${AWS_REGION}")
         lv_stderr="$(mktemp)"
         if ! lv_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${lv_args[@]}" 2>"${lv_stderr}"); then
-            lv_json=$(echo "${lv_output}" | grep -E '^\{' | tail -1)
-            err_msg=$(echo "${lv_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Dataset not found'))" 2>/dev/null) || err_msg="Dataset not found: ${DATASET_LIST_VERSIONS}"
-            echo "❌ ${err_msg}"
-            rm -f "${lv_stderr}"
+            # BL165: the stderr was previously captured then discarded, so a
+            # helper crash read as "Dataset not found". Surface it.
+            _surface_helper_failure "Could not list versions for dataset '${DATASET_LIST_VERSIONS}'" \
+                "${lv_output}" "${lv_stderr}" \
+                "List datasets: ./do/register dataset --list"
             exit 1
         fi
         rm -f "${lv_stderr}"
         lv_json=$(echo "${lv_output}" | grep -E '^\{' | tail -1)
 
         if [ "${DATASET_JSON}" = true ]; then
+            # Pretty-print only; on a parse failure the raw JSON is echoed instead,
+            # so nothing is lost by discarding python's stderr here.
             echo "${lv_json}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${lv_json}"
             exit 0
         fi
@@ -362,7 +399,7 @@ else:
         d = str(v.get('date','') or '')[:22]
         uri = v.get('s3_uri','')
         print(f'  {ver:<10} {rows:<10} {h:<18} {d:<22} {uri}')
-" 2>/dev/null || echo "  (could not render versions)"
+" || echo "  (could not render versions — see error above; raw: ./do/register dataset --list-versions ${DATASET_LIST_VERSIONS} --json)"
         echo ""
         echo "  Pin a version: ./do/tune --dataset ${DATASET_LIST_VERSIONS}@v<N>"
         echo ""
@@ -380,16 +417,17 @@ else:
 
         disc_stderr="$(mktemp)"
         if ! disc_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${disc_args[@]}" 2>"${disc_stderr}"); then
-            disc_json=$(echo "${disc_output}" | grep -E '^\{' | tail -1)
-            err_msg=$(echo "${disc_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Discovery failed'))" 2>/dev/null) || err_msg="Discovery failed for ${DATASET_DISCOVER}"
-            echo "❌ ${err_msg}"
-            rm -f "${disc_stderr}"
+            # BL165: surface the helper's real stderr (was captured then discarded).
+            _surface_helper_failure "Discovery failed for ${DATASET_DISCOVER}" \
+                "${disc_output}" "${disc_stderr}" \
+                "Check the HF dataset id and (for gated datasets) your HF token secret."
             exit 1
         fi
         rm -f "${disc_stderr}"
         disc_json=$(echo "${disc_output}" | grep -E '^\{' | tail -1)
 
         if [ "${DATASET_JSON}" = true ]; then
+            # Pretty-print only; raw JSON is echoed on a parse failure (safe).
             echo "${disc_json}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${disc_json}"
             exit 0
         fi
@@ -423,7 +461,7 @@ rec = d.get('recommended_register')
 if rec:
     print('  💡 Recommended:')
     print(f'      {rec}')
-" 2>/dev/null || echo "  (could not render discovery)"
+" || echo "  (could not render discovery — see error above; raw: ./do/register dataset --discover ${DATASET_DISCOVER} --json)"
         echo ""
         exit 0
     fi
@@ -451,21 +489,29 @@ if rec:
         fi
 
         del_args=(delete-dataset --name "${_del_target}" \
-                  --core-bucket "${CORE_BUCKET}" --region "${AWS_REGION}")
+                  --core-bucket "${CORE_BUCKET}" --region "${AWS_REGION}" \
+                  --project-name "${PROJECT_NAME}")
         [ -n "${DATASET_DELETE_VERSION}" ] && del_args+=(--version "${DATASET_DELETE_VERSION}")
 
         del_stderr="$(mktemp)"
         if ! del_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${del_args[@]}" 2>"${del_stderr}"); then
-            del_json=$(echo "${del_output}" | grep -E '^\{' | tail -1)
-            err_msg=$(echo "${del_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Delete failed'))" 2>/dev/null) || err_msg="Delete failed for ${_del_target}"
-            echo "❌ ${err_msg}"
-            rm -f "${del_stderr}"
+            # BL165/BL172: surface the helper's real stderr — a swallowed error on
+            # this path is how the MLflow soft-delete stayed a silent no-op.
+            _surface_helper_failure "Delete failed for ${_del_target}" \
+                "${del_output}" "${del_stderr}" \
+                "Inspect the registry: ./do/register dataset --list-versions ${_del_target}"
             exit 1
+        fi
+        # On success the helper's stderr carries only progress / best-effort
+        # warnings (e.g. MLflow soft-delete skipped) — show them, don't drop them.
+        if [ -s "${del_stderr}" ]; then
+            sed 's/^/   /' "${del_stderr}" >&2
         fi
         rm -f "${del_stderr}"
         del_json=$(echo "${del_output}" | grep -E '^\{' | tail -1)
 
         if [ "${DATASET_JSON}" = true ]; then
+            # Pretty-print only; raw JSON is echoed on a parse failure (safe).
             echo "${del_json}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${del_json}"
         else
             echo "✅ Deregistered ${_del_scope} (data bytes untouched)"
@@ -478,8 +524,19 @@ if rec:
         echo ""
         echo "📦 Registered datasets:"
         echo ""
-        _ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets \
-            --core-bucket "${CORE_BUCKET}" --region "${AWS_REGION}" 2>/dev/null) || _ds_output=""
+        _ls_args=(list-datasets --core-bucket "${CORE_BUCKET}" --region "${AWS_REGION}" \
+                  --project-name "${PROJECT_NAME}")
+        [ "${DATASET_LIST_ALL}" = true ] && _ls_args+=(--all)
+        # BL165: a failed list-datasets used to read as "(none)" — a silent
+        # no-op that hid AccessDenied / helper crashes. Surface and exit non-zero.
+        _ls_stderr="$(mktemp)"
+        if ! _ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${_ls_args[@]}" 2>"${_ls_stderr}"); then
+            _surface_helper_failure "Could not list registered datasets" \
+                "${_ds_output}" "${_ls_stderr}" \
+                "Check AWS credentials and the core bucket (${CORE_BUCKET:-unset})."
+            exit 1
+        fi
+        rm -f "${_ls_stderr}"
         _ds_json=$(echo "${_ds_output}" | grep -E '^\{' | tail -1)
         if [ -n "${_ds_json}" ]; then
             printf "  %-24s %-10s %-10s %-8s %s\n" "NAME" "TECHNIQUE" "LATEST" "ROWS" "S3 URI"
@@ -498,8 +555,9 @@ for ds in rows:
     r = str(ds.get('row_count','') or '')[:8]
     uri = ds.get('s3_uri','')
     print(f'  {name:<24} {tech:<10} {latest:<10} {r:<8} {uri}')
-print(len(rows), file=sys.stderr)
-" 2>/dev/null
+" || echo "  (could not render dataset list — see error above)"
+            # Count-only probe on the same JSON the renderer just consumed; a parse
+            # failure was already surfaced by the renderer above, so 0 is safe here.
             _local_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('local',[])))" 2>/dev/null) || _local_count=0
             if [ "${_local_count}" = "0" ]; then
                 echo "  (none)"
@@ -795,6 +853,7 @@ if [ -n "${BENCHMARK_STATUS}" ]; then
     # UpdateExpression ONLY sets the 3 benchmark fields.
     # This is a SET operation — it does NOT overwrite the entire record (PutItem).
     # testStatus, configJson, and all other fields remain unchanged.
+    _bs_stderr="$(mktemp)"
     if aws dynamodb update-item \
         --region "${AWS_REGION}" \
         --table-name "${CI_TABLE_NAME}" \
@@ -804,10 +863,15 @@ if [ -n "${BENCHMARK_STATUS}" ]; then
             \":rid\": {\"S\": \"${BENCHMARK_RUN_ID}\"},
             \":ts\": {\"S\": \"${BENCHMARK_TIMESTAMP}\"},
             \":bs\": {\"S\": \"${BENCHMARK_STATUS}\"}
-        }" 2>/dev/null; then
+        }" 2>"${_bs_stderr}"; then
+        rm -f "${_bs_stderr}"
         echo "✅ Benchmark status recorded: ${BENCHMARK_STATUS}"
     else
-        echo "❌ Failed to write benchmark status for configId: ${CONFIG_ID}"
+        # BL165: surface the DynamoDB error (AccessDenied, validation) instead of
+        # discarding it.
+        _surface_helper_failure "Failed to write benchmark status for configId: ${CONFIG_ID}" \
+            "" "${_bs_stderr}" \
+            "Check DynamoDB permissions on table ${CI_TABLE_NAME} (region ${AWS_REGION})."
         exit 1
     fi
 
@@ -861,9 +925,8 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
 
     # Resolve CORE_BUCKET (mlcc-core) — required for the canonical location.
     if [ -z "${CORE_BUCKET}" ]; then
-        echo "❌ No mlcc-core bucket recorded in profile (codebuildSourceS3Bucket is empty)."
-        echo "   Run 'ml-container-creator bootstrap' to provision the mlcc-core bucket,"
-        echo "   or set CORE_BUCKET explicitly."
+        _require_bucket CORE_S3_BUCKET || true
+        echo "   (or set CORE_BUCKET explicitly.)"
         exit 1
     fi
 
@@ -970,6 +1033,7 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
         # Capture stdout (JSON) and stderr (tracebacks) separately so a helper
         # crash surfaces the real cause instead of a generic message.
         if ! stage_result=$(python3 "${HELPER_SCRIPT}" stage-hf "${stage_args[@]}" 2>"${stage_stderr}"); then
+            # Parse-only fallback: the real cause is printed from stage_stderr below.
             error_msg=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Failed to stage dataset'))" 2>/dev/null) || error_msg="Failed to stage HF dataset"
             echo "❌ ${error_msg}"
             if [ -s "${stage_stderr}" ]; then
@@ -982,15 +1046,20 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
         fi
         rm -f "${stage_stderr}"
 
-        # Check for error in response
+        # Check for error in response. These JSON field reads are parse-only and
+        # fail CLOSED (unparseable → treated as an error / empty URI → explicit
+        # "❌" below), so discarding python's stderr cannot hide a failure.
         has_error=$(echo "${stage_result}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if 'error' in d else 'no')" 2>/dev/null) || has_error="yes"
         if [ "${has_error}" = "yes" ]; then
             error_msg=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Unknown error'))" 2>/dev/null) || error_msg="Unknown error"
             echo "❌ ${error_msg}"
+            if [ "${error_msg}" = "Unknown error" ]; then
+                echo "   Raw staging output: ${stage_result:-<empty>}"
+            fi
             exit 1
         fi
 
-        REGISTERED_S3_URI=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin)['s3_uri'])" 2>/dev/null)
+        REGISTERED_S3_URI=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin)['s3_uri'])" 2>/dev/null) || REGISTERED_S3_URI=""
         _staged_rows=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('num_records',0))" 2>/dev/null) || _staged_rows=""
         [ -z "${RESOLVED_ROW_COUNT}" ] && RESOLVED_ROW_COUNT="${_staged_rows}"
 
@@ -1053,17 +1122,28 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
         DS_ARGS+=("--force")
     fi
 
-    # Call .register_helper.py register-dataset
-    if ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${DS_ARGS[@]}" 2>/dev/null); then
+    # Call .register_helper.py register-dataset.
+    # BL165/BL171: stderr is captured, not discarded — it carries the helper's
+    # best-effort warnings (e.g. native AI Registry registration failed because of
+    # an illegal hub-content name) and, on failure, the real cause.
+    ds_stderr="$(mktemp)"
+    if ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${DS_ARGS[@]}" 2>"${ds_stderr}"); then
+        if [ -s "${ds_stderr}" ]; then
+            sed 's/^/   /' "${ds_stderr}" >&2
+        fi
+        rm -f "${ds_stderr}"
         ds_json=$(echo "${ds_output}" | grep -E '^\{' | tail -1)
         if [ -n "${ds_json}" ]; then
             echo "✅ Dataset registered successfully"
+            # Pretty-print only; raw JSON is echoed on a parse failure (safe).
             echo "${ds_json}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${ds_json}"
         else
             echo "⚠️  Dataset registration returned no JSON output"
         fi
     else
-        echo "❌ Dataset registration failed"
+        _surface_helper_failure "Dataset registration failed" \
+            "${ds_output}" "${ds_stderr}" \
+            "Check the error above, AWS credentials, and the core bucket (${CORE_BUCKET:-unset})."
         exit 1
     fi
 
@@ -1121,7 +1201,11 @@ if [ "${SUBCOMMAND}" = "evaluator" ]; then
     if [ "${EVALUATOR_FROM_SAMPLE}" = true ]; then
         # Editable-sample on-ramp (Req 1A). Without --finalize this materializes
         # an editable reward function and stops so the user edits it first.
-        echo "📋 ${EVALUATOR_FINALIZE:+Finalizing}${EVALUATOR_FINALIZE:-Materializing} reward-function sample: ${EVALUATOR_NAME}"
+        if [ "${EVALUATOR_FINALIZE}" = true ]; then
+            echo "📋 Finalizing reward-function sample: ${EVALUATOR_NAME}"
+        else
+            echo "📋 Materializing reward-function sample: ${EVALUATOR_NAME}"
+        fi
         EV_ARGS+=("--from-sample")
         [ -n "${EVALUATOR_SAMPLE_ID}" ] && EV_ARGS+=("--sample-id" "${EVALUATOR_SAMPLE_ID}")
         [ "${EVALUATOR_FINALIZE}" = true ] && EV_ARGS+=("--finalize")
@@ -1144,10 +1228,13 @@ if [ "${SUBCOMMAND}" = "evaluator" ]; then
     echo ""
 
     # stderr is shown so the user sees skip/guidance messages from the helper.
-    if ev_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${EV_ARGS[@]}"); then
+    # Reward-code backups go to the core bucket's evaluators/<name>/ (bucket
+    # consolidation R3.9; key composed by s3_layout.py) — passed explicitly.
+    if ev_output=$(CORE_S3_BUCKET="${CORE_BUCKET:-}" python3 "${SCRIPT_DIR}/.register_helper.py" "${EV_ARGS[@]}"); then
         ev_json=$(echo "${ev_output}" | grep -E '^\{' | tail -1)
         if [ -n "${ev_json}" ]; then
             echo "✅ Evaluator registered"
+            # Pretty-print only; raw JSON is echoed on a parse failure (safe).
             echo "${ev_json}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${ev_json}"
         else
             echo "⚠️  Evaluator registration returned no JSON output"
@@ -1245,6 +1332,7 @@ if [ "${SUBCOMMAND}" = "prompt" ]; then
         pr_json=$(echo "${pr_output}" | grep -E '^\{' | tail -1)
         if [ -n "${pr_json}" ]; then
             echo "✅ Reward prompt registered"
+            # Pretty-print only; raw JSON is echoed on a parse failure (safe).
             echo "${pr_json}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${pr_json}"
         else
             echo "⚠️  Prompt registration returned no JSON output"
@@ -1280,7 +1368,11 @@ if [ -d "${SCRIPT_DIR}/ic" ]; then
     for conf in "${SCRIPT_DIR}"/ic/*.conf; do
         [ -f "${conf}" ] || continue
 
-        # Source the IC config to get its variables
+        # Source the IC config to get its variables.
+        # Optional-read swallows (kept): an IC conf is a user-editable shell
+        # fragment; a malformed one degrades to the documented defaults
+        # (gpu=1, copy=1) for this informational registry record rather than
+        # aborting registration. `cat ... || echo "|||"` is the same fallback.
         (
             # Subshell to avoid polluting current environment
             source "${conf}" 2>/dev/null
@@ -1304,6 +1396,8 @@ if [ -d "${SCRIPT_DIR}/ic" ]; then
 
     if [ "${CI_MODE}" = true ] && [ ${IC_COUNT} -gt 1 ]; then
         # CI mode: only include the first IC (alphabetically) to keep CI costs down
+        # Existence probe (no conf → empty, handled below); same optional
+        # IC-conf read semantics as the loop above.
         FIRST_CONF=$(ls "${SCRIPT_DIR}"/ic/*.conf 2>/dev/null | head -1)
         if [ -n "${FIRST_CONF}" ]; then
             (
@@ -1340,6 +1434,8 @@ if [ -d "${SCRIPT_DIR}/adapters" ]; then
         ADAPTER_NAME_VAL=""
         ADAPTER_WEIGHTS_VAL=""
         ADAPTER_IC_VAL=""
+        # Optional-key probes: a key absent from the conf is normal (grep exits 1,
+        # eval of "" is a no-op) and falls back to the defaults just below.
         eval "$(grep '^export ADAPTER_NAME=' "${conf}" 2>/dev/null)"
         eval "$(grep '^export ADAPTER_WEIGHTS_URI=' "${conf}" 2>/dev/null)"
         eval "$(grep '^export ADAPTER_IC_NAME=' "${conf}" 2>/dev/null)"
@@ -1407,6 +1503,10 @@ get_engine_prefix() {
 # ============================================================
 
 PARAMETERS="{}"
+# BL165: the parameter builders below fall back to "{}" on failure (the registry
+# record is still written), but their stderr is captured — not discarded — and
+# surfaced after the case block so an empty "parameters" is never silent.
+_PARAM_STDERR="$(mktemp)"
 
 <%
 // Build a helper to determine sensitive keys for redaction
@@ -1453,7 +1553,7 @@ result['<%= key %>'] = '<%= redactValue(key, value) %>'
 <% }); %>
 <% } %>
 print(json.dumps(result))
-" 2>/dev/null || echo "{}")
+" 2>"${_PARAM_STDERR}" || echo "{}")
         ;;
 
     http)
@@ -1485,7 +1585,7 @@ result['<%= key %>'] = '<%= redactValue(key, value) %>'
 <% }); %>
 <% } %>
 print(json.dumps(result))
-" 2>/dev/null || echo "{}")
+" 2>"${_PARAM_STDERR}" || echo "{}")
         ;;
 
     triton)
@@ -1495,6 +1595,8 @@ print(json.dumps(result))
 
         # Try to find config.pbtxt in the project directory
         PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+        # Optional read guarded by `-f`: config.pbtxt is informational for the
+        # registry record; an unreadable file degrades to "" (safe).
         if [ -f "${PROJECT_DIR}/model_repository/model/config.pbtxt" ]; then
             CONFIG_PBTXT=$(cat "${PROJECT_DIR}/model_repository/model/config.pbtxt" 2>/dev/null || echo "")
         elif [ -f "${PROJECT_DIR}/model_repository/config.pbtxt" ]; then
@@ -1527,11 +1629,18 @@ result['<%= key %>'] = '<%= redactValue(key, value) %>'
 <% }); %>
 <% } %>
 print(json.dumps(result))
-" 2>/dev/null || echo "{}")
+" 2>"${_PARAM_STDERR}" || echo "{}")
         ;;
 esac
 
-# Count captured parameters
+if [ -s "${_PARAM_STDERR}" ]; then
+    echo "⚠️  Could not capture deployment parameters from the environment — recording {} (non-fatal):" >&2
+    sed 's/^/   /' "${_PARAM_STDERR}" >&2
+fi
+rm -f "${_PARAM_STDERR}"
+
+# Count captured parameters (display-only; PARAMETERS is always valid JSON here —
+# either the builder's output or the "{}" fallback — so 0 on a parse miss is safe).
 PARAM_COUNT=$(echo "${PARAMETERS}" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
 
 # ============================================================
@@ -1663,19 +1772,36 @@ write_ci_record() {
 CJEOF
 )
 
-    # Compact the JSON (remove whitespace)
-    config_json=$(echo "$config_json" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), separators=(',',':')))" 2>/dev/null || echo "$config_json")
+    # Compact the JSON (remove whitespace). BL165: an invalid configJson used to
+    # be silently passed through uncompacted and written to the CI table; the
+    # pass-through is kept (unchanged behavior) but the parse error is surfaced.
+    local _cj_stderr _cj_compact
+    _cj_stderr="$(mktemp)"
+    if _cj_compact=$(echo "$config_json" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), separators=(',',':')))" 2>"${_cj_stderr}"); then
+        config_json="${_cj_compact}"
+    else
+        echo "⚠️  configJson is not valid JSON — writing it uncompacted (CI replay may fail):" >&2
+        sed 's/^/   /' "${_cj_stderr}" >&2
+    fi
+    rm -f "${_cj_stderr}"
 
     local created_at
     created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-    # Escape configJson for DynamoDB JSON attribute (double-escape quotes)
+    # Escape configJson for DynamoDB JSON attribute (double-escape quotes).
+    # json.dumps of a plain string cannot fail on text input, so no swallow is
+    # needed — any error now surfaces instead of yielding an empty attribute.
     local escaped_config_json
-    escaped_config_json=$(echo "$config_json" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))" 2>/dev/null)
+    escaped_config_json=$(echo "$config_json" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))")
     # Remove the outer quotes added by json.dumps for string
     escaped_config_json="${escaped_config_json:1:${#escaped_config_json}-2}"
 
-    # Try put-item with condition (new record)
+    # Try put-item with condition (new record). ConditionalCheckFailedException
+    # is the EXPECTED "record already exists" signal → fall through to update.
+    # BL165: any OTHER put-item error is surfaced (it used to be discarded).
+    local _put_stderr _upd_stderr
+    _put_stderr="$(mktemp)"
+    _upd_stderr="$(mktemp)"
     if aws dynamodb put-item \
         --region "${AWS_REGION}" \
         --table-name "${CI_TABLE_NAME}" \
@@ -1692,9 +1818,17 @@ CJEOF
             \"projectName\": {\"S\": \"${promoted_project_name}\"},
             \"createdAt\": {\"S\": \"${created_at}\"}
         }" \
-        --condition-expression "attribute_not_exists(configId)" 2>/dev/null; then
+        --condition-expression "attribute_not_exists(configId)" 2>"${_put_stderr}"; then
+        rm -f "${_put_stderr}" "${_upd_stderr}"
         echo "✅ New CI record created: ${config_id}"
     else
+        if [ -s "${_put_stderr}" ] && ! grep -q "ConditionalCheckFailed" "${_put_stderr}"; then
+            # Not the expected exists-signal — show it, then still try the update
+            # (unchanged control flow) so the update's own error is reported too.
+            echo "⚠️  put-item failed for an unexpected reason:" >&2
+            sed 's/^/   /' "${_put_stderr}" >&2
+        fi
+        rm -f "${_put_stderr}"
         # Record already exists — update it (reset testStatus, update configJson, preserve createdAt)
         if aws dynamodb update-item \
             --region "${AWS_REGION}" \
@@ -1710,10 +1844,13 @@ CJEOF
                 \":bs\": {\"S\": \"${CI_BUILD_STRATEGY}\"},
                 \":pn\": {\"S\": \"${promoted_project_name}\"},
                 \":sv\": {\"N\": \"1\"}
-            }" 2>/dev/null; then
+            }" 2>"${_upd_stderr}"; then
+            rm -f "${_upd_stderr}"
             echo "✅ Existing CI record updated (testStatus reset to untested): ${config_id}"
         else
-            echo "❌ Failed to update CI record: ${config_id}"
+            _surface_helper_failure "Failed to update CI record: ${config_id}" \
+                "" "${_upd_stderr}" \
+                "Check DynamoDB permissions on table ${CI_TABLE_NAME} (region ${AWS_REGION})."
             return 1
         fi
     fi
@@ -1781,13 +1918,15 @@ if [ "${JSON_OUTPUT}" = true ] || [ "${CI_MODE}" = true ]; then
 DJEOF
 )
 
-    # Output JSON to stdout
+    # Output JSON to stdout. Pretty-print only; the raw JSON is echoed on a
+    # parse failure, so stdout stays machine-readable either way (safe).
     echo "${DEPLOYMENT_JSON}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${DEPLOYMENT_JSON}"
 
     if [ "${CI_MODE}" = true ]; then
         # Strip capacity reservation ARN for CI — force on-demand deployment
         # CI projects must never use reserved capacity (reservations are account-specific
         # and time-bound; CI replay should always target on-demand instances)
+        # (`unset` of an absent var is harmless — swallow is safe.)
         unset CAPACITY_RESERVATION_ARN 2>/dev/null || true
 
         echo ""
@@ -1876,10 +2015,15 @@ echo "📦 Registering to SageMaker Model Package Group..."
 
 # Call .register_helper.py — non-fatal on failure (AC-1.6)
 # Use robust JSON extraction pattern (design lesson #4)
-if helper_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${REG_ARGS[@]}" 2>/dev/null); then
+# BL165: still non-fatal (AC-1.6), but the helper's stderr is captured and the
+# structured error + real cause are surfaced instead of a bare "failed".
+_reg_stderr="$(mktemp)"
+if helper_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${REG_ARGS[@]}" 2>"${_reg_stderr}"); then
+    rm -f "${_reg_stderr}"
     json_line=$(echo "${helper_output}" | grep -E '^\{' | tail -1)
     if [ -n "${json_line}" ]; then
-        # Extract fields from JSON response
+        # Extract fields from JSON response (parse-only; an unparseable field
+        # yields "" and is reported as "incomplete data" just below — safe).
         MPG_ARN=$(echo "${json_line}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('mpg_arn',''))" 2>/dev/null || echo "")
         MODEL_PKG_ARN=$(echo "${json_line}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('model_package_arn',''))" 2>/dev/null || echo "")
         MPG_VERSION=$(echo "${json_line}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',0))" 2>/dev/null || echo "0")
@@ -1895,7 +2039,9 @@ if helper_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${REG_ARGS[@]}" 
         echo "⚠️  MPG registration returned no JSON output (non-fatal)"
     fi
 else
-    echo "⚠️  MPG registration failed (non-fatal) — SageMaker Model Package Groups are the deployment record"
+    _surface_helper_failure "MPG registration failed (non-fatal) — SageMaker Model Package Groups are the deployment record" \
+        "${helper_output:-}" "${_reg_stderr}" \
+        "Fix the cause above and re-run ./do/register." "⚠️ "
 fi
 
 # ============================================================
@@ -1943,12 +2089,20 @@ elif [ -n "${MODEL_PKG_ARN:-}" ] && [ -d "${SCRIPT_DIR}/adapters" ]; then
         # Read adapter config
         ADAPTER_WEIGHTS_URI=""
         ADAPTER_TECHNIQUE=""
+        ADAPTER_BASE_ID=""
+        # Optional-key probes: a key absent from the conf is normal and falls back
+        # to the defaults below, so discarding grep/eval noise is safe.
         eval "$(grep '^export ADAPTER_WEIGHTS_URI=' "${conf}" 2>/dev/null)" 2>/dev/null || true
         eval "$(grep '^export ADAPTER_TECHNIQUE=' "${conf}" 2>/dev/null)" 2>/dev/null || true
         eval "$(grep '^export ADAPTER_TUNE_TECHNIQUE=' "${conf}" 2>/dev/null)" 2>/dev/null || true
+        eval "$(grep '^export ADAPTER_BASE_ID=' "${conf}" 2>/dev/null)" 2>/dev/null || true
 
         _ADAPTER_DATA_URL="${ADAPTER_WEIGHTS_URI:-}"
         _ADAPTER_TECHNIQUE="${ADAPTER_TECHNIQUE:-${ADAPTER_TUNE_TECHNIQUE:-${TUNE_TECHNIQUE:-}}}"
+        # BL176: the adapter's base model → --base-id → mlcc.family → base→adapter
+        # linkage in the console. Prefer the conf's ADAPTER_BASE_ID (do/tune records
+        # it); fall back to the project's tune model id for older confs.
+        _ADAPTER_BASE_ID="${ADAPTER_BASE_ID:-${TUNE_MODEL_ID:-}}"
 
         echo ""
         echo "📦 Registering adapter: ${_ADAPTER_NAME}"
@@ -1966,6 +2120,7 @@ elif [ -n "${MODEL_PKG_ARN:-}" ] && [ -d "${SCRIPT_DIR}/adapters" ]; then
         )
 
         [ -n "${_ADAPTER_TECHNIQUE}" ] && ADAPTER_REG_ARGS+=("--tune-technique" "${_ADAPTER_TECHNIQUE}")
+        [ -n "${_ADAPTER_BASE_ID}" ] && ADAPTER_REG_ARGS+=("--base-id" "${_ADAPTER_BASE_ID}")
         [ -n "${_ADAPTER_DATA_URL}" ] && ADAPTER_REG_ARGS+=("--model-data-url" "${_ADAPTER_DATA_URL}")
         [ -n "${MODEL_NAME:-}" ] && ADAPTER_REG_ARGS+=("--model-name" "${MODEL_NAME}")
         [ -n "${BASE_IMAGE:-}" ] && ADAPTER_REG_ARGS+=("--base-image" "${BASE_IMAGE}")
@@ -1989,10 +2144,14 @@ elif [ -n "${MODEL_PKG_ARN:-}" ] && [ -d "${SCRIPT_DIR}/adapters" ]; then
             ADAPTER_REG_ARGS+=("--dataset-version" "${_ds_version}")
         fi
 
-        # Call .register_helper.py register-adapter — non-fatal on failure
-        if adapter_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${ADAPTER_REG_ARGS[@]}" 2>/dev/null); then
+        # Call .register_helper.py register-adapter — non-fatal on failure.
+        # BL165: stderr captured and surfaced on failure (was discarded).
+        _ad_stderr="$(mktemp)"
+        if adapter_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${ADAPTER_REG_ARGS[@]}" 2>"${_ad_stderr}"); then
+            rm -f "${_ad_stderr}"
             adapter_json=$(echo "${adapter_output}" | grep -E '^\{' | tail -1)
             if [ -n "${adapter_json}" ]; then
+                # Parse-only field reads; "" is reported as incomplete below (safe).
                 _PKG_ARN=$(echo "${adapter_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('model_package_arn',''))" 2>/dev/null || echo "")
                 _VERSION=$(echo "${adapter_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',0))" 2>/dev/null || echo "0")
 
@@ -2006,7 +2165,8 @@ elif [ -n "${MODEL_PKG_ARN:-}" ] && [ -d "${SCRIPT_DIR}/adapters" ]; then
                 echo "   ⚠️  Registration returned no JSON output (non-fatal)"
             fi
         else
-            echo "   ⚠️  Registration failed for ${_ADAPTER_NAME} (non-fatal)"
+            _surface_helper_failure "Registration failed for ${_ADAPTER_NAME} (non-fatal)" \
+                "${adapter_output:-}" "${_ad_stderr}" "" "   ⚠️ "
         fi
 
         unset ADAPTER_WEIGHTS_URI ADAPTER_TECHNIQUE

@@ -11,7 +11,9 @@ import pytest
 from instance_sizer import (
     BYTES_IN_GB,
     BYTES_PER_PARAM,
+    DEFAULT_MAX_SEQUENCE_LENGTH,
     INSTANCE_CATALOG,
+    KV_CACHE_FACTOR,
     OVERHEAD_FACTOR,
     TP_OVERHEAD_PER_GPU,
     effective_vram,
@@ -19,7 +21,13 @@ from instance_sizer import (
     recommend,
     recommend_for_model,
     resolve_model_params,
+    resolve_served_context,
 )
+
+
+def _kv(params: float, seq: int = DEFAULT_MAX_SEQUENCE_LENGTH) -> float:
+    """KV-cache heuristic bytes (mirror of vram-estimator.js estimateKvCache)."""
+    return params * (seq / DEFAULT_MAX_SEQUENCE_LENGTH) * KV_CACHE_FACTOR
 
 
 # ---------------------------------------------------------------------------
@@ -31,39 +39,46 @@ class TestEstimateVram:
     """Verify VRAM formula matches MCP server constants."""
 
     def test_7b_fp16(self) -> None:
-        """7B params at fp16 → ~14.7 GB (params * 2 * 1.1 / 1024^3)."""
+        """7B params at fp16 → ~14.7 GB ((params * 2 * 1.1 + kv) / 1024^3)."""
         vram = estimate_vram(7_000_000_000, "float16")
-        expected = 7e9 * 2.0 * 1.1 / BYTES_IN_GB
+        expected = (7e9 * 2.0 * 1.1 + _kv(7e9)) / BYTES_IN_GB
         assert abs(vram - expected) < 0.001
 
     def test_70b_fp16(self) -> None:
         """70B params at fp16 → ~143.5 GB."""
         vram = estimate_vram(70_000_000_000, "float16")
-        expected = 70e9 * 2.0 * 1.1 / BYTES_IN_GB
+        expected = (70e9 * 2.0 * 1.1 + _kv(70e9)) / BYTES_IN_GB
         assert abs(vram - expected) < 0.01
 
     def test_7b_int4(self) -> None:
         """7B params at int4 → ~3.6 GB."""
         vram = estimate_vram(7_000_000_000, "int4")
-        expected = 7e9 * 0.5 * 1.1 / BYTES_IN_GB
+        expected = (7e9 * 0.5 * 1.1 + _kv(7e9)) / BYTES_IN_GB
         assert abs(vram - expected) < 0.001
 
     def test_7b_float32(self) -> None:
         """7B params at float32 → ~28.8 GB."""
         vram = estimate_vram(7_000_000_000, "float32")
-        expected = 7e9 * 4.0 * 1.1 / BYTES_IN_GB
+        expected = (7e9 * 4.0 * 1.1 + _kv(7e9)) / BYTES_IN_GB
         assert abs(vram - expected) < 0.01
 
     @pytest.mark.parametrize("precision,bpp", list(BYTES_PER_PARAM.items()))
     def test_formula_matches_constants(self, precision: str, bpp: float) -> None:
-        """For all precisions, formula is params * bpp * 1.1 / BYTES_IN_GB.
+        """For all precisions, formula is (params * bpp * 1.1 + kv) / BYTES_IN_GB.
 
         Validates: Requirements CP-6
         """
         params = 13_000_000_000  # 13B
         vram = estimate_vram(params, precision)
-        expected = params * bpp * (1 + OVERHEAD_FACTOR) / BYTES_IN_GB
+        expected = (params * bpp * (1 + OVERHEAD_FACTOR) + _kv(params)) / BYTES_IN_GB
         assert abs(vram - expected) < 0.001
+
+    def test_kv_budget_scales_with_served_context(self) -> None:
+        """BL240: the KV term follows the served context passed in, linearly."""
+        params = 4_659_865_088
+        short = estimate_vram(params, "bfloat16", DEFAULT_MAX_SEQUENCE_LENGTH)
+        long = estimate_vram(params, "bfloat16", DEFAULT_MAX_SEQUENCE_LENGTH * 64)
+        assert abs((long - short) - _kv(params) * 63 / BYTES_IN_GB) < 1e-6
 
     def test_unknown_precision_falls_back_to_fp16(self) -> None:
         """Unknown precision string uses float16 bytes-per-param."""
@@ -270,7 +285,7 @@ class TestRecommendForModel:
         """Returns None when resolve_model_params fails."""
         import instance_sizer
 
-        monkeypatch.setattr(instance_sizer, "resolve_model_params", lambda _: None)
+        monkeypatch.setattr(instance_sizer, "_resolve_model_entry", lambda _: None)
         result = recommend_for_model("nonexistent/model")
         assert result is None
 
@@ -279,7 +294,7 @@ class TestRecommendForModel:
         import instance_sizer
 
         # Simulate a 7B model resolution
-        monkeypatch.setattr(instance_sizer, "resolve_model_params", lambda _: 7.0)
+        monkeypatch.setattr(instance_sizer, "_resolve_model_entry", lambda _: {"parameterCount": 7e9})
         result = recommend_for_model("meta-llama/Llama-2-7b-hf")
         expected = recommend(7.0, "float16")
         assert result == expected
@@ -289,7 +304,7 @@ class TestRecommendForModel:
         import instance_sizer
 
         # Simulate a 70B model
-        monkeypatch.setattr(instance_sizer, "resolve_model_params", lambda _: 70.0)
+        monkeypatch.setattr(instance_sizer, "_resolve_model_entry", lambda _: {"parameterCount": 70e9})
         result_fp16 = recommend_for_model("big-model/70b", "float16")
         result_int4 = recommend_for_model("big-model/70b", "int4")
         assert result_fp16 == recommend(70.0, "float16")
@@ -299,10 +314,53 @@ class TestRecommendForModel:
         """Default precision is float16 matching recommend() default."""
         import instance_sizer
 
-        monkeypatch.setattr(instance_sizer, "resolve_model_params", lambda _: 13.0)
+        monkeypatch.setattr(instance_sizer, "_resolve_model_entry", lambda _: {"parameterCount": 13e9})
         explicit = recommend_for_model("model/13b", "float16")
         default = recommend_for_model("model/13b")
         assert explicit == default
+
+    def test_long_native_context_budgets_served_context(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """BL240: a small model with a huge native context is sized for the
+        engine's served context, not its native maximum."""
+        import instance_sizer
+
+        params = 4_659_865_088  # Qwen3.5-4B (Hub safetensors total)
+        monkeypatch.setattr(
+            instance_sizer,
+            "_resolve_model_entry",
+            lambda _: {"parameterCount": params, "maxPositionEmbeddings": 262144},
+        )
+        served = resolve_served_context(None, 262144, "vllm")["servedContext"]
+        assert served < 262144
+        assert recommend_for_model("Qwen/Qwen3.5-4B", "bfloat16", engine="vllm") == recommend(
+            params / 1e9, "bfloat16", served
+        )
+        # The estimate the recommendation used fits a 24 GB GPU.
+        assert estimate_vram(params, "bfloat16", served) < 24
+
+
+class TestResolveServedContext:
+    """BL240: served = explicit request | min(native, engine default)."""
+
+    def test_engine_default_caps_native(self) -> None:
+        r = resolve_served_context(None, 262144, "vllm")
+        assert r["servedContext"] == r["engineDefault"] < 262144
+        assert r["source"].startswith("engine-default:vllm:")
+
+    def test_short_native_context_wins(self) -> None:
+        r = resolve_served_context(None, 1024, "vllm")
+        assert r["servedContext"] == min(1024, r["engineDefault"])
+
+    def test_explicit_request_wins(self) -> None:
+        assert resolve_served_context(131072, 262144, "vllm")["servedContext"] == 131072
+
+    def test_unknown_engine_uses_reference_length(self) -> None:
+        r = resolve_served_context(None, None, "no-such-engine")
+        assert r == {
+            "servedContext": DEFAULT_MAX_SEQUENCE_LENGTH,
+            "source": "sizer-default",
+            "engineDefault": DEFAULT_MAX_SEQUENCE_LENGTH,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +381,45 @@ class TestResolveModelParams:
 
     Validates: Requirements FR-10.3
     """
+
+    @pytest.fixture(autouse=True)
+    def _offline_hub_api(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Keep these tests offline: no HF Hub API (safetensors metadata) lookup."""
+        import catalog_registration
+
+        monkeypatch.setattr(catalog_registration, "_fetch_hub_info", lambda *a, **k: None)
+
+    def test_hub_safetensors_total_wins_over_config(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """The Hub API safetensors total is authoritative over config fields."""
+        import catalog_registration
+        import huggingface_hub
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"num_parameters": 1_000_000_000}))
+        monkeypatch.setattr(huggingface_hub, "hf_hub_download", lambda **kwargs: str(config_file))
+        monkeypatch.setattr(
+            catalog_registration, "_fetch_hub_info",
+            lambda *a, **k: {"safetensors": {"parameters": {"BF16": 4_500_000_000}, "total": 4_500_000_000}},
+        )
+        assert resolve_model_params("some-org/hub-model") == 4.5
+
+    def test_multimodal_text_config_is_sized(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """A config nesting the LM under text_config must not resolve to None."""
+        import huggingface_hub
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({
+            "architectures": ["SomeForConditionalGeneration"],
+            "text_config": {"hidden_size": 2560, "num_hidden_layers": 32, "vocab_size": 248320,
+                            "tie_word_embeddings": True},
+        }))
+        monkeypatch.setattr(huggingface_hub, "hf_hub_download", lambda **kwargs: str(config_file))
+        result = resolve_model_params("some-org/vlm")
+        assert result is not None and result > 1.0
 
     def test_returns_params_from_num_parameters_field(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path
@@ -346,10 +443,15 @@ class TestResolveModelParams:
     def test_estimates_from_architecture_dimensions(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path
     ) -> None:
-        """When no num_parameters, estimates from hidden_size * num_hidden_layers * 12."""
+        """When no num_parameters, estimates layers * 12 * hidden^2 + embeddings.
+
+        (The old hidden * layers * 12 formula dropped a factor of hidden and
+        sized a Llama-3-8B-shaped config at ~0.0016B.)
+        """
         config_data = {
             "hidden_size": 4096,
             "num_hidden_layers": 32,
+            "vocab_size": 128256,
         }
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps(config_data))
@@ -363,10 +465,9 @@ class TestResolveModelParams:
         )
 
         result = resolve_model_params("some-org/arch-model")
-        # 4096 * 32 * 12 = 1_572_864 params → 1_572_864 / 1e9 ≈ 0.001573
-        expected = (4096 * 32 * 12) / 1e9
+        published_b = 8.030261248  # safetensors total of meta-llama/Llama-3.1-8B (same shape)
         assert result is not None
-        assert abs(result - expected) < 1e-9
+        assert abs(result - published_b) / published_b < 0.15
 
     def test_returns_none_when_fields_missing(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path

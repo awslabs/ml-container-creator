@@ -29,12 +29,12 @@ flowchart LR
 
 Configuration can come from interactive prompts, CLI flags, environment variables, config files, or MCP servers. These sources are merged in a strict precedence order -- see the [Configuration Guide](configuration.md) for the full precedence chain.
 
-In interactive mode, the generator walks through five phases: model selection (deployment config + model name), serving configuration (target, profile, base image), infrastructure (region, instance type — derived from model via the instance-sizer), details (framework version, modules), and project settings (name, destination). The instance type is a derived value — once the model and base image are known, the instance-sizer computes VRAM requirements and recommends compatible instances automatically. In non-interactive mode (`--skip-prompts`), all values come from CLI flags or config files.
+In interactive mode, the generator walks through five phases: model selection (deployment config + model name), serving configuration (profile, base image), infrastructure (region, instance type — derived from model via the instance-sizer), details (framework version, modules), and project settings (name, destination). The instance type is a derived value — once the model and base image are known, the instance-sizer computes VRAM requirements and recommends compatible instances automatically. The deployment target is not prompted at generation; choose it at deploy time with `./do/deploy --target <target>`. In non-interactive mode (`--skip-prompts`), all values come from CLI flags or config files.
 
-The [Getting Started Guide](getting-started.md) has complete walkthroughs for both a predictive model (sklearn + Flask) and an LLM (SGLang), including the exact CLI commands and generated project structures.
+The [Getting Started Guide](getting-started.md) has complete walkthroughs for both a predictive model (sklearn + Flask) and an LLM (vLLM), including the exact CLI commands and generated project structures.
 
 !!! tip "Supported Models"
-    MCC validates 22 model + instance combinations end-to-end through the full lifecycle (build → deploy → test → tune → adapter → test). If your model is in the [Supported Models](supported-models.md) catalog, you're on a tested, proven path.
+    MCC catalogs model + instance combinations for the full lifecycle (build → deploy → test → tune → adapter → test). [Supported Models](supported-models.md) shows which entries have been validated end-to-end.
 
 ## Models
 
@@ -72,22 +72,24 @@ The target directory must be `/opt/ml/model/` for SageMaker AI compatibility.
 
 Generative models (LLMs) are specified by HuggingFace model ID at generation time. MCC does not require a model format -- the serving framework handles downloading and loading the model into GPU memory. For supported models, you can fine-tune with `do/tune` and deploy the resulting adapter or full model — see the [Fine-Tuning Guide](fine-tuning.md) for the full workflow.
 
+In interactive generation, the transformers model prompt auto-lists both the managed-capable models (from the tune catalog) and general serving models, drawn from the same source `do/tune` validates against. Managed-capable entries are grouped by model family and show their supported managed techniques inline in brackets (e.g. `[SFT · DPO · RLVR · RLAIF]`); the highlighted model's footer shows a legend for those abbreviations. The list refreshes automatically when the catalog is re-synced. You are never restricted to the list — type any HuggingFace model ID to use it (unsupported models still work via `do/train`, with `do/optimize` returning fewer managed optimizations). If a listed model advertises a technique MLCC does not yet drive (e.g. multi-turn RL), that technique is omitted from the brackets, the footer notes it, and generation prints a non-blocking reminder afterward — the model stays usable for everything else.
+
 ```json
 {
-  "framework": "transformers",
-  "modelName": "mistralai/Mistral-7B-Instruct-v0.2",
-  "modelServer": "sglang"
+  "deploymentConfig": "transformers-sglang",
+  "modelName": "mistralai/Mistral-7B-Instruct-v0.2"
 }
 ```
 
 #### HuggingFace authentication
 
-Some models are gated and require a HuggingFace API token. You can provide it via:
+Some models are gated and require a HuggingFace API token. Store it in AWS Secrets Manager and pass the ARN:
 
-- CLI flag: `--hf-token="hf_..."` or `--hf-token='$HF_TOKEN'`
-- Environment variable: `export HF_TOKEN="hf_..."` then reference `$HF_TOKEN`
-- Interactive prompt (when selecting a custom model)
-- Config file: `"hfToken": "$HF_TOKEN"`
+- Bootstrap profile (every project): `mcc bootstrap add-secret hfToken <secret-arn>`
+- CLI flag: `--hf-token-arn <secret-arn>` (config file key `hfTokenArn`)
+- Interactive prompt: pick an existing `mlcc/hf-token/*` secret when you select a custom model
+
+Create the secret with `ml-container-creator secrets create --type hf-token ...` (see [Secrets](secrets.md)). The container resolves the ARN at startup. A plaintext `--hf-token` is baked into the image, and `do/deploy` refuses it unless you pass `--allow-plaintext-secret`.
 
 See the [Configuration Guide](configuration.md#huggingface-authentication) for details and security best practices.
 
@@ -142,10 +144,13 @@ For CI/CD workflows, `./do/submit` creates a CodeBuild project that builds the i
 
 ## Endpoint Deployment
 
-Once a container is built and pushed to ECR, `./do/deploy` provisions the deployment target. MCC supports two targets:
+Once a container is built and pushed to ECR, `./do/deploy` provisions the deployment target (`./do/deploy --target <target>`; `./do/deploy --help` lists them):
 
-- **Managed Inference** (`realtime-inference`): SageMaker AI real-time endpoints via the Inference Components API. This is the default.
-- **HyperPod EKS** (`hyperpod-eks`): Kubernetes deployment on existing SageMaker AI HyperPod clusters.
+- **Real-Time Inference** (`realtime-inference`): SageMaker AI real-time endpoints via the Inference Components API. This is the default.
+- **Async Inference** (`async-inference`): SageMaker AI async endpoints with S3 output.
+- **Batch Transform** (`batch-transform`): SageMaker AI transform jobs, S3 to S3.
+- **HyperPod EKS** (`hyperpod-eks`): Kubernetes deployment on an existing SageMaker AI HyperPod cluster through the Inference Operator.
+- **Plain EKS** (`eks`): bring-your-own EKS cluster (Deployment + Service + ConfigMap), no operator.
 
 After deployment, `./do/test` validates the endpoint, `./do/logs` tails logs, and `./do/clean` tears down resources.
 
@@ -153,13 +158,13 @@ See [Deployment & Inference](deployments.md) for the full lifecycle script refer
 
 ## Architecture Overview
 
-The following diagram shows the end-to-end flow from model source through deployment. Items marked with * are on the roadmap.
+The following diagram shows the end-to-end flow from model source through deployment.
 
 ```mermaid
 flowchart TB
     subgraph sources["Model Sources"]
         local["Local Models<br/>.pkl, .joblib, .h5"]
-        s3["S3 Buckets*"]
+        s3["S3 Buckets"]
         hf["HuggingFace Hub<br/>LLMs, chat models"]
     end
 
@@ -170,7 +175,7 @@ flowchart TB
     end
 
     subgraph genai["Generative AI"]
-        gfw["Serving Framework<br/>vLLM, SGLang, TensorRT-LLM, LMI, DJL"]
+        gfw["Serving Framework<br/>vLLM, SGLang, TensorRT-LLM, LMI, DJL, llama.cpp"]
     end
 
     subgraph container["Container Build"]

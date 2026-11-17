@@ -8,7 +8,8 @@
 # Inputs:
 #   --ic-name <name>         Deployed IC name (from IC_DEPLOYED_NAME in ic/<name>.conf)
 #   --region <region>        AWS region
-#   --model-data <s3-uri>    (Optional) New model data URL
+#   --from-weights <s3-uri>  (Optional) New model data URL (ADR-013 canonical flag)
+#   --model-data <s3-uri>    (Deprecated alias of --from-weights; still accepted)
 #   --image <image-uri>      (Optional) New container image URI
 #
 # Outputs (JSON to stdout):
@@ -36,11 +37,19 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Update a SageMaker InferenceComponent in-place")
     parser.add_argument("--ic-name", required=True, help="Deployed inference component name")
     parser.add_argument("--region", required=True, help="AWS region")
-    parser.add_argument("--model-data", default=None, help="New S3 URI for model data")
+    # --from-weights is canonical (ADR-013 uniform --from-* family); --model-data
+    # stays as a deprecated alias writing the same dest. NOT --model-data-url,
+    # which is do/register's model-package input and is unrelated.
+    parser.add_argument("--from-weights", "--model-data", dest="model_data", default=None,
+                        help="New S3 URI for model data (--model-data is a deprecated alias)")
     parser.add_argument("--image", default=None, help="New container image URI")
     parser.add_argument("--timeout", type=int, default=1800, help="Max seconds to wait for InService (default: 1800)")
     parser.add_argument("--poll-interval", type=int, default=30, help="Seconds between status polls (default: 30)")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if any(a == "--model-data" or a.startswith("--model-data=") for a in sys.argv[1:]):
+        print("⚠️  --model-data is deprecated; use --from-weights (will be removed in a future release).",
+              file=sys.stderr)
+    return args
 
 
 def describe_ic(client, ic_name):
@@ -135,7 +144,7 @@ def main():
     spec = build_update_spec(current_spec, model_data=args.model_data, image=args.image)
 
     if not spec:
-        print(json.dumps({"error": True, "message": "Nothing to update: no --model-data or --image provided"}))
+        print(json.dumps({"error": True, "message": "Nothing to update: no --from-weights or --image provided"}))
         sys.exit(1)
 
     # 3. Call UpdateInferenceComponent

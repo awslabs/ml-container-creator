@@ -16,6 +16,9 @@
 #   3. --dataset and synthetic token-mean params are mutually exclusive in the
 #      same params JSON
 #   4. synthetic path unchanged when no dataset is set
+#
+# Run by: test/unit/bl100-benchmark-dataset-construction.test.js (mocha wrapper,
+# so `npm test` / CI executes it under /bin/bash).
 
 set -uo pipefail
 
@@ -101,8 +104,30 @@ run_synthetic() {
 _TMP="$(mktemp -d)"
 trap 'rm -rf "${_TMP}"' EXIT
 
-# Execute both scenarios in subshells to isolate variable state.
+# ── Scenario C: BYOD with an explicit AIPerf dataset type ─────────────────────
+run_byod_override() {
+    HF_MODEL_ID="Qwen/Qwen3-0.6B"
+    MODEL_NAME="s3://bucket/model/"
+    BENCHMARK_CONCURRENCY=8
+    BENCHMARK_STREAMING=true
+    BENCHMARK_REQUEST_COUNT=100
+    BENCHMARK_INPUT_TOKENS_MEAN=550
+    BENCHMARK_OUTPUT_TOKENS_MEAN=150
+    SECRET_ARN=""
+    BENCHMARK_DATASET_S3URI="s3://b/chat/v1/train.jsonl"
+    BENCHMARK_DATASET_FORMAT="jsonl"
+    BENCHMARK_DATASET_INPUT_FILE="/opt/ml/input/data/traffic/train.jsonl"
+    BENCHMARK_DATASET_CHANNEL="traffic"
+    BENCHMARK_DATASET_CUSTOM_TYPE="multi_turn"
+
+    eval "${FRAGMENT}"
+
+    printf '%s\n' "${PARAMS_JSON}" > "${_TMP}/params_byod_override.json"
+}
+
+# Execute the scenarios in subshells to isolate variable state.
 ( run_byod )
+( run_byod_override )
 ( run_synthetic )
 
 # JSON helper: read a key path via python3.
@@ -112,8 +137,16 @@ _is_valid_json() { python3 -c "import sys,json; json.load(open('$1'))" 2>/dev/nu
 # ── Assertions: BYOD params ───────────────────────────────────────────────────
 _is_valid_json "${_TMP}/params_byod.json"; _check "BYOD PARAMS_JSON is valid JSON" $?
 
+# custom_dataset_type is the AIPerf dataset-type ENUM, NOT the file format: a
+# registered MLCC dataset (one request per line) defaults to single_turn even
+# though its stored format is "jsonl" (see the comment at the construction site
+# in templates/do/benchmark). Assert the default AND that the format never leaks.
 v=$(_json_get "${_TMP}/params_byod.json" "['custom_dataset_type']")
-[ "$v" = "jsonl" ]; _check "BYOD params: custom_dataset_type=jsonl" $?
+[ "$v" = "single_turn" ]; _check "BYOD params: custom_dataset_type defaults to single_turn (AIPerf enum)" $?
+[ "$v" != "jsonl" ]; _check "BYOD params: file format (jsonl) does not leak into custom_dataset_type" $?
+
+v=$(_json_get "${_TMP}/params_byod_override.json" "['custom_dataset_type']")
+[ "$v" = "multi_turn" ]; _check "BYOD params: BENCHMARK_DATASET_CUSTOM_TYPE override is honored" $?
 
 v=$(_json_get "${_TMP}/params_byod.json" "['input_file']")
 [ "$v" = "/opt/ml/input/data/traffic/train.jsonl" ]; _check "BYOD params: input_file points at channel mount" $?

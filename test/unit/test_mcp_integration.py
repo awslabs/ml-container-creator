@@ -33,14 +33,18 @@ from mcp_client import (
 # ---------------------------------------------------------------------------
 
 FULL_MOCK_RESPONSES = {
+    # Shape returned by servers/instance-sizer/index.js (pinned against the
+    # live server by test/unit/sizer-python-client-contract.test.js).
     "instance-sizer/recommend": {
-        "instance_type": "ml.g5.xlarge",
-        "gpu_count": 1,
-        "instances": [
-            {"instance_type": "ml.g5.xlarge", "gpu_count": 1},
-            {"instance_type": "ml.g5.2xlarge", "gpu_count": 1},
-            {"instance_type": "ml.g6.xlarge", "gpu_count": 1},
-        ],
+        "values": {"instanceType": "ml.g5.xlarge"},
+        "choices": {"instanceType": ["ml.g5.xlarge", "ml.g5.2xlarge", "ml.g6.xlarge"]},
+        "metadata": {
+            "recommendations": [
+                {"instanceType": "ml.g5.xlarge", "gpuCount": 1},
+                {"instanceType": "ml.g5.2xlarge", "gpuCount": 1},
+                {"instanceType": "ml.g6.xlarge", "gpuCount": 1},
+            ],
+        },
     },
     "endpoint-picker/list": {
         "endpoints": [
@@ -109,8 +113,9 @@ class TestMCPMockIntegrationFixture:
         # Set up with different data than FULL_MOCK_RESPONSES
         custom_responses = {
             "instance-sizer/recommend": {
-                "instance_type": "ml.p4d.24xlarge",
-                "gpu_count": 8,
+                "values": {"instanceType": "ml.p4d.24xlarge"},
+                "choices": {"instanceType": ["ml.p4d.24xlarge"]},
+                "metadata": {"recommendations": [{"instanceType": "ml.p4d.24xlarge", "gpuCount": 8}]},
             }
         }
         mcp_mock_responses(custom_responses)
@@ -223,8 +228,9 @@ class TestPartialMockResponses:
         # Only mock the instance-sizer — endpoints and clusters not registered
         mcp_mock_responses({
             "instance-sizer/recommend": {
-                "instance_type": "ml.g5.xlarge",
-                "gpu_count": 1,
+                "values": {"instanceType": "ml.g5.xlarge"},
+                "choices": {"instanceType": ["ml.g5.xlarge"]},
+                "metadata": {"recommendations": [{"instanceType": "ml.g5.xlarge", "gpuCount": 1}]},
             }
         })
 
@@ -327,8 +333,9 @@ class TestMCPMockWithoutFixture:
         """$MCP_MOCK_RESPONSES works with plain monkeypatch.setenv()."""
         mock_data = {
             "instance-sizer/recommend": {
-                "instance_type": "ml.g6.2xlarge",
-                "gpu_count": 1,
+                "values": {"instanceType": "ml.g6.2xlarge"},
+                "choices": {"instanceType": ["ml.g6.2xlarge"]},
+                "metadata": {"recommendations": [{"instanceType": "ml.g6.2xlarge", "gpuCount": 1}]},
             },
             "endpoint-picker/list": {
                 "endpoints": [{"name": "my-ep", "status": "InService"}],

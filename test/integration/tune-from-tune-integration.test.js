@@ -17,6 +17,8 @@
 import { describe, it, before, after } from 'mocha';
 import assert from 'node:assert';
 import fs from 'fs';
+import path from 'path';
+import { spawnSync } from 'node:child_process';
 import { runGenerator } from '../helpers/run-generator.js';
 
 describe('Feature: managed-model-customization — --from-tune integration (Req 8.8, 8.9, 8.10)', function () {
@@ -58,273 +60,139 @@ describe('Feature: managed-model-customization — --from-tune integration (Req 
         return end === -1 ? adapterScript.substring(start) : adapterScript.substring(start, end);
     }
 
+    // Wave 6 (ADR-013): --from-tune is resolved by the SHARED resolver
+    // (_resolve_additive_source in the generated do/lib/script-contract.sh) for
+    // both verbs, and the artifact kind is gated through the contract table. These
+    // assert the generated project's BEHAVIOR by running its resolver/gate under
+    // bash, plus the structural wiring of each verb onto it.
+    function contractRun(body, env = {}) {
+        const doDir = path.dirname(result.file('do/adapter'));
+        const script = path.join(doDir, '_from_tune_probe');
+        fs.writeFileSync(script, [
+            '#!/bin/bash', '# @mlcc-script', '# type: utility', '# guard: none', 'set -euo pipefail',
+            'source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/script-contract.sh"', body, ''
+        ].join('\n'), { mode: 0o755 });
+        const childEnv = { ...process.env, ...env };
+        delete childEnv.VIRTUAL_ENV;
+        const r = spawnSync('/bin/bash', [script], { env: childEnv, encoding: 'utf8' });
+        fs.rmSync(script, { force: true });
+        return { code: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
+    }
+    const resolveTune = (tech, env, prefer = '') =>
+        contractRun(`_resolve_additive_source from-tune '${tech}' n '${prefer}'`, env);
+
     // ── do/adapter add --from-tune reads correct config variable ─────────
-
     describe('do/adapter add --from-tune reads TUNE_OUTPUT_PATH_LATEST', () => {
-
         it('parses --from-tune flag in argument parsing', () => {
             const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('--from-tune)'),
-                'Must parse --from-tune flag in argument parsing'
-            );
+            assert.ok(addSection.includes('--from-tune)'), 'Must parse --from-tune flag in argument parsing');
         });
-
-        it('reads TUNE_OUTPUT_PATH_LATEST when no technique is specified', () => {
+        it('routes --from-tune through the shared resolver and uses its URI', () => {
             const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('TUNE_OUTPUT_PATH_LATEST'),
-                'Must read TUNE_OUTPUT_PATH_LATEST from config'
-            );
+            assert.ok(addSection.includes('_resolve_additive_source from-tune "${from_tune_technique}"'));
+            assert.ok(addSection.includes('weights_uri="${RESOLVED_URI}"'));
         });
-
-        it('sets weights_uri from TUNE_OUTPUT_PATH_LATEST', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('weights_uri="${TUNE_OUTPUT_PATH_LATEST}"'),
-                'Must set weights_uri from TUNE_OUTPUT_PATH_LATEST'
-            );
+        it('resolves TUNE_OUTPUT_PATH_LATEST when no technique is specified', () => {
+            const r = resolveTune('', { TUNE_OUTPUT_PATH_LATEST: 's3://b/out/', TUNE_OUTPUT_TYPE_LATEST: 'adapter' });
+            assert.strictEqual(r.code, 0, r.stderr);
+            assert.match(r.stdout, /RESOLVED_URI=s3:\/\/b\/out\//);
+            assert.match(r.stdout, /RESOLVED_KIND=lora_adapter/);
         });
-
-        it('shows error when TUNE_OUTPUT_PATH_LATEST is not set', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('TUNE_OUTPUT_PATH_LATEST:-') &&
-                addSection.includes('No tune output found'),
-                'Must show error when TUNE_OUTPUT_PATH_LATEST is not set'
-            );
+        it('shows an error + do/tune remedy when TUNE_OUTPUT_PATH_LATEST is not set', () => {
+            const r = resolveTune('', {});
+            assert.notStrictEqual(r.code, 0);
+            assert.match(r.stderr, /TUNE_OUTPUT_PATH_LATEST is not set/);
+            assert.match(r.stderr, /\.\/do\/tune --technique/);
         });
-
-        it('suggests running do/tune when no output is available', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('./do/tune --technique'),
-                'Must suggest running do/tune when no output is available'
-            );
-        });
-
         it('displays the resolved tune output path', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('Using latest tune adapter output'),
-                'Must display the resolved tune output path'
-            );
+            assert.ok(getAdapterAddSection().includes('Using tune adapter output'));
         });
     });
-
     // ── do/adapter add --from-tune sft reads technique-specific path ─────
-
     describe('do/adapter add --from-tune sft reads technique-specific path', () => {
-
         it('checks for optional technique argument after --from-tune', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('from_tune_technique'),
-                'Must support optional technique argument after --from-tune'
-            );
+            assert.ok(getAdapterAddSection().includes('from_tune_technique'));
         });
-
-        it('converts technique to uppercase for variable lookup', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('tr \'[:lower:]\' \'[:upper:]\''),
-                'Must convert technique to uppercase for variable name'
-            );
+        it('reads TUNE_ADAPTER_PATH_<TECHNIQUE> (case-insensitive technique)', () => {
+            const r = resolveTune('sft', { TUNE_ADAPTER_PATH_SFT: 's3://b/sft/' });
+            assert.strictEqual(r.code, 0, r.stderr);
+            assert.match(r.stdout, /RESOLVED_URI=s3:\/\/b\/sft\//);
         });
-
-        it('constructs TUNE_ADAPTER_PATH_<TECHNIQUE> variable name', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('TUNE_ADAPTER_PATH_${technique_upper}'),
-                'Must construct TUNE_ADAPTER_PATH_<TECHNIQUE> variable name'
-            );
+        it('reads the technique-dataset compound key TUNE_ADAPTER_PATH_<T>_<SLUG>', () => {
+            const r = resolveTune('sft-ectsum', { TUNE_ADAPTER_PATH_SFT_ECTSUM: 's3://b/sft-ectsum/' });
+            assert.match(r.stdout, /RESOLVED_URI=s3:\/\/b\/sft-ectsum\//);
         });
-
-        it('reads technique-specific adapter path using indirect variable reference', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('${!tune_var:-}'),
-                'Must use indirect variable reference to read technique-specific path'
-            );
-        });
-
-        it('shows error when technique-specific path is not set', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('No adapter output found for technique'),
-                'Must show error when technique-specific path is not set'
-            );
-        });
-
-        it('includes technique name in error message', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('${from_tune_technique}'),
-                'Must include technique name in error message'
-            );
-        });
-
-        it('includes variable name in error message for debugging', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('${tune_var} is not set'),
-                'Must include variable name in error message'
-            );
-        });
-
-        it('displays the resolved technique-specific path', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('Using tune adapter output for technique'),
-                'Must display the resolved technique-specific path'
-            );
+        it('errors naming the variable(s) tried when the technique path is not set', () => {
+            const r = resolveTune('sft', {});
+            assert.notStrictEqual(r.code, 0);
+            assert.match(r.stderr, /TUNE_ADAPTER_PATH_SFT/);
+            assert.match(r.stderr, /\.\/do\/tune --technique sft/);
         });
     });
-
-    // ── do/adapter add --from-tune errors when output type is full-model ─
-
+    // ── do/adapter add --from-tune refuses a full-model output ───────────
     describe('do/adapter add --from-tune errors when output type is full-model', () => {
-
-        it('checks TUNE_OUTPUT_TYPE_LATEST before using latest output', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('TUNE_OUTPUT_TYPE_LATEST'),
-                'Must check TUNE_OUTPUT_TYPE_LATEST'
-            );
+        ['full-model', 'model'].forEach((t) => {
+            it(`TUNE_OUTPUT_TYPE_LATEST=${t} resolves as full_model and the adapter gate refuses it (exit 3)`, () => {
+                const r = contractRun([
+                    'out=$(_resolve_additive_source from-tune \'\' n)', 'eval "$out"',
+                    '_guard_artifact_kind "$RESOLVED_KIND" "$(_additive_accepts_kind adapter)" "use do/add-ic"'
+                ].join('\n'), { TUNE_OUTPUT_PATH_LATEST: 's3://b/m/', TUNE_OUTPUT_TYPE_LATEST: t });
+                assert.strictEqual(r.code, 3, r.stdout + r.stderr);
+                assert.match(r.stdout, /Contract violation: artifact-kind/);
+            });
         });
-
-        it('compares output type against full-model', () => {
+        it('the refusal guidance is derived from the ADR-013 contract (names the full-model verb per target)', () => {
+            // Wave 11 R8.2: the literal ("use do/add-ic ...") became the derived
+            // _additive_kind_guidance, which names do/add-ic on realtime and
+            // do/add-pod on hyperpod-eks (asserted per target in additive-deploy-contract).
             const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('"full-model"'),
-                'Must compare output type against "full-model"'
-            );
+            assert.ok(/_kind_guidance="[^"]*\$\(_additive_kind_guidance full_model/.test(addSection));
         });
-
-        it('shows error explaining output is a full model', () => {
+        it('gates before any staging (kind check precedes the canonical promotion)', () => {
+            // Bucket consolidation R3.4: the legacy Processing-Job staging was replaced
+            // by the promotion into the canonical prefix (_adapter_promote_canonical).
             const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('Latest tune output is a full model, not an adapter'),
-                'Must show error explaining output is a full model'
-            );
-        });
-
-        it('shows TUNE_OUTPUT_TYPE_LATEST=full-model in error details', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('TUNE_OUTPUT_TYPE_LATEST=full-model'),
-                'Must show the current output type value in error'
-            );
-        });
-
-        it('suggests using do/add-ic --from-tune instead', () => {
-            const addSection = getAdapterAddSection();
-            assert.ok(
-                addSection.includes('do/add-ic') && addSection.includes('--from-tune'),
-                'Must suggest using do/add-ic --from-tune instead'
-            );
-        });
-
-        it('exits with error code 1 when output type is full-model', () => {
-            const addSection = getAdapterAddSection();
-            // Find the full-model error section and verify exit 1 follows
-            const fullModelIdx = addSection.indexOf('Latest tune output is a full model');
-            assert.ok(fullModelIdx > 0, 'Must have full-model error message');
-            const afterError = addSection.substring(fullModelIdx, fullModelIdx + 500);
-            assert.ok(
-                afterError.includes('exit 1'),
-                'Must exit with error code 1 when output type is full-model'
-            );
+            const gate = addSection.indexOf('_guard_artifact_kind "${_resolved_kind}"');
+            const stage = addSection.indexOf('_adapter_promote_canonical "${weights_uri}"');
+            assert.ok(gate !== -1 && stage !== -1 && gate < stage);
         });
     });
-
     // ── do/add-ic --from-tune reads TUNE_OUTPUT_PATH_LATEST ──────────────
-
     describe('do/add-ic --from-tune reads TUNE_OUTPUT_PATH_LATEST', () => {
-
         it('parses --from-tune flag in argument parsing', () => {
-            assert.ok(
-                addIcScript.includes('--from-tune)'),
-                'Must parse --from-tune flag in argument parsing'
-            );
+            assert.ok(addIcScript.includes('--from-tune)'));
         });
-
-        it('reads TUNE_OUTPUT_PATH_LATEST from config', () => {
-            assert.ok(
-                addIcScript.includes('TUNE_OUTPUT_PATH_LATEST'),
-                'Must read TUNE_OUTPUT_PATH_LATEST from config'
-            );
+        it('routes every source through the shared resolver into MODEL_DATA', () => {
+            assert.ok(addIcScript.includes('_resolve_additive_source "${_IC_SOURCE_VERB}"'));
+            assert.ok(addIcScript.includes('MODEL_DATA="${RESOLVED_URI}"'));
         });
-
-        it('sets MODEL_DATA from TUNE_OUTPUT_PATH_LATEST', () => {
-            assert.ok(
-                addIcScript.includes('MODEL_DATA="${TUNE_OUTPUT_PATH_LATEST}"'),
-                'Must set MODEL_DATA from TUNE_OUTPUT_PATH_LATEST'
-            );
+        it('a full-model tune output resolves and passes the add-ic gate', () => {
+            const r = contractRun([
+                'out=$(_resolve_additive_source from-tune \'\' n "$(_additive_accepts_kind add-ic)")', 'eval "$out"',
+                '_guard_artifact_kind "$RESOLVED_KIND" "$(_additive_accepts_kind add-ic)" "use do/adapter"',
+                'echo "URI=$RESOLVED_URI"'
+            ].join('\n'), { TUNE_OUTPUT_PATH_LATEST: 's3://b/m/', TUNE_OUTPUT_TYPE_LATEST: 'model' });
+            assert.strictEqual(r.code, 0, r.stdout + r.stderr);
+            assert.match(r.stdout, /URI=s3:\/\/b\/m\//);
         });
-
-        it('shows error when TUNE_OUTPUT_PATH_LATEST is not set', () => {
-            assert.ok(
-                addIcScript.includes('TUNE_OUTPUT_PATH_LATEST:-') &&
-                addIcScript.includes('No tune output found'),
-                'Must show error when TUNE_OUTPUT_PATH_LATEST is not set'
-            );
+        it('an adapter tune output is refused by add-ic (ADR-013: a LoRA is not a full model)', () => {
+            // Supersedes the pre-Wave-6 "add-ic works for both types" behavior (R6.1).
+            const r = contractRun([
+                'out=$(_resolve_additive_source from-tune \'\' n)', 'eval "$out"',
+                '_guard_artifact_kind "$RESOLVED_KIND" "$(_additive_accepts_kind add-ic)" "use do/adapter"'
+            ].join('\n'), { TUNE_OUTPUT_PATH_LATEST: 's3://b/a/', TUNE_OUTPUT_TYPE_LATEST: 'adapter' });
+            assert.strictEqual(r.code, 3);
+            assert.ok(addIcScript.includes('use: do/adapter add <name> --from-tune'));
         });
-
-        it('suggests running do/tune when no output is available', () => {
-            assert.ok(
-                addIcScript.includes('./do/tune --technique'),
-                'Must suggest running do/tune when no output is available'
-            );
-        });
-
-        it('displays the resolved tune output path', () => {
-            assert.ok(
-                addIcScript.includes('Using tune output'),
-                'Must display the resolved tune output path'
-            );
-        });
-
-        it('--from-tune and --model-data are mutually exclusive', () => {
-            assert.ok(
-                addIcScript.includes('--from-tune and --model-data are mutually exclusive'),
-                'Must enforce mutual exclusivity between --from-tune and --model-data'
-            );
-        });
-
-        it('exits with error when both --from-tune and --model-data are provided', () => {
-            // Find the actual error check (with ❌ prefix), not the usage text
-            const mutualIdx = addIcScript.indexOf('❌ --from-tune and --model-data are mutually exclusive');
+        it('--from-tune, --from-weights and --from-registry are mutually exclusive (exit 1)', () => {
+            const mutualIdx = addIcScript.indexOf('❌ --from-weights, --from-tune, and --from-registry are mutually exclusive');
             assert.ok(mutualIdx > 0, 'Must have mutual exclusivity error check');
-            const afterError = addIcScript.substring(mutualIdx, mutualIdx + 400);
-            assert.ok(
-                afterError.includes('exit 1'),
-                'Must exit with error code 1 when both flags are provided'
-            );
+            assert.ok(addIcScript.substring(mutualIdx, mutualIdx + 400).includes('exit 1'));
         });
-
         it('includes --from-tune in usage/help text', () => {
-            assert.ok(
-                addIcScript.includes('--from-tune') &&
-                addIcScript.includes('TUNE_OUTPUT_PATH_LATEST'),
-                'Must document --from-tune in help text'
-            );
-        });
-
-        it('does not check TUNE_OUTPUT_TYPE_LATEST (works for both types)', () => {
-            // add-ic should NOT gate on output type - it works for both adapter and full-model
-            // Verify it does not reject based on output type
-            const fromTuneSection = addIcScript.substring(
-                addIcScript.indexOf('Resolve --from-tune'),
-                addIcScript.indexOf('Add New Inference Component')
-            );
-            assert.ok(
-                !fromTuneSection.includes('TUNE_OUTPUT_TYPE_LATEST'),
-                'add-ic must NOT check TUNE_OUTPUT_TYPE_LATEST (works for both types)'
-            );
+            assert.ok(addIcScript.includes('--from-tune [technique]'));
         });
     });
-
     // ── Generated project structure ──────────────────────────────────────
 
     describe('Generated project has --from-tune support in both scripts', () => {

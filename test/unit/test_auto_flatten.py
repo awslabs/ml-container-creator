@@ -341,31 +341,34 @@ class TestParquetJsonlEquivalence:
         assert flattened_jsonl == flattened_parquet
 
 
-# ── RLAIF/RLVR prompt is a string, so a message-list prompt auto-flattens ─────
+# ── RLAIF/RLVR prompt is a message LIST and is NOT flattened (BL129, R4.6) ────
 
 
-class TestRftPromptIsStringAndFlattens:
-    """Regression: the managed RLAIF/RLVR dataset loader tokenizes `prompt` as
-    TEXT and rejects a message-array value.
+class TestRftPromptIsMessageListNotFlattened:
+    """BL129 (R4.6) — the managed-RL prompt shape was RECONCILED.
 
-    A live RLAIF job on allenai/RLVR-GSM (whose `prompt` is a one-element
-    `[{"role":"user","content":...}]` list) failed in the training container with
-    `JSONDecodeError: Unterminated string` the moment the loader hit the `[{`
-    where it expected a string. The fix types `prompt` as "string" for rlaif/rlvr
-    so the shared auto-flatten collapses the single-turn message list to its
-    content string before upload. These assert the BEHAVIOR (prompt ends up a
-    string), not the literal schema table, so they survive catalog edits.
+    SUPERSEDES the earlier `TestRftPromptIsStringAndFlattens`: that typed rlaif/rlvr
+    `prompt` as "string" to auto-flatten a message list, because an OLD JSONL managed-RL
+    channel rejected arrays (a live allenai/RLVR-GSM job failed with
+    `JSONDecodeError: Unterminated string`). BL129 replaces that JSONL channel with the
+    verl PARQUET Producer (`tune_producer_rl.py`), which keeps `prompt` as a chat message
+    LIST — exactly what verl's `RLHFDataset` wants. The dataset contract now lives in the
+    tune descriptor (`prompt_shape: message-list`), and `_get_schema_types` types rlaif/
+    rlvr `prompt` as "message-list" so `_detect_chat_columns` (which only inspects
+    "string" columns) does NOT flatten it. These assert the NEW behavior (prompt stays a
+    list), per the tests-that-don't-rot rule: pin the committed behavior, not the
+    superseded one.
     """
 
-    def test_rlaif_and_rlvr_prompt_typed_string(self):
+    def test_rlaif_and_rlvr_prompt_typed_message_list(self):
         for technique in ("rlaif", "rlvr"):
-            assert _get_schema_types(technique).get("prompt") == "string", (
-                f"{technique} prompt must be typed 'string' so a message-list "
-                f"prompt is auto-flattened; an 'array' type disables flattening "
-                f"and the managed loader rejects the raw message array"
+            assert _get_schema_types(technique).get("prompt") == "message-list", (
+                f"{technique} prompt must be typed 'message-list' so it is NOT "
+                f"auto-flattened — verl's RLHFDataset (via the parquet Producer) wants "
+                f"the chat message list, not a flattened string"
             )
 
-    def test_rlaif_single_user_turn_prompt_flattens_to_content_string(self):
+    def test_rlaif_message_list_prompt_is_not_detected_for_flattening(self):
         # The exact shape allenai/RLVR-GSM ships: prompt is a one-message list.
         record = {
             "ground_truth": "1104",
@@ -375,20 +378,17 @@ class TestRftPromptIsStringAndFlattens:
         required_columns = _get_required_columns("rlaif")
         schema_types = _get_schema_types("rlaif")
         chat_columns = _detect_chat_columns(record, required_columns, schema_types)
-        # prompt must be detected as a chat column (so it will be flattened)
-        assert "prompt" in chat_columns, (
-            "prompt must be detected for flattening — if it is not, the raw "
-            "message array ships to the loader and the job fails"
+        # prompt must NOT be detected as a flatten target (its type is message-list,
+        # which _detect_chat_columns skips) — the Producer preserves the list.
+        assert "prompt" not in chat_columns, (
+            "prompt must NOT be flattened for rlaif/rlvr — verl wants the message list; "
+            "the parquet Producer preserves it"
         )
         flattened = _flatten_record(record, chat_columns)
-        assert isinstance(flattened["prompt"], str)
-        assert flattened["prompt"] == "Question: There are 15 trees."
-        # The resulting line must be valid JSONL with a string prompt value.
-        line = json.dumps(flattened, ensure_ascii=False)
-        reparsed = json.loads(line)
-        assert isinstance(reparsed["prompt"], str)
+        assert isinstance(flattened["prompt"], list)
+        assert flattened["prompt"] == [{"role": "user", "content": "Question: There are 15 trees."}]
 
-    def test_rlvr_prompt_flattens_the_same_way(self):
+    def test_rlvr_message_list_prompt_is_preserved(self):
         record = {
             "ground_truth": "42",
             "prompt": [{"role": "user", "content": "What is 6 times 7?"}],
@@ -396,5 +396,6 @@ class TestRftPromptIsStringAndFlattens:
         required_columns = _get_required_columns("rlvr")
         schema_types = _get_schema_types("rlvr")
         chat_columns = _detect_chat_columns(record, required_columns, schema_types)
+        assert "prompt" not in chat_columns
         flattened = _flatten_record(record, chat_columns)
-        assert flattened["prompt"] == "What is 6 times 7?"
+        assert flattened["prompt"] == [{"role": "user", "content": "What is 6 times 7?"}]

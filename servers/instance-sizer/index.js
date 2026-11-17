@@ -37,8 +37,9 @@ import { z } from 'zod';
 import { readFileSync, mkdirSync, writeFileSync, renameSync, existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname, join } from 'node:path';
-import { resolveModelMetadata } from './lib/model-resolver.js';
+import { resolveModelMetadata, hasUsableSize } from './lib/model-resolver.js';
 import { estimateVram, computeMaxModelLen } from './lib/vram-estimator.js';
+import { resolveServedContext } from './lib/served-context.js';
 import { filterAndRankInstances, applyAvailabilityRanking, getPerGpuMemoryGb } from './lib/instance-ranker.js';
 import { QuotaResolver } from './lib/quota-resolver.js';
 import { queryBedrock } from '../lib/bedrock-client.js';
@@ -234,6 +235,28 @@ function filterByCudaVersion(instanceCatalog, requiredCuda) {
     return filtered;
 }
 
+// ── Sizing-unavailable message ───────────────────────────────────────────────
+
+/**
+ * Build the explicit, user-facing message returned when a model's size
+ * (parameter count) cannot be determined, so no VRAM-based recommendation
+ * can be made. Always tells the user how to proceed (--instance-type).
+ *
+ * @param {string} modelName
+ * @param {object|null} metadata - Partial metadata, if any was resolved
+ * @param {boolean} discover - Whether HF Hub discovery was enabled
+ * @returns {string}
+ */
+function buildSizingUnavailableMessage(modelName, metadata, discover) {
+    const why = metadata
+        ? `metadata for "${modelName}" (source: ${metadata.source}) has no parameter count`
+        : `"${modelName}" is not in the model-sizes catalog`;
+    const hub = discover
+        ? 'and its size could not be read from the HuggingFace Hub (offline, private, or no safetensors metadata)'
+        : 'and HuggingFace Hub discovery is disabled (--no-discover)';
+    return `Cannot size "${modelName}": ${why} ${hub}. No instance recommendation was made — pass --instance-type <ml.instance> explicitly (the listed GPU instances are NOT filtered by VRAM).`;
+}
+
 // ── Tool handler ─────────────────────────────────────────────────────────────
 
 /**
@@ -359,9 +382,14 @@ async function handleGetInstanceRecommendation(params) {
         ...(localModelSizesCatalogPath ? { localCatalogPath: localModelSizesCatalogPath } : {})
     });
 
-    // If model metadata cannot be resolved, return all GPU instances unfiltered
-    if (!modelMetadata) {
-        log(`Model metadata not found for "${modelName}", returning unfiltered GPU instances`);
+    // If the model's SIZE cannot be determined (no metadata at all, or metadata
+    // without a parameter count — e.g. an incomplete local-catalog entry while
+    // the Hub is unreachable), do NOT size against 0 params (that used to
+    // return a silent empty list). Return the GPU instances unfiltered for
+    // pickers, but make no recommendation and say so explicitly.
+    if (!hasUsableSize(modelMetadata)) {
+        const sizingError = buildSizingUnavailableMessage(modelName, modelMetadata, DISCOVER_MODE);
+        log(sizingError);
         let unfilteredRecs = Object.keys(effectiveCatalog)
             .filter(key => effectiveCatalog[key].category === 'gpu')
             .slice(0, limit)
@@ -395,14 +423,21 @@ async function handleGetInstanceRecommendation(params) {
             content: [{
                 type: 'text',
                 text: JSON.stringify({
-                    values: { instanceType: unfilteredRecs[0]?.instanceType || null },
+                    // No sized recommendation: an unfiltered first entry is not a recommendation.
+                    values: { instanceType: null },
                     choices: { instanceType: unfilteredRecs.map(r => r.instanceType) },
                     metadata: {
                         modelName,
                         recommendations: unfilteredRecs,
                         source: 'unfiltered',
+                        sizingUnavailable: true,
+                        error: sizingError,
+                        ...(modelMetadata ? {
+                            architecture: modelMetadata.architecture,
+                            metadataSource: modelMetadata.source
+                        } : {}),
                         cudaVersionFilter: cudaVersion || null,
-                        warning: `Could not resolve model metadata for "${modelName}". Returning all GPU instances without filtering.`
+                        warning: sizingError
                     }
                 })
             }]
@@ -410,9 +445,17 @@ async function handleGetInstanceRecommendation(params) {
     }
 
     // Step 2: Estimate VRAM
-    // Use model's max_position_embeddings as the sequence length when no explicit value is provided.
-    // This ensures KV cache is sized for the model's actual context window, not the 4096 default.
-    const resolvedMaxSeqLen = effectiveMaxSeqLen || modelMetadata.maxPositionEmbeddings || undefined;
+    // BL240: budget the KV cache for the context the server will SERVE, not the
+    // model's native maximum: an explicit request wins, otherwise
+    // min(max_position_embeddings, engine default max_model_len) where the
+    // engine default is derived from serve.d + model-servers.json
+    // (lib/served-context.js). The native maximum is still reported below.
+    const served = resolveServedContext({
+        requested: effectiveMaxSeqLen,
+        maxPositionEmbeddings: modelMetadata.maxPositionEmbeddings,
+        engine: context?.backend
+    });
+    const resolvedMaxSeqLen = served.servedContext;
     const vramEstimate = estimateVram({
         parameterCount: modelMetadata.parameterCount,
         dtype: modelMetadata.dtype,
@@ -644,6 +687,16 @@ async function handleGetInstanceRecommendation(params) {
 
     const rankedList = finalRecommendations.map(r => r.instanceType);
 
+    // Never return a silent empty list: if the model was sized but nothing
+    // fits (or a search filter removed everything), say why.
+    let noFitError = null;
+    if (finalRecommendations.length === 0) {
+        noFitError = instanceSearch
+            ? `No VRAM-compatible instance for "${modelName}" (~${vramEstimate.vramGb.toFixed(1)}GB) matched instance search "${instanceSearch}". Pass --instance-type <ml.instance> explicitly.`
+            : `No catalog instance has enough GPU memory for "${modelName}" (~${vramEstimate.vramGb.toFixed(1)}GB estimated). Consider quantization or a smaller max context, or pass --instance-type <ml.instance> explicitly.`;
+        log(noFitError);
+    }
+
     return {
         content: [{
             type: 'text',
@@ -656,7 +709,11 @@ async function handleGetInstanceRecommendation(params) {
                 metadata: {
                     modelName,
                     parameterCount: modelMetadata.parameterCount,
+                    ...(modelMetadata.parameterCountSource ? { parameterCountSource: modelMetadata.parameterCountSource } : {}),
                     dtype: modelMetadata.dtype,
+                    maxPositionEmbeddings: modelMetadata.maxPositionEmbeddings || null,
+                    servedContextLength: resolvedMaxSeqLen,
+                    servedContextSource: served.source,
                     quantization: quantization || null,
                     estimatedVramGb: vramEstimate.vramGb,
                     vramBreakdown: vramEstimate.breakdown,
@@ -664,6 +721,7 @@ async function handleGetInstanceRecommendation(params) {
                     source: modelMetadata.source,
                     smartModeUsed,
                     allFilteredByQuota,
+                    ...(noFitError ? { error: noFitError, warning: noFitError } : {}),
                     ...(contextLengthCapped ? {
                         suggestedMaxModelLen,
                         contextLengthCapped: true,
@@ -679,7 +737,7 @@ async function handleGetInstanceRecommendation(params) {
 
 const INSTANCE_CONTEXT_SCHEMA = z.object({
     architecture: z.string().optional(),
-    backend: z.string().optional(),
+    backend: z.string().optional().describe('Serving engine (serve.d name, e.g. vllm); selects the default served context the KV cache is budgeted for'),
     deploymentTarget: z.string().optional(),
     projectDir: z.string().optional().describe('Absolute path to the project directory (for .mlcc/ local catalog overrides)'),
     profileEnvVars: z.record(z.string()).optional().describe('Serving profile ENV overrides (e.g., VLLM_MAX_MODEL_LEN)')

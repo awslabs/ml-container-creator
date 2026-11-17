@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run test:*)",
+      "Bash(npm run lint)",
+      "Bash(npm run lint:fix)",
+      "Bash(npm run codegen)",
+      "Bash(npm run validate:*)",
+      "Bash(node scripts/validate-schema-v2.js)",
+      "Bash(node scripts/sync-command-generator.js --check)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)"
+    ],
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(npm publish:*)",
+      "Bash(npm version:*)",
+      "Bash(node scripts/e2e-runner.js:*)",
+      "Bash(npx cdk:*)",
+      "Bash(aws:*)"
+    ],
+    "deny": [
+      "Edit(src/lib/generated/**)",
+      "Bash(git commit --no-verify:*)",
+      "Bash(git commit -n:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-generated.mjs\""
+          }
+        ]
+      }
+    ]
+  }
+}

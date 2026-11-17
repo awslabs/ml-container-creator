@@ -1,0 +1,55 @@
+{
+  "$comment": "Wave 11 (R10, R11; OQ-11.1): the DECLARATIVE patch-site list hp_payload.py applies to AWS's HP-EKS payload templates. Each site names its document (kind), path, the ORIGINAL value it asserts before changing anything, and the new value. A site whose original is missing or different is FATAL ('template drift at <id>'). Only families captured live and asserted against test/fixtures/hp-eks/ have entries (Task 1: verl SFT/DPO LoRA v2.0.9); any other family is refused. Shape sites assert the template GPU count T read from the HPPJ GPU limit, never a literal 8. Drift-tested by test/unit/test_hp_payload.py (offline, fixtures) and test/unit/hp-payload-live-drift.test.js (network-only).",
+  "families": {
+    "verl": {
+      "match": {
+        "workload_kind": "HyperPodPyTorchJob",
+        "image_regex": "/hyperpod-recipes-verl-[0-9-]+:verl-v1\\.1\\.6-smtj-tf58$"
+      },
+      "main_container": "pytorch",
+      "config_keys": ["config.yaml", "verl_config.yaml"],
+      "always": [
+        { "id": "image-tag", "op": "assert_image", "doc": "HyperPodPyTorchJob",
+          "why": "SCRIPT_PATH below is only valid for this image tag (F0 [IMAGE]); a new tag must be re-verified" },
+        { "id": "job-name-env", "op": "env_delete", "doc": "HyperPodPyTorchJob", "env": "JOB_NAME",
+          "expect_regex": "^[a-z0-9][a-z0-9-]*$",
+          "why": "reserved by the HyperPod training operator's admission webhook (F0 [LIVE])" },
+        { "id": "script-path", "op": "env_set", "doc": "HyperPodPyTorchJob", "env": "SCRIPT_PATH",
+          "expect": "/app/src/train_hp.py", "value": "/opt/ml/code/verl_trainer_script.py",
+          "why": "/app does not exist in the pinned image (F0 [LIVE] attempt 2)" },
+        { "id": "config-name-suffix", "op": "env_suffix", "doc": "HyperPodPyTorchJob", "env": "SCRIPT_ARGS",
+          "expect_regex": "^--config-path=/config --config-name=verl_config(\\.yaml)?$", "suffix": ".yaml",
+          "why": "verl_trainer_script.py joins path + name literally (F0 [IMAGE]); some live templates already carry the suffix (live drift check 2026-10-28), so the site adds it only when missing" },
+        { "id": "node-selector", "op": "node_selector", "doc": "HyperPodPyTorchJob",
+          "expect_key": "beta.kubernetes.io/instance-type",
+          "why": "pin the picked instance group instead of an instance type" },
+        { "id": "log-path", "op": "command_wrap", "doc": "HyperPodPyTorchJob",
+          "expect": "/opt/bin/scripts/train-script-gpu.sh 2>&1 | tee /data/training.log",
+          "workload": "/opt/bin/scripts/train-script-gpu.sh",
+          "why": "the AWS default tees every job to ONE shared FSx file; MLCC tees per job and records the exit code" }
+      ],
+      "shape": [
+        { "id": "nproc-per-node", "op": "spec_set", "doc": "HyperPodPyTorchJob", "path": "spec.nprocPerNode", "expect": "T_STR", "value": "G_STR" },
+        { "id": "cuda-visible-devices", "op": "env_set", "doc": "HyperPodPyTorchJob", "env": "CUDA_VISIBLE_DEVICES", "expect": "DEVICES_T", "value": "DEVICES_G" },
+        { "id": "slurm-ntasks", "op": "env_set", "doc": "HyperPodPyTorchJob", "env": "SLURM_NTASKS_PER_NODE", "expect": "T_STR", "value": "G_STR" },
+        { "id": "ntasks-per-node", "op": "env_set", "doc": "HyperPodPyTorchJob", "env": "NTASKS_PER_NODE", "expect": "T_STR", "value": "G_STR" },
+        { "id": "gpu-request", "op": "resource_set", "doc": "HyperPodPyTorchJob", "section": "requests", "resource": "nvidia.com/gpu", "expect": "T", "value": "G" },
+        { "id": "gpu-limit", "op": "resource_set", "doc": "HyperPodPyTorchJob", "section": "limits", "resource": "nvidia.com/gpu", "expect": "T", "value": "G" },
+        { "id": "efa-request", "op": "efa", "doc": "HyperPodPyTorchJob", "section": "requests" },
+        { "id": "efa-limit", "op": "efa", "doc": "HyperPodPyTorchJob", "section": "limits" },
+        { "id": "verl-n-gpus", "op": "config_set", "config": "verl_config.yaml", "path": "trainer.n_gpus_per_node", "expect": "T", "value": "G" },
+        { "id": "config-devices", "op": "config_set", "config": "config.yaml", "path": "trainer.devices", "expect": "T", "value": "G" },
+        { "id": "config-n-gpus", "op": "config_set", "config": "config.yaml", "path": "training_config.trainer.n_gpus_per_node", "expect": "T", "value": "G" },
+        { "id": "verl-token-budget", "op": "config_set", "config": "verl_config.yaml", "path": "data.max_token_len_per_gpu", "expect": "ANY_INT", "value": "TOKENS" },
+        { "id": "config-token-budget", "op": "config_set", "config": "config.yaml", "path": "training_config.data.max_token_len_per_gpu", "expect": "ANY_INT", "value": "TOKENS" },
+        { "id": "alloc-conf", "op": "env_add", "doc": "HyperPodPyTorchJob", "env": "PYTORCH_CUDA_ALLOC_CONF", "value": "expandable_segments:True",
+          "why": "F0 attempt 4: a 5.25 GiB FSDP all-gather OOM'd with 5.41 GiB reserved but unallocated" }
+      ],
+      "post_scan": {
+        "key_regex": "(?i)(nproc|devices|n_gpus|gpu|ntasks|efa|cuda)",
+        "instance_literal_regex": "ml\\.(p4d|p4de|p5)\\.",
+        "allow_instance_literal_in": ["config.yaml:instance_types"]
+      }
+    }
+  }
+}

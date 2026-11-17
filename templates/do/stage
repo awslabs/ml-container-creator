@@ -312,14 +312,21 @@ if [ -z "${STAGE_S3_BUCKET}" ]; then
     exit 1
 fi
 
-# Target S3 path for staged model: s3://{bucket}/models/{org}/{repo}/
+# Target S3 path for staged model: the base prefix models/<org>/<repo>/ composed by
+# do/lib/python/s3_layout.py (the single layout module, bucket consolidation R3).
 # The model is keyed ONLY by its HuggingFace repo ID (org/repo), NOT by project.
 # This makes the models bucket a SHARED cache: every project that stages the same
 # model resolves to the same objects, so weights are downloaded once and reused
 # across all future projects. The idempotency check below therefore becomes a
 # cross-project cache hit. MODEL_NAME (e.g. "deepseek-ai/DeepSeek-R1-Distill-Llama-70B")
 # is used directly as the prefix — its single "/" nests org and repo as S3 folders.
-MODEL_S3_URI="s3://${STAGE_S3_BUCKET}/models/${MODEL_NAME}/"
+# do/stage only ever ADDS objects under this prefix (aws s3 sync without --delete),
+# so the canonical adapters under <prefix>/.mlcc-adapters/ survive a re-stage (R1.7).
+MODEL_S3_URI=$(python3 "${SCRIPT_DIR}/lib/python/s3_layout.py" base-uri --bucket "${STAGE_S3_BUCKET}" \
+    --model "${MODEL_NAME}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["uri"])') || {
+    echo "❌ Cannot compose the staging prefix for '${MODEL_NAME}' (see the error above)."
+    exit 1
+}
 
 echo "   Target: ${MODEL_S3_URI}"
 echo ""

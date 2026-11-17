@@ -7,7 +7,8 @@
  * Verifies:
  * 1. The do/stage template includes the --update-config flag
  * 2. The sed command correctly replaces MODEL_NAME in do/config
- * 3. The --update-config flag is documented in --help output
+ * 3. The config-update behavior (STAGED_MODEL_PATH, --no-update-config) is
+ *    documented in --help output
  *
  * Validates: Requirements FTP-2 (2.1, 2.2)
  */
@@ -60,11 +61,23 @@ describe('do/stage --update-config (FTP-2: 2.1, 2.2)', () => {
         );
     });
 
-    it('stage template documents --update-config in --help output', () => {
+    it('stage template documents config-update behavior in --help output', () => {
+        // BL076 (v1.5, help text reworded in 3bd472c2): staging writes
+        // STAGED_MODEL_PATH and preserves MODEL_NAME as the HF model ID.
+        // --update-config is the default (kept for backward compat), so --help
+        // documents the opt-out flag and what gets written.
         const content = fs.readFileSync(STAGE_TEMPLATE, 'utf8');
         assert.ok(
-            content.includes('updates MODEL_NAME in do/config'),
-            '--help output should describe --update-config'
+            content.includes('--no-update-config  Do NOT write STAGED_MODEL_PATH to do/config'),
+            '--help output should document --no-update-config'
+        );
+        assert.ok(
+            content.includes('STAGED_MODEL_PATH is written to do/config on completion.'),
+            '--help output should say STAGED_MODEL_PATH is written to do/config'
+        );
+        assert.ok(
+            content.includes('MODEL_NAME is preserved as the original HuggingFace identifier.'),
+            '--help output should say MODEL_NAME is preserved'
         );
     });
 

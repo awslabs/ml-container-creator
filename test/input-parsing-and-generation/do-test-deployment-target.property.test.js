@@ -153,14 +153,15 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
                     'hyperpod-eks must use kubectl port-forward'
                 );
                 assert.ok(
-                    // BL088 (updated): the operator creates serving pods directly;
-                    // do/test discovers the pod by `app=${PROJECT_NAME}` label and
-                    // port-forwards to it (PF_TARGET="pod/${_POD}"), falling back to
-                    // svc/${PF_SVC} only if a pod is not found.
+                    // BL088 + Wave 6.1 R7b.4: the operator creates serving pods
+                    // directly; do/test discovers the RUNNING pod by the
+                    // `app=${PROJECT_NAME}` label (phase filter skips a Terminating
+                    // pod mid-rollout) and port-forwards to pod/<name> — never svc/.
                     output.includes('-l "app=${PROJECT_NAME}"') &&
-                    output.includes('PF_TARGET="pod/${_POD}"') &&
-                    output.includes('kubectl port-forward "${PF_TARGET:-svc/${PF_SVC}}"'),
-                    'hyperpod-eks must resolve the serving pod by app=PROJECT_NAME label and port-forward to it'
+                    output.includes('--field-selector=status.phase=Running') &&
+                    output.includes('kubectl port-forward "pod/${_POD}"') &&
+                    !output.includes('svc/${PF_SVC}'),
+                    'hyperpod-eks must resolve the Running serving pod by app=PROJECT_NAME label and port-forward to pod/<name>'
                 );
                 assert.ok(
                     // BL088 (updated): mapping is ${LOCAL_PORT}:${SVC_PORT}, with both

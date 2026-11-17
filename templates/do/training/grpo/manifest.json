@@ -1,0 +1,120 @@
+{
+  "$schema": "../manifest.schema.json",
+  "schema_version": 1,
+  "technique": "grpo",
+  "display_name": "Group Relative Policy Optimization (GRPO)",
+  "description": "GRPO-specific settings: TRL GRPOTrainer + PEFT LoRA with your in-process reward functions (reward_example.py).",
+  "hyperparameters": {
+    "num_generations": {
+      "type": "integer",
+      "required": false,
+      "min": 2,
+      "tier": "primary",
+      "display_name": "Generations per prompt",
+      "description": "completions sampled per prompt (the group); the group baseline needs at least 2"
+    },
+    "max_completion_length": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "primary",
+      "display_name": "Max completion length",
+      "description": "max new tokens sampled per completion"
+    },
+    "max_prompt_length": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "primary",
+      "display_name": "Max prompt length",
+      "description": "longer prompts are left-truncated"
+    },
+    "prompt_field": {
+      "type": "string",
+      "required": false,
+      "tier": "primary",
+      "display_name": "Prompt column name",
+      "description": "dataset column holding the prompt text"
+    },
+    "beta": {
+      "type": "number",
+      "required": false,
+      "min": 0,
+      "tier": "primary",
+      "display_name": "Beta (KL coefficient)",
+      "description": "KL penalty against the reference policy"
+    },
+    "learning_rate": {
+      "type": "number",
+      "required": false,
+      "tier": "primary",
+      "display_name": "Learning rate",
+      "description": "optimizer learning rate"
+    },
+    "epochs": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "primary",
+      "display_name": "Epochs",
+      "description": "number of passes over the dataset"
+    },
+    "batch_size": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "primary",
+      "display_name": "Batch size",
+      "description": "per-device batch size"
+    },
+    "lora_r": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "primary",
+      "display_name": "LoRA rank (r)",
+      "description": "LoRA adapter rank"
+    },
+    "gradient_accumulation_steps": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "advanced",
+      "display_name": "Gradient accumulation steps",
+      "description": "steps to accumulate before an optimizer update"
+    },
+    "warmup_ratio": {
+      "type": "number",
+      "required": false,
+      "min": 0,
+      "max": 1,
+      "tier": "advanced",
+      "display_name": "Warmup ratio",
+      "description": "fraction of training steps used for LR warmup, 0-1"
+    },
+    "lora_alpha": {
+      "type": "integer",
+      "required": false,
+      "min": 1,
+      "tier": "advanced",
+      "display_name": "LoRA alpha",
+      "description": "LoRA scaling factor"
+    },
+    "lora_dropout": {
+      "type": "number",
+      "required": false,
+      "min": 0,
+      "max": 1,
+      "tier": "advanced",
+      "display_name": "LoRA dropout",
+      "description": "dropout on the LoRA layers, 0-1"
+    },
+    "model_id": {
+      "type": "string",
+      "required": false,
+      "tier": "tertiary",
+      "display_name": "Base model ID",
+      "description": "HuggingFace model ID; normally taken from HF_MODEL_ID"
+    }
+  }
+}

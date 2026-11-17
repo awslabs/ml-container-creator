@@ -299,39 +299,8 @@ IMAGE_URI="${ECR_REPOSITORY}:${IMAGE_TAG}"
 <% } %>
 
 # ============================================================
-# Shared: Resolve secrets for container environment
-# ============================================================
-CONTAINER_ENV_JSON=""
-
-if [ -n "${HF_TOKEN_ARN:-}" ]; then
-    echo "🔐 Resolving HuggingFace token from Secrets Manager..."
-    RESOLVED_HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${HF_TOKEN_ARN}" --query SecretString --output text --region "${AWS_REGION}") || {
-        echo "❌ Failed to resolve HuggingFace token from Secrets Manager"
-        exit 3
-    }
-    CONTAINER_ENV_JSON="\"HF_TOKEN\":\"${RESOLVED_HF_TOKEN}\""
-elif [ -n "${HF_TOKEN:-}" ]; then
-    CONTAINER_ENV_JSON="\"HF_TOKEN\":\"${HF_TOKEN}\""
-fi
-
-if [ -n "${NGC_API_KEY_ARN:-}" ]; then
-    echo "🔐 Resolving NGC API key from Secrets Manager..."
-    RESOLVED_NGC_KEY=$(aws secretsmanager get-secret-value --secret-id "${NGC_API_KEY_ARN}" --query SecretString --output text --region "${AWS_REGION}") || {
-        echo "❌ Failed to resolve NGC API key from Secrets Manager"
-        exit 3
-    }
-    if [ -n "${CONTAINER_ENV_JSON}" ]; then
-        CONTAINER_ENV_JSON="${CONTAINER_ENV_JSON},\"NGC_API_KEY\":\"${RESOLVED_NGC_KEY}\""
-    else
-        CONTAINER_ENV_JSON="\"NGC_API_KEY\":\"${RESOLVED_NGC_KEY}\""
-    fi
-elif [ -n "${NGC_API_KEY:-}" ]; then
-    if [ -n "${CONTAINER_ENV_JSON}" ]; then
-        CONTAINER_ENV_JSON="${CONTAINER_ENV_JSON},\"NGC_API_KEY\":\"${NGC_API_KEY}\""
-    else
-        CONTAINER_ENV_JSON="\"NGC_API_KEY\":\"${NGC_API_KEY}\""
-    fi
-fi
+# Container secrets: resolve_secrets (do/lib/secrets.sh, sourced below)
+# passes HF_TOKEN_ARN / NGC_API_KEY_ARN by reference (BL212).
 
 # ============================================================
 # SageMaker Real-Time Inference Deployment (Inference Components)
@@ -342,6 +311,22 @@ source "${SCRIPT_DIR}/lib/secrets.sh"
 source "${SCRIPT_DIR}/lib/wait.sh"
 source "${SCRIPT_DIR}/lib/endpoint-config.sh"
 source "${SCRIPT_DIR}/lib/inference-component.sh"
+source "${SCRIPT_DIR}/lib/scale-to-zero.sh"
+
+# ── Scale-to-zero (Wave 10, ADR-014) ──────────────────────────────────────────
+# Opt-in only: STZ_ACTIVE is true when SCALE_TO_ZERO=true AND this target's
+# descriptor enables it (the target name is this script's own file name). Off by
+# default, in which case nothing below changes the deploy.
+_STZ_TARGET="$(basename "${BASH_SOURCE[0]}")"
+STZ_ACTIVE=false
+_STZ_RC=0
+if stz_active "${_STZ_TARGET}"; then
+    STZ_ACTIVE=true
+    stz_refuse_unsupported_config "${_STZ_TARGET}"
+    if [ -z "${IC_TARGET}" ]; then
+        stz_warning "${_STZ_TARGET}"
+    fi
+fi
 
 # Validate execution role ARN
 if [ -z "${ROLE_ARN:-}" ]; then
@@ -397,8 +382,11 @@ if [ -n "${IC_TARGET}" ]; then
     fi
 fi
 
-# Resolve container secrets (HF_TOKEN, NGC_API_KEY)
+# Resolve container secrets (HF_TOKEN, NGC_API_KEY) — by reference, never the value
 resolve_secrets
+# BL212: refuse a plaintext IC_ENV_HF_TOKEN / IC_ENV_NGC_API_KEY before any
+# endpoint is created (create_inference_component re-checks per-IC configs).
+_collect_ic_env_vars || exit 3
 
 <% if (typeof serverEnvVars !== 'undefined' && serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
 # ============================================================
@@ -976,6 +964,26 @@ elif [ "${SKIP_TO}" = "wait_ic" ]; then
     echo "✅ Inference component is InService: ${IC_DEPLOYED_NAME}"
 fi
 
+# ── Scale-to-zero setup (Wave 10, ADR-014 R3.2 / R4.1) ─────────────────────────
+# After every IC is InService: register each with MinCapacity 0 and create its
+# policies and wake alarm. A failure is NOT a deploy failure: what was created is
+# rolled back, the endpoint keeps serving at its fixed floor, and the deploy
+# exits 5 at the end. An IC deployed on its own (--ic, do/add-ic) is not
+# registered in v2 (R3.3): print the notice instead.
+if [ "${STZ_ACTIVE}" = "true" ]; then
+    if [ -n "${IC_TARGET}" ]; then
+        [ -n "${MLCC_STZ_ADD_IC_NOTICE:-}" ] || stz_add_ic_notice
+    else
+        if [ -d "${SCRIPT_DIR}/ic" ]; then
+            _STZ_ICS=$(_stz_deployed_ics | tr '\n' ' ')
+        else
+            _STZ_ICS="${IC_DEPLOYED_NAME:-${INFERENCE_COMPONENT_NAME:-}}"
+        fi
+        # ${_STZ_ICS}: space-separated IC names, unquoted on purpose.
+        stz_setup "${_STZ_TARGET}" ${_STZ_ICS} || _STZ_RC=$?
+    fi
+fi
+
 # ── Resolve and persist actual instance type (for heterogeneous pools) ─────────
 # On pool-based endpoints, INSTANCE_TYPE in do/config may be empty or reflect
 # only the generation-time default. Query the live endpoint to determine what
@@ -1050,7 +1058,7 @@ echo "   • Test your endpoint:         ./do/test"
 echo "   • Benchmark performance:      ./do/benchmark"
 <% } %>
 <% if (typeof enableLora !== 'undefined' && enableLora) { %>
-echo "   • Add a LoRA adapter:         ./do/adapter add <name> --weights s3://..."
+echo "   • Add a LoRA adapter:         ./do/adapter add <name> --from-weights s3://..."
 <% } %>
 echo "   • View endpoint status:       ./do/status"
 echo "   • Register this deployment:   ./do/register"
@@ -1058,3 +1066,13 @@ echo "   • View logs:                  ./do/logs"
 <% if (!(typeof existingEndpointName !== 'undefined' && existingEndpointName)) { %>
 echo "   • Clean up when done:         ./do/clean endpoint"
 <% } %>
+
+# Scale-to-zero setup failed after a successful deploy (R4.1): exit 5, distinct
+# from 4 (deploy failure), so callers know the endpoint is up.
+if [ "${_STZ_RC}" -ne 0 ]; then
+    echo ""
+    echo "⚠️  Deployed, but scale-to-zero was not set up (exit 5). The endpoint is up and"
+    echo "   serving at a fixed floor of 1 copy; SCALE_TO_ZERO_STATUS=failed in do/config."
+    _update_config DEPLOYMENT_TARGET "${DEPLOYMENT_TARGET}"
+    exit 5
+fi

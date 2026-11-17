@@ -157,31 +157,35 @@ def _metrics_source(metrics):
 # applicable for the target (engine_metrics_only) or nothing was collected (none).
 _GPU_COLUMNS = ('gpu_utilization_avg', 'gpu_utilization_max',
                 'gpu_memory_util_avg', 'gpu_memory_used_avg_gb')
-# Engine columns (Phase 2 /metrics): structurally N/A when Phase 2 was not
-# applicable for the target (cloudwatch_only) or nothing was collected (none).
+# Engine columns: since Wave 9 every store carries them (realtime CloudWatch
+# PromQL exports the vLLM series; HyperPod AMP and the scrape do too), so they
+# are structurally N/A only when nothing was collected (none).
 _ENGINE_COLUMNS = ('prefix_cache_hit_rate', 'queue_depth_running_avg')
 
 
 def _is_na_column(column, source):
     """Return True when `column` is structurally not-applicable for `source`.
 
-    GPU (Phase 1) columns → N/A for 'engine_metrics_only' or 'none'.
-    Engine (Phase 2) columns → N/A for 'cloudwatch_only' or 'none'.
+    GPU (DCGM) columns → N/A for 'engine_metrics_only' (the port-forward scrape
+    has no GPU series) or 'none'. Engine columns → N/A only for 'none'.
     """
     if column in _GPU_COLUMNS:
         return source in ('engine_metrics_only', 'none')
     if column in _ENGINE_COLUMNS:
-        return source in ('cloudwatch_only', 'none')
+        return source == 'none'
     return False
 
 
 def _print_guidance():
     """Phase 1 / Phase 2 enablement guidance (Req 3.4)."""
     print("\nℹ️  No GPU/engine metrics were collected for this run (metrics_source=none).")
-    print("   Enable richer signals:")
-    print("     Phase 1 — CloudWatch OTel enrichment (account-level):")
-    print("       aws cloudwatch start-otel-enrichment --region <region>")
-    print("     Phase 2 — engine /metrics scrape (HyperPod EKS, opt-in):")
+    print("   Where these signals come from:")
+    print("     realtime-inference — SageMaker AI detailed observability (on by default for")
+    print("       endpoint configs), read via CloudWatch PromQL over the run window.")
+    print("       Needs cloudwatch:GetMetricData + cloudwatch:ListMetrics.")
+    print("     hyperpod-eks — the HyperPod observability add-on's Amazon Managed Service")
+    print("       for Prometheus workspace (all pods). Needs aps:QueryMetrics.")
+    print("     Fallback (hyperpod-eks / eks) — engine /metrics scrape, opt-in:")
     print("       Set HP_BENCHMARK_METRICS_ENABLED=true in do/config, then re-run the benchmark.")
 
 

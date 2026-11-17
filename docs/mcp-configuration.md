@@ -22,7 +22,7 @@ sequenceDiagram
     Generator->>User: Present prompts with MCP choices
 ```
 
-MCP sits at priority 4 in the [configuration precedence chain](configuration.md#precedence) -- below CLI options, arguments, and environment variables, but above config files and defaults.
+MCP is not a numbered level in the [configuration precedence chain](configuration.md#precedence). The generator queries MCP servers after it has loaded every other source, and uses the results as suggested values and choice lists in the prompts. A value you set explicitly (CLI option, environment variable, config file) is not overwritten by an MCP result.
 
 MCP is entirely optional. If a server is not configured, unreachable, times out (default 10s), or returns errors, the generator logs a warning and continues without MCP values. Prompts fall back to their default choices.
 
@@ -70,10 +70,10 @@ The `mcp add` command registers a server in your config file. The server is spaw
 
 ### Add a Bundled Server
 
-The generator ships with first-party MCP servers in the `servers/` directory:
+The generator ships with first-party MCP servers in the `servers/` directory. Put `--bundled` (and any `-e KEY=VALUE`) **before** the action, because the `mcp` command passes everything after the action through as arguments:
 
 ```bash
-ml-container-creator mcp add instance-recommender --bundled
+ml-container-creator mcp --bundled add instance-sizer
 ```
 
 Dependencies are installed automatically on first use.
@@ -82,7 +82,7 @@ Dependencies are installed automatically on first use.
 
 ```bash
 ml-container-creator mcp list              # List configured servers
-ml-container-creator mcp list --bundled     # List available bundled servers
+ml-container-creator mcp --bundled list     # List available bundled servers
 ml-container-creator mcp get team-config    # Inspect a server
 ml-container-creator mcp remove team-config # Remove a server
 ```
@@ -98,7 +98,7 @@ MCP servers are configured under the `mcpServers` key in `config/mcp.json`:
   "mcpServers": {
     "team-config": {
       "command": "node",
-      "args": ["servers/instance-recommender/index.js"],
+      "args": ["servers/instance-sizer/index.js"],
       "env": { "TEAM_ID": "ml-platform" },
       "toolName": "get_ml_config",
       "limit": 5
@@ -121,33 +121,35 @@ When multiple servers are configured, they are queried in order. Later servers t
 
 ### instance-sizer
 
-The single authority for all instance-related recommendations. Estimates VRAM requirements from model metadata, performs search/tag-based filtering, and returns filtered, ranked SageMaker AI instance recommendations. Supports both VRAM-driven sizing (when a model name is provided) and tag-based search (when an `instanceSearch` query is provided).
+The single authority for instance recommendations. It estimates the GPU memory a model needs and returns filtered, ranked SageMaker AI instance recommendations. It supports VRAM-driven sizing (when a model name is provided) and tag-based search (when an `instanceSearch` query is provided).
 
 ```bash
-ml-container-creator mcp add instance-sizer --bundled
+ml-container-creator mcp --bundled add instance-sizer
 ```
 
-The instance-sizer accepts optional context including CUDA version constraints (from the base image), serving profile ENV overrides (for accurate KV cache estimation), and deployment target. When the model is known, it computes VRAM requirements and filters instances to only those with sufficient GPU memory and compatible CUDA versions.
+How it sizes a model:
 
+- **Catalogued and uncatalogued models.** For a Hugging Face model that is not in the bundled catalog, it reads the parameter count and weight dtype from the Hub's safetensors metadata and the architecture from `config.json`, including the nested `text_config` of multimodal models. It refuses to guess when neither is available.
+- **KV cache for the served context.** The KV-cache budget uses the context the server will actually serve (the smaller of the model's `max_position_embeddings` and the engine's default `max_model_len`), not the model's native maximum.
+- **Deploy time.** The `./do/deploy` instance prompt calls the instance-sizer for its recommendation and falls back to a built-in Python port of the same formula (`do/lib/python/instance_sizer.py`) when no MCP server is reachable. The deploy-time right-sizing preflight (`./do/deploy --dry-run`, [Right-Sizing](architecture/right-sizing.md)) then checks the chosen instance.
+- **Availability ranking.** In discover mode it also ranks candidates by service-quota headroom, capacity reservations and Flexible Training Plans in the account/region. Capacity reservation itself is a deploy-time choice.
 
-!!! info "FTP-Aware Instance Recommendations"
-    The instance catalog includes `ml.p6-b200.48xlarge` (8× NVIDIA B200 GPUs, 192GB each, Blackwell architecture). The instance-sizer is **FTP-aware** — it surfaces available Flexible Training Plans (capacity reservations) in the target account/region during interactive generation, allowing you to deploy on reserved capacity without manual ARN lookup.
-
+It also accepts optional context: CUDA version constraints (from the base image), serving-profile env overrides, and the deployment target.
 
 ### region-picker
 
 Suggests AWS regions based on a search term. Set `REGION_SEARCH` to filter by region code or location name (e.g., "europe", "tokyo", "us-west"). Without a search term, returns popular SageMaker AI regions.
 
 ```bash
-ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
+ml-container-creator mcp --bundled -e REGION_SEARCH=europe add region-picker
 ```
 
 ### model-picker
 
-Discovers and resolves model metadata from multiple sources (HuggingFace Hub, JumpStart, S3, SageMaker AI Model Registry). Returns model configuration including architecture, parameter count, and framework compatibility.
+Discovers and resolves model metadata from multiple sources (HuggingFace Hub, S3, SageMaker AI Model Registry). The server still has a JumpStart resolver, but the generator refuses `jumpstart://` model IDs; use the Hugging Face ID instead. Returns model configuration including architecture, parameter count, and framework compatibility.
 
 ```bash
-ml-container-creator mcp add model-picker --bundled
+ml-container-creator mcp --bundled add model-picker
 ```
 
 ### base-image-picker
@@ -161,7 +163,7 @@ Recommends base Docker images for serving frameworks (vLLM, SGLang, TensorRT-LLM
 Returns the 3 most recent compatible versions after filtering. Incompatible images (e.g., vLLM v0.23.0 on g5 instances with driver 550) are excluded.
 
 ```bash
-ml-container-creator mcp add base-image-picker --bundled
+ml-container-creator mcp --bundled add base-image-picker
 ```
 
 #### Driver-Aware Selection
@@ -207,7 +209,7 @@ When `modelId` is provided in context, the server resolves the model's architect
 Provides named benchmark workload profiles for `do/benchmark`. Instead of manually configuring concurrency, token distributions, and request counts, the workload-picker server defines reusable traffic patterns that model real-world inference scenarios.
 
 ```bash
-ml-container-creator mcp add workload-picker --bundled
+ml-container-creator mcp --bundled add workload-picker
 ```
 
 Unlike other bundled servers, workload-picker is not queried during project generation. It is queried at **runtime** by `do/benchmark --workload <name>` to resolve all benchmark parameters. No manual benchmark configuration is needed in `do/config`.
@@ -254,7 +256,7 @@ agent) browse, look up, and get a recommendation for a draft model by target mod
 algorithm.
 
 ```bash
-ml-container-creator mcp add draft-model-picker --bundled
+ml-container-creator mcp --bundled add draft-model-picker
 ```
 
 Like workload-picker, draft-model-picker is **not queried during project generation**. It
@@ -288,15 +290,70 @@ supported by both vLLM and SGLang) along with every alternative. You can then wi
 
 The catalog lives at `servers/lib/catalogs/draft-models.json`. Add draft models by
 appending entries there (see
-[Registries and Catalogs — draft-models.json](dev/registries-and-catalogs.md#draft-modelsjson)).
+[Registries and Catalogs — draft-models.json](dev/registries-and-catalogs.md#draft-model-catalog-draft-modelsjson)).
+
+### endpoint-picker
+
+Discovers InService SageMaker AI real-time endpoints with available capacity for inference-component attachment. Tool: `get_inference_endpoints` (discover mode).
+
+```bash
+ml-container-creator mcp --bundled add endpoint-picker
+```
+
+### hyperpod-cluster-picker
+
+Discovers available SageMaker HyperPod EKS clusters for the `hyperpod-eks` deployment target. Tool: `get_hyperpod_clusters` (discover mode). `./do/deploy --target hyperpod-eks` uses it to list clusters with their GPU capacity.
+
+```bash
+ml-container-creator mcp --bundled add hyperpod-cluster-picker
+```
+
+### adapter-picker
+
+Discovery-only server that searches the Hugging Face Hub for PEFT/LoRA adapters compatible with a base model. Tools: `search_hf_adapters`, `get_adapter_metadata`, `recommend_adapter`. Pair it with `./do/adapter add <name> --from-hub <hf-repo-id>`.
+
+```bash
+ml-container-creator mcp --bundled add adapter-picker
+```
+
+### model-registry
+
+Queries registered models, adapters, datasets and evaluators from the SageMaker Model Registry. Tools: `get_model_registry`, `get_model_version`, `list_datasets`, `get_dataset`, `list_dataset_versions`, `list_evaluators`, `get_evaluator`.
+
+```bash
+ml-container-creator mcp --bundled add model-registry
+```
+
+### e2e-status
+
+Optional server that surfaces end-to-end validation status from the CI DynamoDB table (see [CI Integration](ci-integration.md)). Tools: `get_e2e_status`, `list_e2e_runs`.
+
+```bash
+ml-container-creator mcp --bundled add e2e-status
+```
+
+### agent-knowledge
+
+Backs the advisory agent (`ml-container-creator hey`) with the script reference, configuration docs, troubleshooting patterns and the capability matrix. Tool: `query_knowledge`.
+
+```bash
+ml-container-creator mcp --bundled add agent-knowledge
+```
+
+### reasoning
+
+A stateless reasoning/interpretation tool powered by Amazon Bedrock. Pass context, optional structured data and an objective (explain, recommend, diagnose, plan). Tool: `interpret`.
+
+```bash
+ml-container-creator mcp --bundled add reasoning
+```
 
 ## Smart Mode (Amazon Bedrock)
 
-Both bundled servers support an optional smart mode that queries Amazon Bedrock for context-aware recommendations instead of returning static lists. Set `BEDROCK_SMART=true` in the server's environment to enable it. If the Bedrock call fails, the server falls back to static recommendations.
+Servers built on the shared picker factory (`servers/lib/create-picker-server.js`), and the instance-sizer and region-picker, support an optional smart mode that queries Amazon Bedrock for context-aware recommendations instead of returning static lists. Set `BEDROCK_SMART=true` in the server's environment to enable it. If the Bedrock call fails, the server falls back to static recommendations.
 
 ```bash
-ml-container-creator mcp add instance-recommender --bundled \
-  -e BEDROCK_SMART=true
+ml-container-creator mcp --bundled -e BEDROCK_SMART=true add instance-sizer
 ```
 
 ### Configuration

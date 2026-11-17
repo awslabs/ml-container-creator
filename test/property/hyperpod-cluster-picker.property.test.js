@@ -60,6 +60,24 @@ const arbClusterEntry = fc.record({
 /** Positive integer limit */
 const arbLimit = fc.integer({ min: 1, max: 50 });
 
+// ── Hermetic kubectl stub ────────────────────────────────────────────────────
+
+/**
+ * buildResponse() enriches clusters by shelling out to kubectl (allocated
+ * GPUs, Kueue ClusterQueues, PriorityClasses) whenever KUBECONFIG is set.
+ * Against a developer's live kube context that is 3 subprocess spawns per
+ * call times ~100 runs per property, which blows the 30 s timeout (BL217).
+ * Inject the existing kubectlOptions.execFn seam with a stub that returns an
+ * empty k8s list, so these tests never touch kubectl, the network, or AWS.
+ */
+const kubectlCalls = [];
+const stubKubectlExec = (cmd) => {
+    kubectlCalls.push(cmd);
+    return JSON.stringify({ items: [] });
+};
+const HERMETIC_OPTS = { kubectlOptions: { execFn: stubKubectlExec } };
+const hermeticBuildResponse = (clusters) => buildResponse(clusters, HERMETIC_OPTS);
+
 // ── Property tests ───────────────────────────────────────────────────────────
 
 describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
@@ -154,7 +172,7 @@ describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
                     { minLength: 0, maxLength: 10 }
                 ),
                 (clusters) => {
-                    const result = buildResponse(clusters);
+                    const result = hermeticBuildResponse(clusters);
 
                     // If clusters exist, metadata must be complete
                     if (clusters.length > 0) {
@@ -196,7 +214,7 @@ describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
                         instanceGroups
                     }];
 
-                    const result = buildResponse(clusters);
+                    const result = hermeticBuildResponse(clusters);
                     const meta = result.metadata[name];
 
                     assert.ok(meta, 'Cluster metadata should exist');
@@ -218,10 +236,26 @@ describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
 
     // Additional response format properties
     describe('Response Format Invariants', () => {
+        it('kubectl enrichment is routed through the injected stub (hermetic)', function () {
+            this.timeout(PROPERTY_CONFIG.timeout);
+
+            const before = kubectlCalls.length;
+            hermeticBuildResponse([{
+                clusterName: 'c1',
+                clusterArn: 'arn:aws:sagemaker:us-east-1:123456789012:cluster/c1',
+                status: 'InService',
+                instanceGroups: [{ name: 'gpu-workers', instanceType: 'ml.g5.48xlarge', count: 1 }]
+            }]);
+            const issued = kubectlCalls.slice(before);
+            assert.ok(issued.length > 0, 'buildResponse should call the injected execFn, not real kubectl');
+            assert.ok(issued.every(cmd => cmd.startsWith('kubectl ')),
+                'every intercepted command should be a kubectl invocation');
+        });
+
         it('empty clusters returns empty choices with descriptive message', function () {
             this.timeout(PROPERTY_CONFIG.timeout);
 
-            const result = buildResponse([]);
+            const result = hermeticBuildResponse([]);
             assert.deepStrictEqual(result.choices.hyperPodCluster, []);
             assert.deepStrictEqual(result.values, {});
             assert.ok(result.message, 'Should include a descriptive message');
@@ -241,7 +275,7 @@ describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
                     { minLength: 1, maxLength: 10 }
                 ),
                 (clusters) => {
-                    const result = buildResponse(clusters);
+                    const result = hermeticBuildResponse(clusters);
                     assert.strictEqual(result.values.hyperPodCluster, result.choices.hyperPodCluster[0],
                         'values.hyperPodCluster should equal first choice');
                     return true;
@@ -263,7 +297,7 @@ describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
                     { minLength: 0, maxLength: 10 }
                 ),
                 (clusters) => {
-                    const result = buildResponse(clusters);
+                    const result = hermeticBuildResponse(clusters);
                     assert.strictEqual(result.choices.hyperPodCluster.length, clusters.length,
                         'choices length should match input clusters length');
                     return true;

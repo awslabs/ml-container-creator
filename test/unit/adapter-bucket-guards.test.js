@@ -59,10 +59,11 @@ describe('do/adapter — adapter bucket resolution (BL056)', () => {
             'do/adapter must not fall back to the sagemaker-* default bucket');
     });
 
-    it('guards every resolve site with the training-module message', () => {
-        const matches = adapter.split('Adapter staging requires the \'training\' module').length - 1;
-        assert.ok(matches >= 4,
-            `expected >=4 training-module guards (one per resolve site), found ${matches}`);
+    it('new adapters are never written to the frozen legacy adapters bucket (bucket consolidation R3.4)', () => {
+        const code = adapter.split('\n').filter(l => !/^\s*#/.test(l)).join('\n');
+        assert.ok(!/s3:\/\/\$\{(ADAPTER_S3_BUCKET|adapter_bucket|s3_bucket)\}/.test(code),
+            'do/adapter must not compose an s3:// URI in the legacy adapters bucket');
+        assert.ok(code.includes('_require_bucket CORE_S3_BUCKET'), 'canonical writes need the core bucket');
     });
 
     it('the env-var default resolves to empty (no invented fallback)', () => {
@@ -70,27 +71,34 @@ describe('do/adapter — adapter bucket resolution (BL056)', () => {
             'ADAPTER_S3_BUCKET should default to empty and be supplied by profile.sh');
     });
 
-    it('uses a single reconciled S3 prefix ordering: adapters/${PROJECT_NAME}/${adapter_name}', () => {
-        // The correct/majority ordering.
-        const good = (adapter.match(/adapters\/\$\{PROJECT_NAME\}\/\$\{adapter_name\}/g) || []).length;
-        assert.ok(good >= 3, `expected >=3 uses of the reconciled prefix, found ${good}`);
-        // The outlier ordering must be gone.
-        assert.ok(!adapter.includes('${PROJECT_NAME}/adapters/${adapter_name}'),
-            'the ${PROJECT_NAME}/adapters/${adapter_name} outlier ordering must be reconciled away');
+    it('composes every adapter destination through s3_layout.py (one canonical scheme)', () => {
+        assert.ok(adapter.includes('_adapter_promote_canonical'), 'promotion helper');
+        assert.ok(adapter.includes('s3_layout.py" adapter-uri'), 'canonical adapter URI from s3_layout');
+        assert.ok(!adapter.includes('${PROJECT_NAME}/adapters/${adapter_name}'), 'retired ordering');
+        assert.ok(!adapter.includes('adapters/${PROJECT_NAME}/${adapter_name}'), 'retired ordering');
     });
 });
 
 describe('training CDK stack — AdaptersBucket (BL056)', () => {
     const stack = read('infra/bootstrap-modules/training/stack.ts');
 
+    // Bucket consolidation R1.2: bucket names are declared ONCE in training/buckets.json
+    // and the stack constructs each declared bucket through declaredBucket(). The
+    // never-assumed training role that used to carry the adapters-bucket grant was
+    // deleted (D4) — every job runs as the core execution role (mlcc-* S3 grant).
+    const decl = JSON.parse(read('infra/bootstrap-modules/training/buckets.json'));
+
     it('declares an AdaptersBucket construct', () => {
-        assert.ok(stack.includes('new s3.Bucket(this, \'AdaptersBucket\''),
+        assert.ok(stack.includes('declaredBucket(this, \'AdaptersBucket\''),
             'training stack should create an AdaptersBucket');
     });
 
     it('uses a distinct adapters bucket name', () => {
-        assert.ok(stack.includes('mlcc-training-adapters-${this.account}-${this.region}'),
-            'adapters bucket should have a distinct, deterministic name');
+        const names = Object.values(decl.buckets).map(b => b.name);
+        assert.ok(decl.buckets.AdaptersBucket, 'AdaptersBucket is declared in training/buckets.json');
+        assert.strictEqual(new Set(names).size, names.length, 'every training bucket name is distinct');
+        assert.match(decl.buckets.AdaptersBucket.name, /\{account\}-\{region\}$/,
+            'adapters bucket name is deterministic per account + region');
     });
 
     it('exports the AdaptersBucket via CfnOutput', () => {
@@ -98,9 +106,9 @@ describe('training CDK stack — AdaptersBucket (BL056)', () => {
             'training stack should export AdaptersBucket for denormalization');
     });
 
-    it('grants the training role access to the adapters bucket', () => {
-        assert.ok(stack.includes('adaptersBucket.bucketArn'),
-            'training role IAM policy should include the adapters bucket ARN');
+    it('no longer carries the unused training role (D4)', () => {
+        assert.ok(!stack.includes('new iam.Role(this, \'TrainingRole\''),
+            'the never-assumed mlcc-training-role must be deleted');
     });
 });
 

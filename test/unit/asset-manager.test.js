@@ -651,8 +651,14 @@ describe('AssetManager', () => {
             assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(SCHEMA_VERSION), `SCHEMA_VERSION should match YYYY-MM-DD: ${SCHEMA_VERSION}`);
         });
 
-        it('VALID_RESOURCE_TYPES contains 12 types', () => {
-            assert.strictEqual(VALID_RESOURCE_TYPES.length, 12);
+        it('VALID_RESOURCE_TYPES is a non-empty set of unique kebab-case types, incl. the scale-to-zero ones', () => {
+            assert.ok(VALID_RESOURCE_TYPES.length >= 12);
+            assert.strictEqual(new Set(VALID_RESOURCE_TYPES).size, VALID_RESOURCE_TYPES.length);
+            for (const t of VALID_RESOURCE_TYPES) assert.match(t, /^[a-z0-9]+(-[a-z0-9]+)*$/);
+            // Wave 10 (ADR-014 R4.2): do/deploy records these via do/manifest add.
+            for (const t of ['application-autoscaling-scalable-target', 'application-autoscaling-scaling-policy', 'cloudwatch-alarm']) {
+                assert.ok(VALID_RESOURCE_TYPES.includes(t), t);
+            }
         });
 
         it('VALID_STATUSES contains active, deleted, unknown', () => {

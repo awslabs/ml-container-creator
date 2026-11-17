@@ -968,8 +968,12 @@ export class MlccCiHarnessStack extends cdk.Stack {
         });
         glueDatabase.cfnOptions.condition = benchmarkInfraCondition;
 
-        // Glue Table: benchmark_results — full DDL with all 28+ columns
-        // Partition by region/year/month for efficient time-range queries.
+        // Glue Table: benchmark_results — written by templates/do/.benchmark_writer.py.
+        // The column list MUST equal the writer's PARQUET_COLUMNS (names + types,
+        // order-independent), exactly like infra/bootstrap-modules/benchmark/stack.ts.
+        // Drift is caught by test/unit/test_benchmark_schema_drift.py (repo CI) and
+        // infra/ci-harness/test/benchmark-infra.test.ts (BL219). Partition keys
+        // follow the writer's S3 path scheme: model=/instance=/target=.
         // Dimension columns are well-separated (not composite keys) per Req 5.1.
         const glueTable = new glue.CfnTable(this, 'BenchmarkResultsTable', {
             catalogId: this.account,
@@ -983,58 +987,107 @@ export class MlccCiHarnessStack extends cdk.Stack {
                 },
                 storageDescriptor: {
                     columns: [
-                        // Identity & config (matches Parquet writer get_parquet_schema() exactly)
-                        { name: 'project_name', type: 'string', comment: 'MCC project name' },
-                        { name: 'model_name', type: 'string', comment: 'HuggingFace model ID' },
-                        { name: 'model_family', type: 'string', comment: 'Derived: qwen3, llama3, deepseek-r1' },
-                        { name: 'instance_type', type: 'string', comment: 'SageMaker instance type' },
-                        { name: 'deployment_config', type: 'string', comment: 'Architecture-backend' },
-                        { name: 'deployment_target', type: 'string', comment: 'Deployment target' },
-                        { name: 'quantization', type: 'string', comment: 'none, fp8, awq, gptq' },
-                        { name: 'tensor_parallel_degree', type: 'int', comment: 'TP degree' },
-                        { name: 'serving_config', type: 'string', comment: 'Full serving config JSON blob' },
-                        { name: 'workload', type: 'string', comment: 'Named workload profile' },
-                        { name: 'concurrency', type: 'int', comment: 'Concurrent requests' },
-                        { name: 'input_tokens_mean', type: 'int', comment: 'Mean input tokens' },
-                        { name: 'output_tokens_mean', type: 'int', comment: 'Mean output tokens' },
-                        { name: 'streaming', type: 'boolean', comment: 'Streaming enabled' },
-                        { name: 'duration_seconds', type: 'int', comment: 'Duration in seconds' },
-                        // Throughput metrics
-                        { name: 'request_throughput_rps', type: 'double', comment: 'Requests/sec' },
-                        { name: 'total_token_throughput_tps', type: 'double', comment: 'Total tokens/sec (in+out)' },
-                        { name: 'output_token_throughput_tps', type: 'double', comment: 'Output tokens/sec' },
-                        { name: 'request_count', type: 'double', comment: 'Total requests in run' },
-                        // Latency metrics (avg/p50/p90/p99)
-                        { name: 'ttft_avg_ms', type: 'double', comment: 'TTFT average (ms)' },
-                        { name: 'ttft_p50_ms', type: 'double', comment: 'TTFT p50 (ms)' },
-                        { name: 'ttft_p90_ms', type: 'double', comment: 'TTFT p90 (ms)' },
-                        { name: 'ttft_p99_ms', type: 'double', comment: 'TTFT p99 (ms)' },
-                        { name: 'itl_avg_ms', type: 'double', comment: 'ITL average (ms)' },
-                        { name: 'itl_p50_ms', type: 'double', comment: 'ITL p50 (ms)' },
-                        { name: 'itl_p90_ms', type: 'double', comment: 'ITL p90 (ms)' },
-                        { name: 'itl_p99_ms', type: 'double', comment: 'ITL p99 (ms)' },
-                        { name: 'e2e_latency_avg_ms', type: 'double', comment: 'E2E latency average (ms)' },
-                        { name: 'e2e_latency_p50_ms', type: 'double', comment: 'E2E latency p50 (ms)' },
-                        { name: 'e2e_latency_p90_ms', type: 'double', comment: 'E2E latency p90 (ms)' },
-                        { name: 'e2e_latency_p99_ms', type: 'double', comment: 'E2E latency p99 (ms)' },
-                        { name: 'prefill_tps_avg', type: 'double', comment: 'Prefill throughput avg (tokens/sec)' },
-                        { name: 'prefill_tps_p50', type: 'double', comment: 'Prefill throughput p50' },
-                        { name: 'output_token_tps_avg', type: 'double', comment: 'Per-user output TPS avg' },
-                        { name: 'output_token_tps_p50', type: 'double', comment: 'Per-user output TPS p50' },
-                        { name: 'output_token_tps_p90', type: 'double', comment: 'Per-user output TPS p90' },
-                        { name: 'ttst_p50_ms', type: 'double', comment: 'Time to second token p50 (ms)' },
-                        { name: 'ttst_p90_ms', type: 'double', comment: 'Time to second token p90 (ms)' },
-                        { name: 'output_sequence_length_avg', type: 'double', comment: 'Avg output sequence length' },
-                        { name: 'input_sequence_length_avg', type: 'double', comment: 'Avg input sequence length' },
-                        { name: 'error_rate', type: 'double', comment: 'Error rate (0.0-1.0)' },
-                        { name: 'benchmark_duration_sec', type: 'double', comment: 'Wall-clock duration (sec)' },
-                        // Provenance
-                        { name: 'run_type', type: 'string', comment: 'ci, path_prove, manual' },
-                        { name: 'benchmark_job_name', type: 'string', comment: 'SageMaker benchmark job name' },
-                        { name: 'mcc_version', type: 'string', comment: 'MCC version' },
-                        { name: 'run_timestamp', type: 'string', comment: 'ISO 8601 UTC timestamp' },
-                        { name: 'region', type: 'string', comment: 'AWS region' },
-                        { name: 'adapter_name', type: 'string', comment: 'LoRA adapter name (empty for base model)' },
+                        { name: 'project_name', type: 'string' },
+                        { name: 'model_name', type: 'string' },
+                        { name: 'model_family', type: 'string', comment: 'Derived from model_name (e.g., qwen3, llama3, deepseek-r1)' },
+                        { name: 'instance_type', type: 'string' },
+                        { name: 'deployment_config', type: 'string' },
+                        { name: 'deployment_target', type: 'string' },
+                        { name: 'quantization', type: 'string' },
+                        { name: 'tensor_parallel_degree', type: 'int' },
+                        { name: 'instance_family', type: 'string', comment: 'Derived from instance_type (e.g., g5, g6e, p5)' },
+                        { name: 'gpu_count', type: 'int', comment: 'Number of GPUs on instance' },
+                        { name: 'gpu_type', type: 'string', comment: 'GPU model name (e.g., NVIDIA A10G)' },
+                        { name: 'gpu_memory_gb', type: 'double', comment: 'Per-GPU memory in GB' },
+                        { name: 'max_model_len', type: 'int', comment: 'Maximum context length (KV cache allocation cap)' },
+                        { name: 'enable_lora', type: 'boolean', comment: 'Whether LoRA adapter is enabled' },
+                        { name: 'kv_cache_dtype', type: 'string', comment: 'KV cache data type (auto, fp16, fp8, int8)' },
+                        { name: 'serving_config', type: 'string', comment: 'JSON blob with all serving configuration parameters' },
+                        { name: 'workload', type: 'string' },
+                        { name: 'concurrency', type: 'int' },
+                        { name: 'input_tokens_mean', type: 'int' },
+                        { name: 'output_tokens_mean', type: 'int' },
+                        { name: 'streaming', type: 'boolean' },
+                        { name: 'duration_seconds', type: 'int' },
+                        { name: 'request_throughput_rps', type: 'double' },
+                        { name: 'total_token_throughput_tps', type: 'double' },
+                        { name: 'output_token_throughput_tps', type: 'double' },
+                        { name: 'request_count', type: 'double' },
+                        { name: 'ttft_avg_ms', type: 'double' },
+                        { name: 'ttft_p50_ms', type: 'double' },
+                        { name: 'ttft_p90_ms', type: 'double' },
+                        { name: 'ttft_p99_ms', type: 'double' },
+                        { name: 'itl_avg_ms', type: 'double' },
+                        { name: 'itl_p50_ms', type: 'double' },
+                        { name: 'itl_p90_ms', type: 'double' },
+                        { name: 'itl_p99_ms', type: 'double' },
+                        { name: 'e2e_latency_avg_ms', type: 'double' },
+                        { name: 'e2e_latency_p50_ms', type: 'double' },
+                        { name: 'e2e_latency_p90_ms', type: 'double' },
+                        { name: 'e2e_latency_p99_ms', type: 'double' },
+                        { name: 'prefill_tps_avg', type: 'double' },
+                        { name: 'prefill_tps_p50', type: 'double' },
+                        { name: 'output_token_tps_avg', type: 'double' },
+                        { name: 'output_token_tps_p50', type: 'double' },
+                        { name: 'output_token_tps_p90', type: 'double' },
+                        { name: 'ttst_p50_ms', type: 'double' },
+                        { name: 'ttst_p90_ms', type: 'double' },
+                        { name: 'output_sequence_length_avg', type: 'double' },
+                        { name: 'input_sequence_length_avg', type: 'double' },
+                        { name: 'error_rate', type: 'double' },
+                        { name: 'cost_per_1m_tokens', type: 'double', comment: 'USD per 1M output tokens = price_usd_per_hour x instance_count x 1e6 / (3600 x output tok/s) at the measured concurrency; NULL when price or throughput is missing' },
+                        { name: 'benchmark_duration_sec', type: 'double' },
+                        { name: 'run_type', type: 'string' },
+                        { name: 'benchmark_job_name', type: 'string' },
+                        { name: 'run_name', type: 'string', comment: 'Human-readable run identifier: petname_workload_maxconcurrency (e.g. coral-hawk_sample_2)' },
+                        { name: 'mcc_version', type: 'string' },
+                        { name: 'run_timestamp', type: 'string', comment: 'ISO 8601 UTC timestamp of the benchmark run' },
+                        { name: 'region', type: 'string' },
+                        { name: 'adapter_name', type: 'string', comment: 'LoRA adapter name; empty string if base model' },
+                        { name: 'gpu_utilization_avg', type: 'double', comment: 'Average GPU compute utilization (0-100) over benchmark window; Phase 1 CloudWatch OTel' },
+                        { name: 'gpu_utilization_max', type: 'double', comment: 'Peak GPU compute utilization (0-100); Phase 1 CloudWatch OTel' },
+                        { name: 'gpu_memory_util_avg', type: 'double', comment: 'Average GPU memory copy utilization (0-100); Phase 1 CloudWatch OTel' },
+                        // BL101 R5. NOTE (migration): this CfnTable owns the full TableInput, so
+                        // CloudFormation re-evaluates the column list on every template submit and
+                        // would revert an out-of-band ALTER TABLE. Roll columns out ONLY by editing
+                        // this list and redeploying the stack.
+                        { name: 'gpu_memory_used_avg_gb', type: 'double', comment: 'Avg GPU memory used (GB); Phase 1 CloudWatch OTel' },
+                        { name: 'queue_depth_waiting_max', type: 'double', comment: 'Peak waiting-request queue depth; Phase 2 engine metrics' },
+                        { name: 'kv_cache_util_avg', type: 'double', comment: 'Average KV cache utilization (0-1); Phase 1 OTel (KVCacheUtilization) or Phase 2 engine metrics' },
+                        { name: 'kv_cache_util_max', type: 'double', comment: 'Peak KV cache utilization (0-1)' },
+                        { name: 'prefix_cache_hit_rate', type: 'double', comment: 'Prefix/prompt cache hit ratio (0-1); Phase 2 engine /metrics only — not available via CloudWatch' },
+                        { name: 'queue_depth_waiting_avg', type: 'double', comment: 'Average number of waiting requests; Phase 1 OTel (QueueDepth) or Phase 2 engine metrics' },
+                        { name: 'queue_depth_running_avg', type: 'double', comment: 'Average number of actively running requests; Phase 2 engine metrics only' },
+                        { name: 'metrics_source', type: 'string', comment: 'Provenance of GPU/engine metrics: cloudwatch | engine_metrics | both | none' },
+                        // ── Wave 9 (append-only; must match PARQUET_COLUMNS in
+                        // templates/do/.benchmark_writer.py). Old Parquet files read NULL.
+                        // BL128 curated AIPerf time-weighted aggregates (profile_export_aiperf.json)
+                        { name: 'effective_concurrency_avg', type: 'double', comment: 'AIPerf effective (time-weighted) concurrency, avg' },
+                        { name: 'effective_concurrency_p90', type: 'double', comment: 'AIPerf effective concurrency, p90' },
+                        { name: 'effective_total_tps_avg', type: 'double', comment: 'AIPerf effective total throughput tokens/s, avg' },
+                        { name: 'effective_total_tps_p90', type: 'double', comment: 'AIPerf effective total throughput tokens/s, p90' },
+                        { name: 'effective_decode_tps_avg', type: 'double', comment: 'AIPerf effective decode throughput tokens/s, avg' },
+                        { name: 'effective_decode_tps_p90', type: 'double', comment: 'AIPerf effective decode throughput tokens/s, p90' },
+                        { name: 'effective_prefill_tps_avg', type: 'double', comment: 'AIPerf effective prefill throughput tokens/s, avg' },
+                        { name: 'effective_prefill_tps_p90', type: 'double', comment: 'AIPerf effective prefill throughput tokens/s, p90' },
+                        { name: 'active_decode_tps_avg', type: 'double', comment: 'AIPerf active (decode in flight) throughput tokens/s, avg' },
+                        { name: 'active_decode_tps_p90', type: 'double', comment: 'AIPerf active decode throughput tokens/s, p90' },
+                        { name: 'active_prefill_tps_avg', type: 'double', comment: 'AIPerf active (prefill in flight) throughput tokens/s, avg' },
+                        { name: 'active_prefill_tps_p90', type: 'double', comment: 'AIPerf active prefill throughput tokens/s, p90' },
+                        { name: 'tokens_in_flight_avg', type: 'double', comment: 'AIPerf tokens in flight, avg' },
+                        { name: 'tokens_in_flight_p90', type: 'double', comment: 'AIPerf tokens in flight, p90' },
+                        { name: 'effective_latency_avg_ms', type: 'double', comment: 'AIPerf effective (coordinated-omission-aware) latency ms, avg' },
+                        { name: 'effective_latency_p90_ms', type: 'double', comment: 'AIPerf effective latency ms, p90' },
+                        { name: 'aiperf_version', type: 'string', comment: 'AIPerf version that produced the run (profile_export_aiperf.json)' },
+                        { name: 'spec_decode_acceptance_rate', type: 'double', comment: 'Speculative-decoding acceptance rate 0-1 over the run window; NULL when not enabled' },
+                        // Cost inputs (auditable) + Bedrock comparison
+                        { name: 'price_usd_per_hour', type: 'double', comment: 'On-demand USD/hour used for cost_per_1m_tokens' },
+                        { name: 'price_source', type: 'string', comment: 'pricing-api | pricing-api-cache | snapshot (API-generated); NULL when unresolved' },
+                        { name: 'price_as_of', type: 'string', comment: 'ISO 8601 UTC retrieval time of the price' },
+                        { name: 'price_component', type: 'string', comment: 'Price List component (Hosting | AsyncInf | BatchTransform | Cluster) or AmazonEC2' },
+                        { name: 'instance_count', type: 'int', comment: 'Billed instances: endpoint CurrentInstanceCount, or nodes occupied by replicas' },
+                        { name: 'bedrock_model_id', type: 'string', comment: 'Live-verified Bedrock equivalent; NULL when none' },
+                        { name: 'bedrock_cost_per_1m_tokens', type: 'double', comment: 'Bedrock on-demand USD per 1M output tokens at the measured input:output ratio' },
                     ],
                     location: `s3://mlcc-benchmark-results-${this.account}-${this.region}/results/`,
                     inputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat',
@@ -1182,7 +1235,11 @@ export class MlccCiHarnessStack extends cdk.Stack {
             ],
         });
 
-        // Glue permissions for partition management
+        // Glue permissions for partition management. GetPartition + UpdatePartition
+        // (Wave 9, R11.4): the benchmark writer reconciles an existing partition's
+        // column list with the table's after a schema change (BL216). Kept in
+        // conformance with bootstrap-modules/ci BenchmarkPartitionRegister by
+        // test/benchmark-writer-iam.test.ts.
         const benchmarkGluePolicy = new iam.PolicyStatement({
             sid: 'GlueCatalogAccess',
             effect: iam.Effect.ALLOW,
@@ -1192,6 +1249,8 @@ export class MlccCiHarnessStack extends cdk.Stack {
                 'glue:GetPartitions',
                 'glue:BatchCreatePartition',
                 'glue:CreatePartition',
+                'glue:GetPartition',
+                'glue:UpdatePartition',
             ],
             resources: [
                 'arn:aws:glue:*:*:catalog',
@@ -1211,10 +1270,20 @@ export class MlccCiHarnessStack extends cdk.Stack {
             resources: ['*'],
         });
 
+        // Price List API lookup (Wave 9, R7): the benchmark writer resolves
+        // on-demand instance and Bedrock prices via pricing:GetProducts. The
+        // Pricing API has no resource-level permissions, so Resource must be '*'.
+        const benchmarkPricingPolicy = new iam.PolicyStatement({
+            sid: 'BenchmarkPriceLookup',
+            effect: iam.Effect.ALLOW,
+            actions: ['pricing:GetProducts'],
+            resources: ['*'],
+        });
+
         // Create a managed policy for benchmark permissions so we can condition it
         const benchmarkPolicy = new iam.Policy(this, 'BenchmarkWritePolicy', {
             policyName: 'mlcc-ci-benchmark-write-policy',
-            statements: [benchmarkS3Policy, benchmarkGluePolicy, benchmarkAthenaPolicy],
+            statements: [benchmarkS3Policy, benchmarkGluePolicy, benchmarkAthenaPolicy, benchmarkPricingPolicy],
         });
         benchmarkPolicy.attachToRole(codebuildRole);
 

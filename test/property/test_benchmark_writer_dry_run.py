@@ -32,7 +32,8 @@ compute_s3_path = _writer.compute_s3_path
 compute_partition_info = _writer.compute_partition_info
 compute_model_family = _writer.compute_model_family
 compute_instance_family = _writer.compute_instance_family
-compute_cost_per_1m_tokens = _writer.compute_cost_per_1m_tokens
+# Wave 9: the hardcoded price table is gone; cost = pricing.compute_cost().
+compute_cost = _writer._load_helper('pricing').compute_cost
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -497,15 +498,13 @@ class TestDerivedFields:
     def test_instance_family_trn2(self):
         assert compute_instance_family("ml.trn2.xlarge") == "trn2"
 
-    def test_cost_per_1m_tokens_known_instance(self):
-        cost = compute_cost_per_1m_tokens("ml.g5.xlarge", 500.0)
+    def test_cost_per_1m_tokens_known_price(self):
+        cost = compute_cost(2.0, 1, 500.0)
         assert cost is not None
         assert cost > 0
 
-    def test_cost_per_1m_tokens_unknown_instance(self):
-        cost = compute_cost_per_1m_tokens("ml.unknown.xlarge", 500.0)
-        assert cost is None
+    def test_cost_per_1m_tokens_unknown_price(self):
+        assert compute_cost(None, 1, 500.0) is None
 
     def test_cost_per_1m_tokens_zero_throughput(self):
-        cost = compute_cost_per_1m_tokens("ml.g5.xlarge", 0.0)
-        assert cost is None
+        assert compute_cost(2.0, 1, 0.0) is None

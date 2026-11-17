@@ -1,21 +1,28 @@
-!!! info "Two Model Package Groups per project"
-    Each project creates **two separate MPGs** in SageMaker:
+!!! info "Registration flows through MLflow (the native Model Registry bridge)"
+    Model and adapter registration go THROUGH MLflow: `do/register` and `do/tune`
+    call `mlflow.register_model`, and SageMaker's native bridge
+    (AutoModelRegistrationEnabled on the profile's MLflow App) auto-creates the
+    corresponding SageMaker Model Package Group + version. You no longer create the
+    group by hand, and there is no separate `{project}-tune-models` group — the tune
+    output and your `do/register` records land in ONE catalog per project.
 
-    | MPG | Created by | Purpose |
-    |-----|-----------|---------|
-    | `{project-name}` | `do/register` | **Deployment registry** — base model + adapters with full deployment context (container image, instance type, benchmark data, adapter lineage) |
-    | `{project-name}-tune-models` | SageMaker `SFTTrainer`/`DPOTrainer` | **Training artifacts** — raw tuning outputs auto-registered by the managed customization service |
+    Identity is **kind-aware**: a `full_model` (base model / full fine-tune) is its
+    own MLflow registered model → its own bridge MPG, carrying an inference spec
+    (deployable via `do/add-ic` / `do/add-pod`); a `lora_adapter` is linked to its
+    base via a native lineage edge with NO inference spec (hot-loaded via
+    `do/adapter`). The bridge group is `{registered-model-name}-{hash}`. Every
+    version carries an `mlcc.artifact_kind` tag so the additive-deploy verbs gate by
+    it (ADR-013): `do/adapter` refuses a `full_model` and points you at `do/add-ic`.
 
-    These serve complementary purposes:
-
-    - **Tune MPG** is auto-managed by SageMaker training. You don't control its schema or metadata — it's the training system's record of what was produced.
-    - **Deployment MPG** is your explicit, schema-controlled registry. It records what's actually deployed, with full metadata for governance, reproducibility, and post-v1 features (`do/import`, `do/update`).
-
-    Adapters appear in **both** — the tune MPG records the raw artifact, and `do/register` records the deployment with additional context (which endpoint, which instance, benchmark results, parent model linkage).
+    **Enable + migration:** the bridge needs `UpdateModelPackage` / `CreateAction` /
+    `AddAssociation` on the `core` role (BL164) — run
+    `ml-container-creator bootstrap update --module core` once (~15 min to
+    propagate). Pre-BL164 groups (`{project}`, `{project}-tune-models`) are left in
+    place and stay resolvable by ARN; registration is go-forward only.
 
 # Model Registration (MPG)
 
-`do/register` records what you deploy as versioned Model Packages in a SageMaker Model Package Group (MPG) — base model, adapters, deployment context, and lineage. The MPG is the system of record; use it to audit what's running, govern versions, and feed the CI system with testable configurations.
+`do/register` records what you deploy as versioned Model Packages — base model, adapters, deployment context, and lineage — THROUGH the MLflow → SageMaker Model Registry bridge (see the note above). The resulting Model Package is the system of record; use it to audit what's running, govern versions, and feed the CI system with testable configurations.
 
 !!! note "The local deployment registry was removed"
     Earlier versions also wrote a machine-local `registry.json` deployment-history
@@ -139,19 +146,25 @@ Each adapter in `do/adapters/*.conf` is registered as a linked ModelPackage vers
 Use `do/adapter add --from-registry` to pull a previously registered adapter back into a project and deploy it as an inference component:
 
 ```bash
-# Deploy using a specific version ARN from the deployment MPG
-./do/adapter add my-sft --from-registry arn:aws:sagemaker:us-west-2:123456789012:model-package/my-project/24
+# Deploy using a specific version ARN from the project's registry
+./do/adapter add my-sft --from-registry arn:aws:sagemaker:us-west-2:123456789012:model-package/my-project-c76813/24
 
-# Interactive selection (queries the deployment MPG for adapter versions)
+# Interactive selection (queries the project's registry for adapter versions)
 ./do/adapter add --from-registry
 ```
 
-!!! warning "Use the deployment MPG, not the tune MPG"
-    `--from-registry` expects an ARN from the **deployment MPG** (`{project-name}`), not the tune MPG (`{project-name}-tune-models`). The tune MPG is auto-managed by SageMaker and doesn't contain the metadata needed for deployment (adapter S3 URI, technique, parent model linkage).
+!!! note "Artifact-kind gate (ADR-013)"
+    `--from-registry` resolves the version's `mlcc.artifact_kind` and REFUSES a
+    `full_model` — a full fine-tuned model cannot be hot-loaded as a LoRA adapter;
+    use `do/add-ic` (realtime) or `do/add-pod` (cluster) for those. An adapter
+    version (`lora_adapter`) is accepted. A legacy version with no recorded
+    artifact kind falls back to an `adapter_config.json` content check rather than
+    being hard-blocked.
 
-    To find available adapter versions in the deployment MPG:
+    With the MLflow bridge (BL164) there is ONE registry group per project
+    (`{registered-model-name}-{hash}`) — the old split between a "deployment MPG"
+    and a `{project}-tune-models` MPG is gone. List adapter versions with:
     ```bash
-    # List registered adapters
     python3 ./do/.register_helper.py list-adapters \
       --project-name my-project \
       --region us-west-2
@@ -159,14 +172,15 @@ Use `do/adapter add --from-registry` to pull a previously registered adapter bac
 
 **What `--from-registry` does:**
 
-1. Calls `get-version` with the provided ARN to retrieve adapter metadata
-2. Reads `modelDataUrl` from `CustomerMetadataProperties` (the adapter weights S3 path)
-3. Creates/updates `do/adapters/<name>.conf` with the retrieved weights URI
-4. Deploys the adapter as an inference component on the running endpoint
+1. Calls `get-version` with the provided ARN to retrieve the version metadata (incl. `mlcc.artifact_kind`)
+2. Runs the artifact-kind gate — refuses a `full_model`, accepts a `lora_adapter`
+3. Reads `modelDataUrl` from `CustomerMetadataProperties` (the adapter weights S3 path)
+4. Creates/updates `do/adapters/<name>.conf` with the retrieved weights URI
+5. Deploys the adapter as an inference component on the running endpoint
 
 **Prerequisites:**
 
-- The adapter must be registered in the **deployment MPG** (run `./do/register` first)
+- The adapter must be registered in the project's registry (run `./do/register` first)
 - The endpoint must be deployed and InService
 - The adapter weights must still exist at the registered S3 path
 
@@ -175,7 +189,7 @@ Use `do/adapter add --from-registry` to pull a previously registered adapter bac
 ```bash
 # Project A: tune, stage, register
 ./do/tune --technique sft --dataset "hf://tatsu-lab/alpaca"
-./do/adapter --from-tune sft
+./do/adapter add tuned-sft --from-tune sft
 ./do/register
 
 # Project B (or same project, fresh deployment): pull from registry
@@ -196,12 +210,22 @@ optimization jobs. The canonical destination is:
 s3://<CORE_BUCKET>/datasets/<name>/
 ```
 
-Dataset metadata is recorded in an **S3 sidecar** beside the data at
-`s3://<CORE_BUCKET>/datasets/<name>/_dataset.json`. The sidecar is the source of
-truth for versions, content hashes, and custom metadata — it replaces the legacy
-local `~/.ml-container-creator/datasets.json` index (removed; a pre-existing file
-is ignored). Because it lives in S3, the registry is durable and shared across
-machines.
+When MLflow is configured, a dataset is registered as a **first-class
+`mlflow.data` Dataset** in the project's experiment (browsable in the MLflow
+Experiment **Datasets** tab), alongside the run-input lineage edge — MLflow is the
+**record of truth** (BL167). The **S3 sidecar** beside the data at
+`s3://<CORE_BUCKET>/datasets/<name>/_dataset.json` is written first as the durable
+**local record** and the fallback when MLflow is unconfigured; it also remains the
+**version ledger** (`@v<N>` / semver pinning resolves from it). It replaces the
+legacy local `~/.ml-container-creator/datasets.json` index (removed).
+
+!!! note "Record of truth + reconcile (no sync daemon)"
+    Registration writes the local sidecar first (always), then MLflow. If the
+    MLflow App is briefly **unreachable**, `do/register` warns ("saved locally —
+    re-run to reconcile") and still succeeds — it never fails on App downtime. A
+    plain **re-run** of `do/register` converges MLflow to the local record (the
+    write is idempotent). A **real** error (bad input, permissions) fails loudly.
+    There is no background sync — you own reconciliation by re-running.
 
 `CORE_BUCKET` is the `mlcc-core` bucket recorded in your active profile as
 `codebuildSourceS3Bucket` (e.g. `mlcc-core-<account>-<region>`), provisioned by
@@ -267,7 +291,8 @@ Provide **exactly one** input source:
 | `--origination <text>` | Custom metadata: origination (e.g. `hf://org/name@rev`) |
 | `--application <text>` | Custom metadata: application |
 | `--force` | Register a new version even if the content hash is unchanged |
-| `--list` | List registered datasets (from the S3 sidecars) and exit |
+| `--list` | List registered datasets and exit. When MLflow is configured the read source is the shared MLflow catalog scoped to the active project; otherwise the S3 sidecars |
+| `--all` | With `--list`: list datasets across every project under the profile, not just the active one |
 | `--from-tune [technique]` | Auto-populate `--s3-uri` from the last tune job's persisted state |
 
 !!! note "One source only"
@@ -279,6 +304,20 @@ Provide **exactly one** input source:
 !!! note "Idempotent versioning"
     Registering unchanged content (same content hash) without `--force` is a
     no-op — no new sidecar version is created.
+
+!!! note "Shared MLflow catalog, grouped per project"
+    When MLflow tracking is configured, the catalog is **shared across the whole
+    bootstrap profile** (one serverless MLflow store per profile). Runs are
+    grouped into a **per-project experiment** named after your project, so
+    `do/register dataset --list` and name resolution default to the active
+    project and do not collide across projects. Pass `--all` to list across every
+    project under the profile. Datasets registered before this grouping existed
+    live in the default experiment and remain visible (reads include both).
+
+    The `do/tune` flow reaches this same shared catalog automatically: the
+    profile's MLflow reference is resolved for you at runtime (no manual env var
+    to set). If your profile has no MLflow store configured, tuning proceeds
+    without MLflow tracking — it never falls back to a local tracking file.
 
 ### Evaluator Registration
 
@@ -299,6 +338,14 @@ Register a reward function (RLVR) or preference model (RLAIF):
 | `--arn <arn>` | Lambda ARN or model S3 URI (required) |
 | `--technique <tech>` | Technique: `rlvr` or `rlaif` (required) |
 | `--description <text>` | Optional description |
+
+!!! note "Reward prompts also land in the MLflow Prompt Registry"
+    A reward **prompt** (`do/register prompt`, RLAIF LLM-as-judge) is registered to
+    SageMaker's AI Registry (the Studio record + the reference `do/tune` resolves)
+    AND **additively** to the MLflow GenAI **Prompt Registry** — versioned,
+    browsable in the MLflow Prompts tab (BL167). The MLflow copy follows the same
+    local-first/reconcile-on-re-run hybrid. Reward **functions** (code/Lambda) have
+    no MLflow home and register only to the AI Registry.
 
 !!! note "Backward Compatibility"
     The older flag-based syntax (`./do/register --dataset --dataset-name ...` and `./do/register --evaluator --evaluator-name ...`) still works but is deprecated in favor of subcommands.

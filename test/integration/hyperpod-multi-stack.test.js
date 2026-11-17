@@ -27,37 +27,43 @@ const require = createRequire(import.meta.url);
 
 describe('HyperPod Multi-Stack Bootstrap Integration', () => {
     describe('Manifest integration with module selector', () => {
-        it('loadModuleManifest includes hyperpod-cluster with stacks[]', () => {
+        // BL143: the combined hyperpod-cluster module was split into `eks` (owns
+        // eks-cluster) + `hyperpod` (owns hyperpod-cluster + inference-operator,
+        // depends on eks).
+
+        it('loadModuleManifest includes eks + hyperpod with stacks[], no combined module', () => {
             const manifest = loadModuleManifest();
-            const hyperpod = manifest.modules['hyperpod-cluster'];
-            assert.ok(hyperpod);
-            assert.ok(hyperpod.stacks);
-            assert.deepStrictEqual(hyperpod.stacks, ['eks-cluster', 'hyperpod-cluster', 'inference-operator']);
+            assert.ok(!manifest.modules['hyperpod-cluster'], 'combined module removed');
+            assert.deepStrictEqual(manifest.modules.eks.stacks, ['eks-cluster']);
+            assert.deepStrictEqual(manifest.modules.hyperpod.stacks,
+                ['hyperpod-cluster', 'inference-operator']);
         });
 
-        it('validateDependencies passes for hyperpod-cluster + core', () => {
-            const result = validateDependencies(['core', 'hyperpod-cluster']);
-            assert.strictEqual(result.valid, true);
+        it('validateDependencies passes for eks + core, and hyperpod + eks + core', () => {
+            assert.strictEqual(validateDependencies(['core', 'eks']).valid, true);
+            assert.strictEqual(validateDependencies(['core', 'eks', 'hyperpod']).valid, true);
         });
 
-        it('validateDependencies fails for hyperpod-cluster without core', () => {
-            const result = validateDependencies(['hyperpod-cluster']);
-            assert.strictEqual(result.valid, false);
-            const entry = result.missing.find(m => m.module === 'hyperpod-cluster');
-            assert.ok(entry);
-            assert.ok(entry.missingDeps.includes('core'));
+        it('validateDependencies fails for eks without core, and hyperpod without eks', () => {
+            const eksNoCore = validateDependencies(['eks']);
+            assert.strictEqual(eksNoCore.valid, false);
+            assert.ok(eksNoCore.missing.find(m => m.module === 'eks').missingDeps.includes('core'));
+
+            const hpNoEks = validateDependencies(['core', 'hyperpod']);
+            assert.strictEqual(hpNoEks.valid, false);
+            assert.ok(hpNoEks.missing.find(m => m.module === 'hyperpod').missingDeps.includes('eks'));
         });
 
-        it('topologicalSort places core before hyperpod-cluster', () => {
-            const sorted = topologicalSort(['core', 'hyperpod-cluster']);
-            assert.strictEqual(sorted[0], 'core');
-            assert.strictEqual(sorted[1], 'hyperpod-cluster');
+        it('topologicalSort orders core → eks → hyperpod', () => {
+            const sorted = topologicalSort(['core', 'eks', 'hyperpod']);
+            assert.ok(sorted.indexOf('core') < sorted.indexOf('eks'));
+            assert.ok(sorted.indexOf('eks') < sorted.indexOf('hyperpod'));
         });
 
-        it('findDependents reports nothing depends on hyperpod-cluster', () => {
-            const provisioned = ['core', 'benchmark', 'registry', 'hyperpod-cluster'];
-            const dependents = findDependents('hyperpod-cluster', provisioned);
-            assert.strictEqual(dependents.length, 0);
+        it('findDependents reports hyperpod depends on eks', () => {
+            const provisioned = ['core', 'eks', 'hyperpod'];
+            const dependents = findDependents('eks', provisioned);
+            assert.ok(dependents.includes('hyperpod'), 'hyperpod depends on eks');
         });
 
         it('all modules can be selected together without dependency errors', () => {
@@ -67,12 +73,13 @@ describe('HyperPod Multi-Stack Bootstrap Integration', () => {
             assert.strictEqual(result.valid, true);
         });
 
-        it('topologicalSort handles full module set including hyperpod', () => {
+        it('topologicalSort handles full module set (eks before hyperpod, core first)', () => {
             const manifest = loadModuleManifest();
             const allModules = Object.keys(manifest.modules);
             const sorted = topologicalSort(allModules);
             assert.strictEqual(sorted[0], 'core');
-            assert.ok(sorted.indexOf('hyperpod-cluster') > sorted.indexOf('core'));
+            assert.ok(sorted.indexOf('eks') > sorted.indexOf('core'));
+            assert.ok(sorted.indexOf('hyperpod') > sorted.indexOf('eks'));
         });
     });
 
@@ -81,14 +88,13 @@ describe('HyperPod Multi-Stack Bootstrap Integration', () => {
             resolve(__dirname, '../../infra/bootstrap-modules/module-runner.cjs')
         );
 
-        it('CdkMultiStackModuleRunner is used for modules with stacks[]', () => {
+        it('CdkMultiStackModuleRunner is used for the hyperpod module (2 stacks)', () => {
             const manifest = loadModuleManifest();
-            const mod = manifest.modules['hyperpod-cluster'];
-            // The bootstrap handler checks: if (mod.stacks && Array.isArray(mod.stacks))
+            const mod = manifest.modules.hyperpod;
             assert.ok(mod.stacks && Array.isArray(mod.stacks));
-            const runner = new CdkMultiStackModuleRunner('hyperpod-cluster', mod.stacks);
-            assert.strictEqual(runner.name, 'hyperpod-cluster');
-            assert.strictEqual(runner.stacks.length, 3);
+            const runner = new CdkMultiStackModuleRunner('hyperpod', mod.stacks);
+            assert.strictEqual(runner.name, 'hyperpod');
+            assert.strictEqual(runner.stacks.length, 2);
         });
 
         it('CdkModuleRunner is used for modules with stackNameSuffix', () => {
@@ -136,13 +142,16 @@ describe('HyperPod Multi-Stack Bootstrap Integration', () => {
             assert.ok(appSource.includes('MlccInferenceOperatorStack'), 'Should import MlccInferenceOperatorStack');
         });
 
-        it('bin/app.ts passes supported adoption flags from context', () => {
+        it('bin/app.ts: eks drops adoptEks/adoptVpc, keeps adoptRoles (Option 1)', () => {
             const appSource = readFileSync(
                 resolve(__dirname, '../../infra/bootstrap-modules/bin/app.ts'), 'utf8'
             );
-            assert.ok(appSource.includes('adoptEks'));
-            assert.ok(appSource.includes('adoptVpc'));
-            assert.ok(appSource.includes('adoptRoles'));
+            // Cluster + VPC always create (no adoptEks/adoptVpc). RETAIN'd service roles
+            // are adopted on re-provision, so adoptRoles is still passed from context.
+            assert.ok(!appSource.includes('adoptEks'), 'adoptEks removed');
+            assert.ok(!appSource.includes('adoptVpc'), 'adoptVpc removed');
+            assert.ok(appSource.includes('adoptRoles'), 'adoptRoles kept for RETAINed service roles');
+            // The inference-operator still adopts its TLS bucket + addon (unchanged).
             assert.ok(appSource.includes('adoptTlsBucket'));
             assert.ok(appSource.includes('adoptInferenceAddon'));
         });

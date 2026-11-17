@@ -83,10 +83,14 @@ describe('Feature: from-registry + multi-adapter E2E — Validate AC-4.1 through
         });
 
         it('extracts modelDataUrl (weights URI) from registry version response', () => {
+            // Wave 6 (ADR-013): the get-version payload is parsed ONCE by the shared
+            // resolver in do/lib/script-contract.sh; do/adapter assigns its result.
+            const contract = fs.readFileSync(result.file('do/lib/script-contract.sh'), 'utf8');
+            assert.ok(contract.includes('modelDataUrl'), 'the shared resolver must read modelDataUrl');
             assert.ok(
-                adapterScript.includes('modelDataUrl') &&
-                adapterScript.includes('weights_uri'),
-                'Must extract modelDataUrl from registry response and assign to weights_uri'
+                adapterScript.includes('_resolve_additive_source from-registry') &&
+                adapterScript.includes('weights_uri="${RESOLVED_URI}"'),
+                'do/adapter must assign the resolved registry URI to weights_uri'
             );
         });
 

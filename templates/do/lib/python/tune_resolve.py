@@ -36,9 +36,19 @@ def _resolve_dataset_name(dataset_name):
             f"Register datasets first with: ./do/register --dataset"
         )
 
+    # BL163: scope the resolve to the active project's MLflow experiment by
+    # forwarding PROJECT_NAME when it is in the environment (do/config exports
+    # it). The resolver also falls back to the PROJECT_NAME env var itself, so
+    # this is belt-and-suspenders; an unset name degrades to the read-both
+    # (active + "0") default.
+    _resolve_cmd = ["python3", helper_path, "resolve-dataset", "--name", dataset_name]
+    _project_name = os.environ.get("PROJECT_NAME", "").strip()
+    if _project_name:
+        _resolve_cmd += ["--project-name", _project_name]
+
     try:
         result = subprocess.run(
-            ["python3", helper_path, "resolve-dataset", "--name", dataset_name],
+            _resolve_cmd,
             capture_output=True, text=True, timeout=30
         )
     except subprocess.TimeoutExpired:

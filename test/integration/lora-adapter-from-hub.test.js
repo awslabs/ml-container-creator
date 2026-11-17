@@ -130,47 +130,25 @@ describe('Feature: lora-adapter-lifecycle — --from-hub and search integration 
             );
         });
 
-        it('creates tar.gz from downloaded files', () => {
+        // Bucket consolidation R3.4 (Option D): a Hub adapter is published as loose
+        // PEFT files straight into its canonical home in the core bucket (composed by
+        // s3_layout.py) — no tarball, no write to the frozen legacy adapters bucket.
+        it('publishes the downloaded files (flat) to the canonical prefix via s3_layout.py', () => {
             const section = getDownloadFromHubSection();
-            assert.ok(
-                section.includes('tar -czf') && section.includes('adapter.tar.gz'),
-                'Must create tar.gz from downloaded files'
-            );
+            assert.ok(section.includes('s3_layout.py" publish-local'), 'Must publish via s3_layout.py');
+            assert.ok(section.includes('--dir "${tmp_dir}/adapter_files"'), 'Must publish the flat adapter_files dir');
+            assert.ok(!section.includes('tar -czf'), 'No tarball for new writes');
         });
-
-        it('creates tar.gz with flat structure (no subdirectories)', () => {
+        it('composes the destination with s3_layout.py adapter-uri (project + adapter name + base)', () => {
             const section = getDownloadFromHubSection();
-            assert.ok(
-                section.includes('-C "${tmp_dir}/adapter_files"'),
-                'Must create tar.gz from adapter_files directory (flat)'
-            );
+            assert.ok(section.includes('s3_layout.py" adapter-uri --bucket "${CORE_S3_BUCKET}"'));
+            assert.ok(section.includes('--project "${PROJECT_NAME}" --name "${adapter_name}"'));
         });
-
-        it('uploads tar.gz to S3 using aws s3 cp', () => {
+        it('requires the core bucket from the profile (no legacy adapters-bucket write)', () => {
             const section = getDownloadFromHubSection();
-            assert.ok(
-                section.includes('aws s3 cp') && section.includes('${s3_path}'),
-                'Must upload tar.gz to S3'
-            );
+            assert.ok(section.includes('_require_bucket CORE_S3_BUCKET'));
+            assert.ok(!section.includes('ADAPTER_S3_BUCKET'), 'the legacy adapters bucket is frozen for writes');
         });
-
-        it('constructs S3 path with project name and adapter name', () => {
-            const section = getDownloadFromHubSection();
-            assert.ok(
-                section.includes('adapters/${PROJECT_NAME}/${adapter_name}/adapter.tar.gz'),
-                'Must construct S3 path with project name and adapter name'
-            );
-        });
-
-        it('resolves S3 bucket from ADAPTER_S3_BUCKET or fails with training-module guard', () => {
-            const section = getDownloadFromHubSection();
-            assert.ok(
-                section.includes('ADAPTER_S3_BUCKET') &&
-                section.includes('Adapter staging requires the \'training\' module'),
-                'Must resolve S3 bucket from ADAPTER_S3_BUCKET or fail with training-module guard'
-            );
-        });
-
         it('sets weights_uri variable for the caller after upload', () => {
             const section = getDownloadFromHubSection();
             assert.ok(
@@ -349,7 +327,7 @@ describe('Feature: lora-adapter-lifecycle — --from-hub and search integration 
         it('checks for mutual exclusivity in add subcommand', () => {
             const addSection = getAddSection();
             assert.ok(
-                addSection.includes('--weights, --from-hub, --from-tune, and --from-registry are mutually exclusive'),
+                addSection.includes('--from-weights, --from-hub, --from-tune, --from-train, and --from-registry are mutually exclusive'),
                 'Must show mutual exclusivity error in add'
             );
         });
@@ -358,7 +336,7 @@ describe('Feature: lora-adapter-lifecycle — --from-hub and search integration 
             const addSection = getAddSection();
             // Check that the mutual exclusivity check leads to exit 1
             const mutualCheck = addSection.substring(
-                addSection.indexOf('--weights and --from-hub are mutually exclusive')
+                addSection.indexOf('--from-weights, --from-hub, --from-tune, --from-train, and --from-registry are mutually exclusive')
             );
             assert.ok(
                 mutualCheck.includes('exit 1'),
@@ -369,16 +347,16 @@ describe('Feature: lora-adapter-lifecycle — --from-hub and search integration 
         it('shows correct usage for both options separately', () => {
             const addSection = getAddSection();
             assert.ok(
-                addSection.includes('--weights <s3-uri>') &&
+                addSection.includes('--from-weights <s3-uri>') &&
                 addSection.includes('--from-hub <hf-repo-id>'),
                 'Must show both options in usage hint'
             );
         });
 
-        it('requires at least one of --weights or --from-hub', () => {
+        it('requires at least one of --from-weights or --from-hub', () => {
             const addSection = getAddSection();
             assert.ok(
-                addSection.includes('One of --weights, --from-hub, --from-tune, or --from-registry is required'),
+                addSection.includes('One of --from-weights, --from-hub, --from-tune, --from-train, or --from-registry is required'),
                 'Must require at least one source option'
             );
         });
@@ -582,8 +560,9 @@ describe('Feature: lora-adapter-lifecycle — --from-hub and search integration 
         it('add calls _download_from_hub when --from-hub is provided', () => {
             const addSection = getAddSection();
             assert.ok(
-                addSection.includes('_download_from_hub "${from_hub}" "${adapter_name}"'),
-                'add must call _download_from_hub with repo ID and adapter name'
+                // Wave 6: routed through the shared resolver, which calls _download_from_hub.
+                addSection.includes('_resolve_additive_source from-hub "${from_hub}" "${adapter_name}"'),
+                'add must stage --from-hub via the shared resolver (→ _download_from_hub) with repo ID and adapter name'
             );
         });
 

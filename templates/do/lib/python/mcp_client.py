@@ -21,9 +21,9 @@ Test support:
     Expected JSON format:
         {
           "instance-sizer/recommend": {
-            "instance_type": "ml.g5.xlarge",
-            "gpu_count": 1,
-            "instances": [...]
+            "values": {"instanceType": "ml.g5.xlarge"},
+            "choices": {"instanceType": ["ml.g5.xlarge", ...]},
+            "metadata": {"recommendations": [{"instanceType": "ml.g5.xlarge", "gpuCount": 1}]}
           },
           "endpoint-picker/list": {
             "endpoints": [{"name": "ep-1", "status": "InService"}]
@@ -349,7 +349,11 @@ def _call_subprocess(
         logger.warning("MCP: server %r has no command", server_name)
         return None
 
-    request = _build_jsonrpc_request(tool_name, arguments)
+    # The spawned process IS that one server, so it registers the bare tool name
+    # ("recommend"), not the routing prefix ("instance-sizer/recommend"):
+    # sending the prefixed name returns "Tool ... not found" (BL241).
+    bare_tool = tool_name.split("/", 1)[1] if "/" in tool_name else tool_name
+    request = _build_jsonrpc_request(bare_tool, arguments)
 
     try:
         proc = subprocess.Popen(
@@ -472,13 +476,22 @@ def mcp_recommend_instance(
     model_name: str,
     precision: str,
     project_dir: str | None = None,
+    engine: str | None = None,
 ) -> dict[str, Any] | None:
     """Call MCP instance-sizer/recommend and return the recommendation.
 
-    Wraps the low-level call_tool() to provide a typed interface for
-    instance sizing recommendations. On success returns a dict with at
-    least ``instance_type`` (str) and optionally ``gpu_count`` (int) and
-    ``instances`` (list of alternatives).
+    Reads the instance-sizer's real response shape (servers/instance-sizer/
+    index.js handleGetInstanceRecommendation; BL241 — this used to look for an
+    ``instance_type`` key the server never returns, so it always fell back):
+
+        values.instanceType           -> the sized top pick (null when none)
+        choices.instanceType          -> ranked alternatives
+        metadata.recommendations[0]   -> gpuCount of the top pick
+        metadata.sizingUnavailable    -> the model's size is unknown
+        metadata.error / .warning     -> the user-facing reason when no pick
+
+    The key names are pinned by test/unit/sizer-python-client-contract.test.js
+    against the live server (derive-dont-hardcode rule 4).
 
     Args:
         client: MCPClient instance from discover_mcp().
@@ -486,44 +499,76 @@ def mcp_recommend_instance(
         precision: Data type string (e.g. "float16", "int8").
         project_dir: Absolute path to the project directory. When provided,
             the instance-sizer checks .mlcc/model-sizes.json for local catalog entries.
+        engine: Serving engine (serve.d name), sent as context.backend so the
+            sizer budgets KV cache for that engine's default served context (BL240).
 
     Returns:
-        Dict with ``instance_type``, and optionally ``gpu_count`` and
-        ``instances``, or None on failure/timeout. Callers should fall
-        back to the built-in heuristic when None is returned.
+        None when MCP failed / timed out / returned something that is not an
+        instance-sizer response (callers fall back to the built-in heuristic).
+        Otherwise a dict with:
+          ``instance_type``: the sized recommendation, or None when the server
+              made none (callers must NOT substitute a heuristic then);
+          ``sizing_unavailable``: True when the server could not size the model;
+          ``message``: the server's reason when ``instance_type`` is None;
+          ``gpu_count`` (when known) and ``instances`` (ranked alternatives).
     """
+    context: dict[str, Any] = {}
+    if project_dir:
+        context["projectDir"] = project_dir
+    if engine:
+        context["backend"] = engine
     result = call_tool(
         client,
         "instance-sizer/recommend",
         {
             "model": model_name,
             "precision": precision,
-            **({"context": {"projectDir": project_dir}} if project_dir else {}),
+            **({"context": context} if context else {}),
         },
     )
 
     if result is None:
         return None
 
-    # Validate that the response contains at minimum instance_type
-    instance_type = result.get("instance_type")
-    if not instance_type or not isinstance(instance_type, str):
+    values = result.get("values")
+    if not isinstance(values, dict) or "instanceType" not in values:
         logger.warning(
-            "MCP instance-sizer/recommend returned invalid response: missing instance_type"
+            "MCP instance-sizer/recommend returned invalid response: missing values.instanceType"
         )
         return None
 
-    recommendation: dict[str, Any] = {"instance_type": instance_type}
+    metadata = result.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    choices = result.get("choices")
+    instances = choices.get("instanceType") if isinstance(choices, dict) else None
+    instances = [t for t in instances if isinstance(t, str)] if isinstance(instances, list) else []
 
-    # Extract optional fields
-    gpu_count = result.get("gpu_count")
-    if gpu_count is not None:
-        recommendation["gpu_count"] = int(gpu_count)
+    instance_type = values.get("instanceType")
+    sizing_unavailable = bool(metadata.get("sizingUnavailable"))
+    if sizing_unavailable or not isinstance(instance_type, str) or not instance_type:
+        # The server answered but made no sized recommendation. Surface its
+        # reason; the unfiltered list (if any) is NOT a recommendation.
+        return {
+            "instance_type": None,
+            "sizing_unavailable": sizing_unavailable,
+            "message": metadata.get("error") or metadata.get("warning") or "",
+            "instances": instances,
+        }
 
-    instances = result.get("instances")
-    if isinstance(instances, list):
-        recommendation["instances"] = instances
-
+    recommendation: dict[str, Any] = {
+        "instance_type": instance_type,
+        "sizing_unavailable": False,
+        "instances": instances,
+    }
+    recs = metadata.get("recommendations")
+    if isinstance(recs, list) and recs and isinstance(recs[0], dict):
+        top = recs[0]
+        if top.get("instanceType") == instance_type and top.get("gpuCount") is not None:
+            try:
+                recommendation["gpu_count"] = int(top["gpuCount"])
+            except (TypeError, ValueError):
+                pass
     return recommendation
 
 
@@ -659,7 +704,33 @@ def _parse_jsonrpc_response(raw: str) -> dict[str, Any] | None:
         )
         return None
 
-    return response.get("result")
+    return _unwrap_tool_result(response.get("result"))
+
+
+def _unwrap_tool_result(result: Any) -> Any:
+    """Unwrap an MCP ``tools/call`` result envelope (BL241).
+
+    MCP servers return ``{"content": [{"type": "text", "text": "<json>"}],
+    "isError"?: bool}``; the tool's payload is the JSON in the text block.
+    Returns the parsed payload, None for an ``isError`` result or a text block
+    that is not JSON, and any other (non-envelope) result unchanged.
+    """
+    if not isinstance(result, dict) or not isinstance(result.get("content"), list):
+        return result
+    texts = [
+        b.get("text") for b in result["content"]
+        if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str)
+    ]
+    if result.get("isError"):
+        logger.warning("MCP: tool returned an error: %s", texts[0] if texts else "unknown error")
+        return None
+    if not texts:
+        return result
+    try:
+        return json.loads(texts[0])
+    except json.JSONDecodeError:
+        logger.warning("MCP: tool result text is not JSON")
+        return None
 
 # ---------------------------------------------------------------------------
 # CLI interface — used by do/benchmark --recommend for reasoning MCP calls

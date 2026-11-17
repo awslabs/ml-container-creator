@@ -79,6 +79,88 @@ def _install_fake_evaluator_sdk(created):
     return cleanup
 
 
+class TestDeployRewardLambda:
+    """The MLCC-owned --finalize deploy: stage code into the REUSED training bucket,
+    zip the file AS lambda_function.py (so lambda_function.lambda_handler resolves),
+    create the Lambda with the dual-trust role, return its ARN. Fixes the SDK path's
+    NoSuchBucket + handler-mismatch + role breakages. All offline (fake boto3)."""
+
+    def _install_fake_boto3(self, monkeypatch, captured):
+        class _ResourceConflict(Exception):
+            pass
+
+        class _LambdaClient:
+            exceptions = types.SimpleNamespace(ResourceConflictException=_ResourceConflict)
+
+            def create_function(self, **kw):
+                captured["create"] = kw
+                return {"FunctionArn": f"arn:aws:lambda:us-west-2:1:function:{kw['FunctionName']}"}
+
+        class _S3Client:
+            def upload_file(self, local, bucket, key):
+                captured["s3"] = {"local": local, "bucket": bucket, "key": key}
+
+        class _StsClient:
+            def get_caller_identity(self):
+                return {"Account": "111122223333"}
+
+        def _client(svc, region_name=None):
+            return {"lambda": _LambdaClient(), "s3": _S3Client(),
+                    "sts": _StsClient()}[svc]
+
+        fake = types.ModuleType("boto3")
+        fake.client = _client
+        monkeypatch.setitem(sys.modules, "boto3", fake)
+
+    def test_deploy_uses_core_evaluators_prefix_handler_and_role(self, monkeypatch, tmp_path):
+        # Bucket consolidation R3.9: the backup goes to the CORE bucket under
+        # evaluators/<name>/ (key from s3_layout), not the frozen training bucket.
+        captured = {}
+        self._install_fake_boto3(monkeypatch, captured)
+        monkeypatch.setenv("CORE_S3_BUCKET", "zz-core-x")
+        monkeypatch.setenv("S3_BUCKET", "zz-legacy-training")
+        f = tmp_path / "math-reward.py"
+        f.write_text("def handler(e, c=None):\n    return []\nlambda_handler = handler\n")
+
+        arn = re_mod._deploy_reward_lambda(
+            name="math-reward", local_py=str(f),
+            role_arn="arn:aws:iam::1:role/mlcc-reward-lambda-role-us-west-2",
+            region="us-west-2",
+        )
+        assert captured["s3"]["bucket"] == "zz-core-x"
+        assert captured["s3"]["key"] == "evaluators/math-reward/lambda_function.py"
+        # Created with the dual-trust role and the standard handler name.
+        assert captured["create"]["Role"].endswith("mlcc-reward-lambda-role-us-west-2")
+        assert captured["create"]["Handler"] == "lambda_function.lambda_handler"
+        assert arn.startswith("arn:aws:lambda:")
+
+    def test_evaluator_bucket_never_derived_from_account(self, monkeypatch):
+        # Bucket consolidation R2.1: with no profile key there is NO convention-built
+        # fallback name (formerly mlcc-training-<sts account>-<region>).
+        captured = {}
+        self._install_fake_boto3(monkeypatch, captured)
+        monkeypatch.delenv("S3_BUCKET", raising=False)
+        monkeypatch.delenv("TRAINING_S3_BUCKET", raising=False)
+        monkeypatch.delenv("CORE_S3_BUCKET", raising=False)
+        assert re_mod._resolve_evaluator_bucket("us-west-2") is None
+
+    def test_deploy_skips_backup_without_profile_bucket(self, monkeypatch, tmp_path):
+        captured = {}
+        self._install_fake_boto3(monkeypatch, captured)
+        monkeypatch.delenv("CORE_S3_BUCKET", raising=False)
+        monkeypatch.delenv("S3_BUCKET", raising=False)
+        monkeypatch.delenv("TRAINING_S3_BUCKET", raising=False)
+        f = tmp_path / "math-reward.py"
+        f.write_text("def handler(e, c=None):\n    return []\nlambda_handler = handler\n")
+        arn = re_mod._deploy_reward_lambda(
+            name="math-reward", local_py=str(f),
+            role_arn="arn:aws:iam::1:role/mlcc-reward-lambda-role-us-west-2",
+            region="us-west-2",
+        )
+        assert "s3" not in captured  # best-effort backup skipped, no guessed bucket
+        assert arn.startswith("arn:aws:lambda:")
+
+
 class TestCreateEvaluatorNative:
     def test_reward_function_passes_type_and_source(self, monkeypatch):
         created = {}

@@ -2,13 +2,15 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# do/export — Export current configuration as CLI command, JSON, or notebook.
+# do/export — Export the CURRENT do/config as a generator --config object, the
+# equivalent CLI command, or a Jupyter notebook.
 #
-# Runtime dispatch: target-specific fields are emitted based on DEPLOYMENT_TARGET
-# from do/config (default set at generation time to <%= deploymentTarget %>).
+# Reads do/config at RUNTIME (edits made after generation are exported). The data
+# work lives in do/lib/python/export_config.py, which maps do/config vars to schema
+# parameters through do/lib/python/export_map.json (generated from
+# config/parameter-schema-v2.json `doConfigVar`) — there is no per-target table here.
 # A --target flag overrides DEPLOYMENT_TARGET for a single run, mirroring
-# do/deploy --target, so one project can export any target's config without
-# regeneration clobbering another target's fields.
+# do/deploy --target.
 #
 # @mlcc-script
 # type: model-centric
@@ -16,397 +18,106 @@
 # lifecycle: metadata
 # targets: all
 
-# Export current configuration as a CLI command, JSON object, or Jupyter notebook
 # Usage: ./do/export [--json | --notebook] [--target <target>]
 
-# Source configuration (suppress the summary output)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/lib/script-contract.sh"
-_require_python_env
-source "${SCRIPT_DIR}/config" > /dev/null 2>&1
 
-# ── Parse optional --target flag (overrides DEPLOYMENT_TARGET for this run) ────
-# Consume --target here and reconstruct the positional args so the --notebook /
-# --json mode detection below continues to read "$1"/"$2" unchanged.
+_export_usage() {
+    cat <<'EOF'
+Usage: ./do/export [--json | --notebook] [--target <target>]
+
+Export this project's CURRENT configuration (do/config, read at run time).
+
+Modes:
+  (default)          Print the ml-container-creator command that reproduces the
+                     project (shell-quoted, built from the same data as --json).
+  --json             Print the canonical generator --config object: schema
+                     parameter keys (e.g. region, hyperpodCluster, asyncMaxConcurrent),
+                     typed values. Save it and run:
+                       ml-container-creator --config=<file> --skip-prompts
+  --notebook         Generate a Jupyter deployment notebook (unchanged; not part
+                     of the --config round-trip guarantee).
+
+Options:
+  --target <target>  Export for this deployment target instead of DEPLOYMENT_TARGET
+                     (aliases such as realtime / hyperpod / async / batch accepted).
+  -h, --help         Show this help.
+
+What is exported:
+  Only parameters that apply to the effective target and differ from their
+  schema default. Secrets (HF_TOKEN, NGC_API_KEY) are written as $VAR references,
+  never values. Runtime-owned vars (deploy status, endpoint names, speculative
+  decoding, benchmark job state) and derived vars are not exported.
+  Upgrade note: --json keys are the --config parameter names since Wave 8
+  (previously awsRegion, hyperPodCluster, asyncMaxConcurrentInvocations,
+  endpointConfig/icConfig/modelEnvVars/serverEnvVars, ...).
+EOF
+}
+
+# ── Parse flags ───────────────────────────────────────────────────────────────
+MODE="cli"
 FLAG_TARGET=""
-EXPORT_ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
+        -h|--help)
+            _export_usage
+            exit 0
+            ;;
+        --json|--notebook)
+            _want="${1#--}"
+            if [ "${MODE}" != "cli" ] && [ "${MODE}" != "${_want}" ]; then
+                echo "Error: --notebook and --json are mutually exclusive" >&2
+                exit 1
+            fi
+            MODE="${_want}"
+            shift
+            ;;
         --target)
             shift
             if [ $# -eq 0 ]; then
-                echo "Error: --target requires a value (realtime-inference, async-inference, batch-transform, hyperpod-eks)" >&2
+            # >>> GENERATED: target-list (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT
+                echo "Error: --target requires a value (realtime-inference, async-inference, batch-transform, hyperpod-eks, eks)" >&2
+            # <<< END GENERATED target-list
                 exit 1
             fi
             FLAG_TARGET="$1"
             shift
             ;;
-        *)
-            EXPORT_ARGS+=("$1")
+        --target=*)
+            FLAG_TARGET="${1#--target=}"
             shift
+            ;;
+        *)
+            echo "Error: unknown option '$1'" >&2
+            _export_usage >&2
+            exit 1
             ;;
     esac
 done
 
-# Normalize target aliases (matches do/deploy --target behavior).
-if [ -n "${FLAG_TARGET}" ]; then
-    case "${FLAG_TARGET}" in
-        managed|managed-inference)
-            echo "⚠️  '${FLAG_TARGET}' is deprecated — use 'realtime-inference'" >&2
-            FLAG_TARGET="realtime-inference"
-            ;;
-        realtime)   FLAG_TARGET="realtime-inference" ;;
-        hyperpod)   FLAG_TARGET="hyperpod-eks" ;;
-        batch)      FLAG_TARGET="batch-transform" ;;
-        async)      FLAG_TARGET="async-inference" ;;
-    esac
+# Source configuration at run time. The summary banner is suppressed so stdout
+# carries only the export (script-contract.sh sources do/config too).
+export _MLCC_CONFIG_PRINTED=1
+source "${SCRIPT_DIR}/lib/script-contract.sh"
+source "${SCRIPT_DIR}/config" > /dev/null 2>&1
+
+# ── Notebook output mode (unchanged) ──────────────────────────────────────────
+if [ "${MODE}" = "notebook" ]; then
+    _require_python_env
+    python3 "${SCRIPT_DIR}/../deploy_notebook_generator.py"
+    exit $?
 fi
 
 # Effective target: --target flag wins, else DEPLOYMENT_TARGET from do/config,
-# else fall back to realtime-inference (the traditional default). The exported
-# DEPLOYMENT_TARGET field/flag reflects this effective value.
+# else realtime-inference. Aliases are resolved by the helper from targets.d.
 EFFECTIVE_TARGET="${FLAG_TARGET:-${DEPLOYMENT_TARGET:-realtime-inference}}"
-DEPLOYMENT_TARGET="${EFFECTIVE_TARGET}"
 
-# Restore positional parameters (post-flag) for mode detection below.
-set -- ${EXPORT_ARGS[@]+"${EXPORT_ARGS[@]}"}
-
-# ── Notebook output mode ──────────────────────────────────────────────────────
-
-if [ "${1:-}" = "--notebook" ]; then
-    # Ensure not combined with --json
-    if [ "${2:-}" = "--json" ]; then
-        echo "Error: --notebook and --json are mutually exclusive" >&2
-        exit 1
-    fi
-    python3 "${SCRIPT_DIR}/../deploy_notebook_generator.py"
-    exit 0
-fi
-
-# ── JSON output mode ─────────────────────────────────────────────────────────
-
-if [ "${1:-}" = "--json" ]; then
-    # Ensure not combined with --notebook
-    if [ "${2:-}" = "--notebook" ]; then
-        echo "Error: --notebook and --json are mutually exclusive" >&2
-        exit 1
-    fi
-    # Build a JSON object with all configuration parameters.
-    # Uses ConfigManager camelCase keys so the output can be fed directly
-    # back into the generator via --config=<file>.
-    JSON="{"
-    JSON="${JSON}\"projectName\":\"${PROJECT_NAME}\""
-
-    # Use deploymentConfig if available (bundles framework + model server)
-    if [ -n "${DEPLOYMENT_CONFIG:-}" ]; then
-        JSON="${JSON},\"deploymentConfig\":\"${DEPLOYMENT_CONFIG}\""
-    fi
-
-    # Model format (traditional ML only)
-    if [ -n "${MODEL_FORMAT:-}" ]; then
-        JSON="${JSON},\"modelFormat\":\"${MODEL_FORMAT}\""
-    fi
-
-    # Model name (transformers only)
-    if [ -n "${MODEL_NAME:-}" ]; then
-        JSON="${JSON},\"modelName\":\"${MODEL_NAME}\""
-    fi
-
-    # Build configuration
-    JSON="${JSON},\"buildTarget\":\"${BUILD_TARGET}\""
-    if [ "${BUILD_TARGET}" = "codebuild" ] && [ -n "${CODEBUILD_COMPUTE_TYPE:-}" ]; then
-        JSON="${JSON},\"codebuildComputeType\":\"${CODEBUILD_COMPUTE_TYPE}\""
-    fi
-
-    # Deployment target
-    JSON="${JSON},\"deploymentTarget\":\"${DEPLOYMENT_TARGET}\""
-
-    # Target-specific fields (runtime dispatch on the effective target)
-    case "${EFFECTIVE_TARGET}" in
-        realtime-inference)
-            # SageMaker Real-Time Inference
-            JSON="${JSON},\"instanceType\":\"${INSTANCE_TYPE}\""
-            ;;
-        async-inference)
-            # SageMaker Async Inference
-            JSON="${JSON},\"instanceType\":\"${INSTANCE_TYPE}\""
-            if [ -n "${ASYNC_S3_OUTPUT_PATH:-}" ]; then
-                JSON="${JSON},\"asyncS3OutputPath\":\"${ASYNC_S3_OUTPUT_PATH}\""
-            fi
-            if [ -n "${ASYNC_SNS_SUCCESS_TOPIC:-}" ]; then
-                JSON="${JSON},\"asyncSnsSuccessTopic\":\"${ASYNC_SNS_SUCCESS_TOPIC}\""
-            fi
-            if [ -n "${ASYNC_SNS_ERROR_TOPIC:-}" ]; then
-                JSON="${JSON},\"asyncSnsErrorTopic\":\"${ASYNC_SNS_ERROR_TOPIC}\""
-            fi
-            if [ "${ASYNC_MAX_CONCURRENT_INVOCATIONS:-1}" != "1" ]; then
-                JSON="${JSON},\"asyncMaxConcurrentInvocations\":${ASYNC_MAX_CONCURRENT_INVOCATIONS}"
-            fi
-            ;;
-        batch-transform)
-            # SageMaker Batch Transform
-            JSON="${JSON},\"instanceType\":\"${INSTANCE_TYPE}\""
-            JSON="${JSON},\"batchInputPath\":\"${BATCH_INPUT_PATH}\""
-            JSON="${JSON},\"batchOutputPath\":\"${BATCH_OUTPUT_PATH}\""
-            JSON="${JSON},\"batchInstanceCount\":${BATCH_INSTANCE_COUNT}"
-            JSON="${JSON},\"batchSplitType\":\"${BATCH_SPLIT_TYPE}\""
-            JSON="${JSON},\"batchStrategy\":\"${BATCH_STRATEGY}\""
-            if [ "${BATCH_JOIN_SOURCE:-None}" != "None" ]; then
-                JSON="${JSON},\"batchJoinSource\":\"${BATCH_JOIN_SOURCE}\""
-            fi
-            if [ "${BATCH_MAX_CONCURRENT_TRANSFORMS:-1}" != "1" ]; then
-                JSON="${JSON},\"batchMaxConcurrentTransforms\":${BATCH_MAX_CONCURRENT_TRANSFORMS}"
-            fi
-            if [ "${BATCH_MAX_PAYLOAD_IN_MB:-6}" != "6" ]; then
-                JSON="${JSON},\"batchMaxPayloadInMB\":${BATCH_MAX_PAYLOAD_IN_MB}"
-            fi
-            ;;
-        hyperpod-eks)
-            # HyperPod EKS
-            JSON="${JSON},\"hyperPodCluster\":\"${HP_CLUSTER_NAME}\""
-            if [ "${HP_NAMESPACE}" != "default" ]; then
-                JSON="${JSON},\"hyperPodNamespace\":\"${HP_NAMESPACE}\""
-            fi
-            if [ "${HP_REPLICAS}" != "1" ]; then
-                JSON="${JSON},\"hyperPodReplicas\":${HP_REPLICAS}"
-            fi
-            if [ -n "${FSX_VOLUME_HANDLE:-}" ]; then
-                JSON="${JSON},\"fsxVolumeHandle\":\"${FSX_VOLUME_HANDLE}\""
-            fi
-            ;;
-    esac
-
-    # AWS region
-    JSON="${JSON},\"awsRegion\":\"${AWS_REGION}\""
-
-    # Role ARN
-    if [ -n "${ROLE_ARN:-}" ]; then
-        JSON="${JSON},\"awsRoleArn\":\"${ROLE_ARN}\""
-    fi
-
-    # HuggingFace token — reference env var, don't leak the actual value
-    if [ -n "${HF_TOKEN:-}" ]; then
-        JSON="${JSON},\"hfToken\":\"\$HF_TOKEN\""
-    fi
-
-    # Endpoint configuration (non-default values only)
-<%
-var epParts = [];
-if (endpointInitialInstanceCount != null && endpointInitialInstanceCount !== 1) {
-    epParts.push('"initialInstanceCount":' + endpointInitialInstanceCount);
-}
-if (endpointDataCapturePercent != null && endpointDataCapturePercent !== 0) {
-    epParts.push('"dataCapturePercent":' + endpointDataCapturePercent);
-}
-if (endpointVariantName != null && endpointVariantName !== 'AllTraffic') {
-    epParts.push('"variantName":"' + endpointVariantName + '"');
-}
-if (endpointVolumeSize != null) {
-    epParts.push('"volumeSize":' + endpointVolumeSize);
-}
-%>
-<% if (epParts.length > 0) { %>
-    JSON="${JSON},\"endpointConfig\":{<%- epParts.join(',') %>}"
-<% } %>
-
-    # IC configuration (non-default values only)
-<%
-var icParts = [];
-if (icCpuCount != null) {
-    icParts.push('"cpuCount":' + icCpuCount);
-}
-if (icMemorySize != null) {
-    icParts.push('"memorySize":' + icMemorySize);
-}
-if (icGpuCount != null) {
-    icParts.push('"gpuCount":' + icGpuCount);
-}
-if (icCopyCount != null && icCopyCount !== 1) {
-    icParts.push('"copyCount":' + icCopyCount);
-}
-if (icModelWeight != null && icModelWeight !== 1.0) {
-    icParts.push('"modelWeight":' + icModelWeight);
-}
-%>
-<% if (icParts.length > 0) { %>
-    JSON="${JSON},\"icConfig\":{<%- icParts.join(',') %>}"
-<% } %>
-
-    # Model environment variables
-<% if (modelEnvVars && Object.keys(modelEnvVars).length > 0) { %>
-<%
-var mParts = Object.entries(modelEnvVars).map(function(entry) {
-    return '"' + entry[0] + '":"' + entry[1] + '"';
-});
-%>
-    JSON="${JSON},\"modelEnvVars\":{<%- mParts.join(',') %>}"
-<% } %>
-
-    # Server environment variables
-<% if (serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
-<%
-var sParts = Object.entries(serverEnvVars).map(function(entry) {
-    return '"' + entry[0] + '":"' + entry[1] + '"';
-});
-%>
-    JSON="${JSON},\"serverEnvVars\":{<%- sParts.join(',') %>}"
-<% } %>
-
-    JSON="${JSON}}"
-
-    echo "${JSON}"
-    exit 0
-fi
-
-# ── CLI command output mode (default) ────────────────────────────────────────
-
-# Build the command
-CMD="ml-container-creator"
-CMD="${CMD} --project-name=${PROJECT_NAME}"
-
-# Use deployment-config if available (bundles framework + model server)
-if [ -n "${DEPLOYMENT_CONFIG:-}" ]; then
-    CMD="${CMD} --deployment-config=${DEPLOYMENT_CONFIG}"
-else
-    CMD="${CMD} --framework=${FRAMEWORK}"
-    CMD="${CMD} --model-server=${MODEL_SERVER}"
-fi
-
-# Model format (traditional ML only)
-if [ -n "${MODEL_FORMAT:-}" ]; then
-    CMD="${CMD} --model-format=${MODEL_FORMAT}"
-fi
-
-# Model name (transformers only)
-if [ -n "${MODEL_NAME:-}" ]; then
-    CMD="${CMD} --model-name=${MODEL_NAME}"
-fi
-
-# Build configuration
-CMD="${CMD} --build-target=${BUILD_TARGET}"
-if [ "${BUILD_TARGET}" = "codebuild" ] && [ -n "${CODEBUILD_COMPUTE_TYPE:-}" ]; then
-    CMD="${CMD} --codebuild-compute-type=${CODEBUILD_COMPUTE_TYPE}"
-fi
-
-# Deployment target
-CMD="${CMD} --deployment-target=${DEPLOYMENT_TARGET}"
-
-# Target-specific flags (runtime dispatch on the effective target)
-case "${EFFECTIVE_TARGET}" in
-    realtime-inference)
-        # SageMaker Real-Time Inference
-        CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
-        ;;
-    async-inference)
-        # SageMaker Async Inference
-        CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
-        if [ -n "${ASYNC_S3_OUTPUT_PATH:-}" ]; then
-            CMD="${CMD} --async-s3-output-path=${ASYNC_S3_OUTPUT_PATH}"
-        fi
-        if [ -n "${ASYNC_SNS_SUCCESS_TOPIC:-}" ]; then
-            CMD="${CMD} --async-sns-success-topic=${ASYNC_SNS_SUCCESS_TOPIC}"
-        fi
-        if [ -n "${ASYNC_SNS_ERROR_TOPIC:-}" ]; then
-            CMD="${CMD} --async-sns-error-topic=${ASYNC_SNS_ERROR_TOPIC}"
-        fi
-        if [ "${ASYNC_MAX_CONCURRENT_INVOCATIONS:-1}" != "1" ]; then
-            CMD="${CMD} --async-max-concurrent=${ASYNC_MAX_CONCURRENT_INVOCATIONS}"
-        fi
-        ;;
-    batch-transform)
-        # SageMaker Batch Transform
-        CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
-        CMD="${CMD} --batch-input-path=${BATCH_INPUT_PATH}"
-        CMD="${CMD} --batch-output-path=${BATCH_OUTPUT_PATH}"
-        CMD="${CMD} --batch-instance-count=${BATCH_INSTANCE_COUNT}"
-        CMD="${CMD} --batch-split-type=${BATCH_SPLIT_TYPE}"
-        CMD="${CMD} --batch-strategy=${BATCH_STRATEGY}"
-        if [ "${BATCH_JOIN_SOURCE:-None}" != "None" ]; then
-            CMD="${CMD} --batch-join-source=${BATCH_JOIN_SOURCE}"
-        fi
-        if [ "${BATCH_MAX_CONCURRENT_TRANSFORMS:-1}" != "1" ]; then
-            CMD="${CMD} --batch-max-concurrent=${BATCH_MAX_CONCURRENT_TRANSFORMS}"
-        fi
-        if [ "${BATCH_MAX_PAYLOAD_IN_MB:-6}" != "6" ]; then
-            CMD="${CMD} --batch-max-payload=${BATCH_MAX_PAYLOAD_IN_MB}"
-        fi
-        ;;
-    hyperpod-eks)
-        # HyperPod EKS
-        CMD="${CMD} --hyperpod-cluster=${HP_CLUSTER_NAME}"
-        if [ "${HP_NAMESPACE}" != "default" ]; then
-            CMD="${CMD} --hyperpod-namespace=${HP_NAMESPACE}"
-        fi
-        if [ "${HP_REPLICAS}" != "1" ]; then
-            CMD="${CMD} --hyperpod-replicas=${HP_REPLICAS}"
-        fi
-        if [ -n "${FSX_VOLUME_HANDLE:-}" ]; then
-            CMD="${CMD} --fsx-volume-handle=${FSX_VOLUME_HANDLE}"
-        fi
-        ;;
-esac
-
-# AWS region
-CMD="${CMD} --region=${AWS_REGION}"
-
-# Role ARN
-if [ -n "${ROLE_ARN:-}" ]; then
-    CMD="${CMD} --role-arn=${ROLE_ARN}"
-fi
-
-# HuggingFace token — reference env var, don't leak the actual value
-if [ -n "${HF_TOKEN:-}" ]; then
-    CMD="${CMD} --hf-token=\$HF_TOKEN"
-fi
-
-# Endpoint configuration (non-default values only)
-<% if (endpointInitialInstanceCount != null && endpointInitialInstanceCount !== 1) { %>
-CMD="${CMD} --endpoint-initial-instance-count=<%= endpointInitialInstanceCount %>"
-<% } %>
-<% if (endpointDataCapturePercent != null && endpointDataCapturePercent !== 0) { %>
-CMD="${CMD} --endpoint-data-capture-percent=<%= endpointDataCapturePercent %>"
-<% } %>
-<% if (endpointVariantName != null && endpointVariantName !== 'AllTraffic') { %>
-CMD="${CMD} --endpoint-variant-name=<%= endpointVariantName %>"
-<% } %>
-<% if (endpointVolumeSize != null) { %>
-CMD="${CMD} --endpoint-volume-size=<%= endpointVolumeSize %>"
-<% } %>
-
-# IC configuration (non-default values only)
-<% if (icCpuCount != null) { %>
-CMD="${CMD} --ic-cpu-count=<%= icCpuCount %>"
-<% } %>
-<% if (icMemorySize != null) { %>
-CMD="${CMD} --ic-memory-size=<%= icMemorySize %>"
-<% } %>
-<% if (icGpuCount != null) { %>
-CMD="${CMD} --ic-gpu-count=<%= icGpuCount %>"
-<% } %>
-<% if (icCopyCount != null && icCopyCount !== 1) { %>
-CMD="${CMD} --ic-copy-count=<%= icCopyCount %>"
-<% } %>
-<% if (icModelWeight != null && icModelWeight !== 1.0) { %>
-CMD="${CMD} --ic-model-weight=<%= icModelWeight %>"
-<% } %>
-
-# Model environment variables
-<% if (modelEnvVars && Object.keys(modelEnvVars).length > 0) { %>
-<% Object.entries(modelEnvVars).forEach(([key, value]) => { %>
-CMD="${CMD} --model-env=<%= key %>=<%= value %>"
-<% }); %>
-<% } %>
-
-# Server environment variables
-<% if (serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
-<% Object.entries(serverEnvVars).forEach(([key, value]) => { %>
-CMD="${CMD} --server-env=<%= key %>=<%= value %>"
-<% }); %>
-<% } %>
-
-CMD="${CMD} --skip-prompts"
-
-echo ""
-echo "# Reproduce this project with a single command:"
-echo "${CMD}"
-echo ""
+# The helper is stdlib-only, so --json / CLI mode need no project venv. All
+# do/config values are passed through the environment (do/config was sourced).
+_export_format="cli"
+[ "${MODE}" = "json" ] && _export_format="json"
+python3 "${SCRIPT_DIR}/lib/python/export_config.py" \
+    --format "${_export_format}" \
+    --target "${EFFECTIVE_TARGET}" \
+    --config "${SCRIPT_DIR}/config"
+exit $?
