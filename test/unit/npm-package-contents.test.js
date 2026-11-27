@@ -115,6 +115,42 @@ describe('npm package contents', function () {
         assert.deepStrictEqual(missing, [], `bootstrap-modules files missing from the npm package: ${missing.join(', ')}`);
     });
 
+    it('ships every bundled MCP server: its manifests and the relative-import closure of index.js', () => {
+        // Bundled = servers/<name>/ with an MCP SDK dependency (same discovery as
+        // `mcp --bundled list` and the docs-inventory drift test). Before this check,
+        // hyperpod-cluster-picker/gpu-capacity.js and three whole servers were missing
+        // from the tarball and failed with ENOENT only on a global install.
+        const bundled = readdirSync(join(ROOT, 'servers'), { withFileTypes: true })
+            .filter(e => e.isDirectory() && existsSync(join(ROOT, 'servers', e.name, 'package.json')))
+            .filter(e => {
+                const deps = JSON.parse(readFileSync(join(ROOT, 'servers', e.name, 'package.json'), 'utf8')).dependencies || {};
+                return Boolean(deps['@modelcontextprotocol/sdk']);
+            })
+            .map(e => e.name);
+        assert.ok(bundled.length > 0, 'expected to discover bundled MCP servers');
+
+        const importRe = /(?:from\s+|import\s*\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g;
+        const required = new Set();
+        const visit = (relFile) => {
+            if (required.has(relFile)) return;
+            required.add(relFile);
+            const text = readFileSync(join(ROOT, relFile), 'utf8');
+            for (const m of text.matchAll(importRe)) {
+                const target = posix.normalize(posix.join(posix.dirname(relFile), m[1]));
+                if (/\.(c|m)?js$/.test(target) && existsSync(join(ROOT, target))) visit(target);
+            }
+        };
+        for (const name of bundled) {
+            visit(`servers/${name}/index.js`);
+            for (const f of ['package.json', 'manifest.json']) {
+                if (existsSync(join(ROOT, 'servers', name, f))) required.add(`servers/${name}/${f}`);
+            }
+        }
+        const missing = [...required].filter(f => !packed.has(f)).sort();
+        assert.deepStrictEqual(missing, [],
+            `MCP server runtime files missing from the npm package (add to package.json "files"): ${missing.join(', ')}`);
+    });
+
     it('does not ship bootstrap-modules build output, caches, tests, or account-specific CDK context', () => {
         const leaked = [...packed].filter(f => {
             if (!f.startsWith(`${BOOTSTRAP_DIR}/`)) return false;

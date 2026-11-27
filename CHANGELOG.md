@@ -2,6 +2,49 @@
 
 All notable changes to ml-container-creator are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- **Generation failures now exit non-zero.** Previously a config-load error, a
+  validation error, or refusing to generate into the generator's own directory printed a
+  warning and exited 0, so CI read it as success. Async CLI errors print a ❌ message and
+  exit 1 instead of a stack trace (set `MCC_DEBUG=1` for the trace).
+- **Deployment-target aliases work end to end.** `realtime`, `managed-inference`,
+  `async`, `batch` and `hyperpod` passed the target check, but `do/deploy` and
+  `do/clean` rejected them with "Unknown DEPLOYMENT_TARGET". Both dispatchers are now
+  generated from `templates/do/targets.d/*/manifest.json`, and an alias is saved to
+  `do/config` under its canonical name.
+- **`do/config` writes are escaped and atomic.** Every `do/` script now persists state
+  through one helper (`lib/config-store.sh`). A value containing `|`, `&`, `"`, `$` or
+  `\` (for example an S3 URI or a job name) no longer corrupts `do/config`, and a file
+  without a trailing newline no longer has two exports glued together. Fixes the
+  unquoted `STAGED_MODEL_PATH` write in `do/stage`.
+- **`do/<verb> --help` always works.** On a project with nothing deployed, `--help` on
+  a deployment-guarded script printed a contract violation and exited 3. It now prints
+  usage and exits 0. A misspelled `# guard:` header is a clear contract violation instead
+  of "command not found". The contract no longer turns on `set -u` for scripts that didn't
+  ask for it.
+- **Published package completeness.** `hyperpod-cluster-picker` (missing
+  `gpu-capacity.js`), `adapter-picker`, `draft-model-picker`, `model-registry` and the
+  `agent-knowledge` manifest were missing from the npm package and failed with ENOENT on a
+  global install. `package.json` `main` pointed at a nonexistent file.
+- **Bedrock model IDs.** The advisory agent, the reasoning server, the picker servers'
+  smart mode and `do/optimize` now all default to
+  `global.anthropic.claude-sonnet-4-5-20250929-v1:0` (from `config/agent.json`), the model
+  the documented operator IAM policy grants. Previously one fallback ID was malformed, two
+  lacked the inference-profile prefix needed for on-demand invocation, and the pickers
+  defaulted to a model the policy didn't grant. `mcc hey` now also starts
+  `draft-model-picker` and `adapter-picker`.
+- The default instance type for `--skip-prompts` is chosen by one architecture heuristic
+  (three copies used to disagree for diffusors and predictors).
+
+### Removed
+
+- `scripts/codegen-parity.js`, which checked nothing (it matched zero items and always
+  passed). Generated-file freshness is enforced by the pre-commit hook and the
+  descriptor-conformance tests.
+
 ## [2.0.0] — 2026-11-02
 
 ### 🚀 v2.0 — deploy-time targets, bring-your-own clusters, one contract for live model additions
