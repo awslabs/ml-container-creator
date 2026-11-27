@@ -361,7 +361,7 @@ ml-container-creator mcp --bundled -e BEDROCK_SMART=true add instance-sizer
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
 | `BEDROCK_SMART` | `false` | Enable Bedrock-powered recommendations |
-| `BEDROCK_MODEL` | `global.anthropic.claude-sonnet-4-20250514-v1:0` | Bedrock model ID |
+| `BEDROCK_MODEL` | `global.anthropic.claude-sonnet-4-5-20250929-v1:0` | Bedrock model ID |
 | `BEDROCK_REGION` | `us-east-1` | AWS region for Bedrock API calls |
 
 The default model uses the global cross-region inference profile, which routes requests to the nearest available region. You can override this with any Bedrock model ID that supports the Messages API.
@@ -379,7 +379,7 @@ The calling identity needs `bedrock:InvokeModel` on the inference profile:
 {
     "Effect": "Allow",
     "Action": "bedrock:InvokeModel",
-    "Resource": "arn:aws:bedrock:*:*:inference-profile/global.anthropic.claude-sonnet-4-20250514-v1:0"
+    "Resource": "arn:aws:bedrock:*:*:inference-profile/global.anthropic.claude-sonnet-4-5-20250929-v1:0"
 }
 ```
 

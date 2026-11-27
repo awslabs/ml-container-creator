@@ -37,7 +37,6 @@ export class MlccHyperpodStack extends cdk.Stack {
             parameterName: `/mlcc/${profileName}/hyperpod/cluster-config`,
             stringValue: JSON.stringify({
                 profileName,
-                createdAt: new Date().toISOString(),
                 status: 'not-provisioned',
                 note: 'Configuration intent only — no HyperPod cluster created. Requires EKS cluster + roles.',
             }),

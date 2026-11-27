@@ -148,7 +148,7 @@ Both servers share the same environment variable interface:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BEDROCK_SMART` | `false` | Set to `"true"` to enable Bedrock-powered recommendations |
-| `BEDROCK_MODEL` | `global.anthropic.claude-sonnet-4-20250514-v1:0` | Bedrock model ID |
+| `BEDROCK_MODEL` | `global.anthropic.claude-sonnet-4-5-20250929-v1:0` | Bedrock model ID |
 | `BEDROCK_REGION` | Falls back: `AWS_REGION` → `us-east-1` | AWS region for Bedrock API calls |
 
 
@@ -185,11 +185,11 @@ The calling identity needs `bedrock:InvokeModel` on the inference profile:
 {
     "Effect": "Allow",
     "Action": "bedrock:InvokeModel",
-    "Resource": "arn:aws:bedrock:*:*:inference-profile/global.anthropic.claude-sonnet-4-20250514-v1:0"
+    "Resource": "arn:aws:bedrock:*:*:inference-profile/global.anthropic.claude-sonnet-4-5-20250929-v1:0"
 }
 ```
 
-The default model (`global.anthropic.claude-sonnet-4-20250514-v1:0`) uses a cross-region inference profile that routes to the nearest available region. If you override `BEDROCK_MODEL` with a region-specific model, adjust the resource ARN accordingly.
+The default model (`global.anthropic.claude-sonnet-4-5-20250929-v1:0`) uses a cross-region inference profile that routes to the nearest available region. If you override `BEDROCK_MODEL` with a region-specific model, adjust the resource ARN accordingly.
 
 ### Enabling Model Access
 
@@ -313,7 +313,7 @@ Your AWS credentials don't have permission to call Bedrock. Either:
 
 The configured model ID isn't available in your account or region. Either:
 - Enable model access in the Bedrock console (see "Enabling Model Access" above)
-- Override with a model you have access to: `BEDROCK_MODEL=us.anthropic.claude-sonnet-4-20250514-v1:0`
+- Override with a model you have access to: `BEDROCK_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0`
 
 ### "Bedrock rate limit hit"
 

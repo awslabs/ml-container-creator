@@ -24,7 +24,7 @@
  *
  * Environment variables:
  *   BEDROCK_SMART  - Set to "true" to enable Bedrock-powered recommendations
- *   BEDROCK_MODEL  - Bedrock model ID (default: global.anthropic.claude-sonnet-4-20250514-v1:0)
+ *   BEDROCK_MODEL  - Bedrock model ID (default: global.anthropic.claude-sonnet-4-5-20250929-v1:0)
  *   BEDROCK_REGION - AWS region for Bedrock API calls (fallback: AWS_REGION, then us-east-1)
  */
 

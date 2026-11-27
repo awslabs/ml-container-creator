@@ -153,7 +153,7 @@ export async function queryBedrock(serverConfig, parameters, limit, context) {
         if (err.name === 'AccessDeniedException') {
             log(prefix, `Access denied. Ensure bedrock:InvokeModel permission for arn:aws:bedrock:${serverConfig.region}:*:inference-profile/${serverConfig.modelId}`);
         } else if (err.name === 'ResourceNotFoundException') {
-            log(prefix, `Model "${serverConfig.modelId}" not found. Set BEDROCK_MODEL env var. Example: BEDROCK_MODEL=global.anthropic.claude-sonnet-4-20250514-v1:0`);
+            log(prefix, `Model "${serverConfig.modelId}" not found. Set BEDROCK_MODEL env var. Example: BEDROCK_MODEL=global.anthropic.claude-sonnet-4-5-20250929-v1:0`);
         } else if (err.name === 'ThrottlingException') {
             log(prefix, 'Bedrock rate limit hit. Falling back to static recommendations');
         } else {

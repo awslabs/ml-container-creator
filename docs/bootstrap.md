@@ -24,7 +24,7 @@ Bootstrap infrastructure is organized into modules. Only `core` is required; eve
 | `benchmark` | S3 bucket + Glue DB for benchmark results | ~$5/mo | No | core |
 | `registry` | Model Package Group + AI Registry Hub | ~$0/mo | No | core |
 | `training` | Artifacts bucket (tune/train/optimize output + MLflow store), legacy training/adapters buckets, reward-Lambda role, HyperPod training role (`mlcc-hp-train-role-<region>`), MLflow (best-effort) | ~$2/mo | No | core |
-| `ci` | CodeBuild + DynamoDB + StepFunctions + EventBridge | ~$15/mo | No | core, benchmark, registry |
+| `ci` | CodeBuild + DynamoDB results table + S3 source bucket | ~$15/mo | No | core, benchmark, registry |
 | `sagemaker-domain` | Studio domain + default user profile | ~$10/mo | No | core |
 | `eks` | Standalone EKS cluster (VPC, control plane, OIDC, Fargate, CSI/metrics add-ons, inference IRSA role) | ~$73+/mo | No | core |
 | `hyperpod` | ⚠️ **DEPRECATED** — HyperPod cluster + Inference Operator | ~$1,300/mo | No | eks |
@@ -67,7 +67,7 @@ The flow:
      ◻ Benchmark Infrastructure — S3 bucket + Glue DB … (~$5/mo)
      ◻ Model Registry — Model Package Group + AI Registry Hub … (~$0/mo)
      ◻ Training Infrastructure — Artifacts bucket … + MLflow … (~$2/mo)
-     ◻ CI/CD Pipeline — CodeBuild + DynamoDB + StepFunctions … (~$15/mo)
+     ◻ CI/CD Pipeline — CodeBuild + DynamoDB results table + S3 source bucket (~$15/mo)
      ◻ SageMaker Studio Domain — Studio domain + default user profile (~$10/mo)
      ◻ EKS Cluster — standalone EKS environment … (~$73+/mo …)
    ```

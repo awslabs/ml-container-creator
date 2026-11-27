@@ -418,7 +418,7 @@ Smart mode uses Amazon Bedrock for context-aware recommendations. Import the sha
 import { queryBedrock } from '../lib/bedrock-client.js'
 
 const SMART_MODE = process.env.BEDROCK_SMART === 'true'
-const BEDROCK_MODEL = process.env.BEDROCK_MODEL || 'global.anthropic.claude-sonnet-4-20250514-v1:0'
+const BEDROCK_MODEL = process.env.BEDROCK_MODEL || 'global.anthropic.claude-sonnet-4-5-20250929-v1:0'
 const BEDROCK_REGION = process.env.BEDROCK_REGION || process.env.AWS_REGION || 'us-east-1'
 
 const SERVER_CONFIG = {

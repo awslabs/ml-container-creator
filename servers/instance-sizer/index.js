@@ -69,7 +69,7 @@ try {
 
 const DISCOVER_MODE = process.env.DISCOVER_MODE !== 'false' && !process.argv.includes('--no-discover');
 const SMART_MODE = process.env.BEDROCK_SMART === 'true';
-const BEDROCK_MODEL = process.env.BEDROCK_MODEL || 'global.anthropic.claude-sonnet-4-20250514-v1:0';
+const BEDROCK_MODEL = process.env.BEDROCK_MODEL || 'global.anthropic.claude-sonnet-4-5-20250929-v1:0';
 const BEDROCK_REGION = process.env.BEDROCK_REGION || process.env.AWS_REGION || 'us-east-1';
 
 // ── Bedrock server config ─────────────────────────────────────────────────────

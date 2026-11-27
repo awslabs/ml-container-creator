@@ -31,7 +31,7 @@ import { makeLoadCatalog, resolveServerDir } from './load-catalog.js';
  * Default Bedrock model + region, matching the historical per-server defaults.
  * A server's `bedrock` config may override modelId/region.
  */
-const DEFAULT_BEDROCK_MODEL = 'global.anthropic.claude-sonnet-4-20250514-v1:0';
+export const DEFAULT_BEDROCK_MODEL = 'global.anthropic.claude-sonnet-4-5-20250929-v1:0';
 
 /**
  * Build the picker-server scaffold.

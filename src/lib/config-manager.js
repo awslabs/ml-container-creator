@@ -38,6 +38,7 @@ import ConfigLoader from './config-loader.js';
 import ConfigMcpClient from './config-mcp-client.js';
 import ConfigValidator from './config-validator.js';
 import { parameterMatrix } from './generated/parameter-matrix.js';
+import { defaultInstanceTypeFor } from './instance-defaults.js';
 // Triton per-backend knowledge comes from the single Triton backend reader
 // (ADR-008 "derive, don't hardcode") over servers/lib/catalogs/triton-backends.json.
 import {
@@ -238,9 +239,8 @@ export default class ConfigManager {
                             finalConfig[param] = formatMap[engine] || 'pkl';
                         }
                     } else if (param === 'instanceType') {
-                        // Default to ml.m5.large for http, ml.g5.xlarge for transformers/triton
-                        const architecture = finalConfig.architecture || 'http';
-                        finalConfig[param] = architecture === 'http' ? 'ml.m5.large' : 'ml.g5.xlarge';
+                        // Architecture heuristic (single source: instance-defaults.js)
+                        finalConfig[param] = defaultInstanceTypeFor(finalConfig.architecture || 'http');
                     } else if (param === 'projectName') {
                         // Generate project name
                         finalConfig[param] = this._generateProjectName(finalConfig.architecture);

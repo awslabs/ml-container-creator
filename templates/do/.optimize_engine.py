@@ -1052,7 +1052,7 @@ def bedrock_interpret(recommendations: list[dict], context: dict, region: str,
         agent_config_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), '..', '..', 'config', 'agent.json'
         )
-        model_id = 'anthropic.claude-sonnet-4-5-20250929-v1:0'
+        model_id = 'global.anthropic.claude-sonnet-4-5-20250929-v1:0'
         if os.path.exists(agent_config_path):
             try:
                 with open(agent_config_path) as f:
