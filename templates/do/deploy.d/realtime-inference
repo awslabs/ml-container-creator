@@ -1024,12 +1024,7 @@ except:
     if [ -n "${_RESOLVED_INSTANCE}" ]; then
         # Persist to do/config for downstream scripts
         _config_file="${SCRIPT_DIR}/config"
-        if grep -q "^export DEPLOYED_INSTANCE_TYPE=" "${_config_file}" 2>/dev/null; then
-            sed -i.bak "s|^export DEPLOYED_INSTANCE_TYPE=.*|export DEPLOYED_INSTANCE_TYPE=\"${_RESOLVED_INSTANCE}\"|" "${_config_file}"
-            rm -f "${_config_file}.bak"
-        else
-            echo "export DEPLOYED_INSTANCE_TYPE=\"${_RESOLVED_INSTANCE}\"" >> "${_config_file}"
-        fi
+        _config_set DEPLOYED_INSTANCE_TYPE "${_RESOLVED_INSTANCE}" "${_config_file}"
         INSTANCE_TYPE="${_RESOLVED_INSTANCE}"
         echo "   Resolved instance type: ${_RESOLVED_INSTANCE} (persisted to do/config)"
     fi

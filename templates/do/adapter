@@ -330,16 +330,7 @@ print("" if v is None else v)
 
 # ── Write or update a variable in do/config (same contract as do/tune) ────────
 _adapter_update_config_var() {
-    local var_name="$1" var_value="$2" config_file="${SCRIPT_DIR}/config"
-    if grep -q "^export ${var_name}=" "${config_file}" 2>/dev/null; then
-        sed -i.bak "s|^export ${var_name}=.*|export ${var_name}=\"${var_value}\"|" "${config_file}"
-        rm -f "${config_file}.bak"
-    else
-        if [ -s "${config_file}" ] && [ -n "$(tail -c 1 "${config_file}")" ]; then
-            echo "" >> "${config_file}"
-        fi
-        echo "export ${var_name}=\"${var_value}\"" >> "${config_file}"
-    fi
+    _config_set "$1" "$2" "${SCRIPT_DIR}/config"
 }
 
 # ── Promote a source into its canonical home (bucket consolidation R3) ────────
@@ -2474,26 +2465,12 @@ _adapter_update() {
     echo "✅ Adapter IC is InService: ${adapter_ic_name}"
 
     # ── Update conf file ──────────────────────────────────────────────────
-    sed -i.bak "s|^export ADAPTER_WEIGHTS_URI=.*|export ADAPTER_WEIGHTS_URI=\"${weights_uri}\"|" "${conf_file}"
-    rm -f "${conf_file}.bak"
+    _config_set ADAPTER_WEIGHTS_URI "${weights_uri}" "${conf_file}"
 
     # Update hub-specific metadata
     if [ -n "${from_hub}" ]; then
-        # Add or update ADAPTER_SOURCE
-        if grep -q "^export ADAPTER_SOURCE=" "${conf_file}"; then
-            sed -i.bak "s|^export ADAPTER_SOURCE=.*|export ADAPTER_SOURCE=\"hub\"|" "${conf_file}"
-            rm -f "${conf_file}.bak"
-        else
-            echo "export ADAPTER_SOURCE=\"hub\"" >> "${conf_file}"
-        fi
-
-        # Add or update ADAPTER_HF_REPO
-        if grep -q "^export ADAPTER_HF_REPO=" "${conf_file}"; then
-            sed -i.bak "s|^export ADAPTER_HF_REPO=.*|export ADAPTER_HF_REPO=\"${from_hub}\"|" "${conf_file}"
-            rm -f "${conf_file}.bak"
-        else
-            echo "export ADAPTER_HF_REPO=\"${from_hub}\"" >> "${conf_file}"
-        fi
+        _config_set ADAPTER_SOURCE "hub" "${conf_file}"
+        _config_set ADAPTER_HF_REPO "${from_hub}" "${conf_file}"
     fi
 
     echo ""

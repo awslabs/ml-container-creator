@@ -66,7 +66,9 @@ def sandbox(tmp_path):
         shutil.copy2(os.path.join(_DO, "lib", "python", m), lib / "python" / m)
     shutil.copytree(os.path.join(_DO, "training"), do / "training")
     (lib / "script-contract.sh").write_text("_require_python_env(){ :; }\n_require_guard(){ :; }\n"
+                                            + 'source "$(dirname "${BASH_SOURCE[0]}")/config-store.sh"\n'
                                             + _real_contract_function("_additive_upper"))
+    shutil.copy2(os.path.join(_DO, "lib", "config-store.sh"), lib / "config-store.sh")
     (lib / "profile.sh").write_text(":\n")
     shutil.copy2(os.path.join(_DO, "lib", "s3-layout.sh"), lib / "s3-layout.sh")  # bucket consolidation R3
     (lib / "resolve-instance.sh").write_text(":\n")

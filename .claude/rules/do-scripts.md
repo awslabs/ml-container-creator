@@ -28,8 +28,13 @@ the decision is ADR-007.
   credential-check block into a script.
 
 ## Writing state back to `do/config`
-- Go through one shared, escaping, atomic config-write helper. **Never** write
-  `sed -i "s|^export KEY=.*|…|"` against `do/config`.
+- Use `_config_set KEY VALUE [FILE]` / `_config_unset KEY [FILE]` from
+  `templates/do/lib/config-store.sh`. The contract sources it, and so do libs that run
+  without the contract. It escapes the value, keeps the file newline-terminated and writes
+  atomically. **Never** write `sed -i "s|^export KEY=.*|…|"` against `do/config` or an IC
+  conf file. `test/unit/do-config-store-and-contract.test.js` enforces this.
+- Test sandboxes that copy `lib/script-contract.sh` must also copy `lib/config-store.sh`
+  (see `test/helpers/additive-sandbox.js`).
   Unescaped `|`, `&`, `"` or `\` corrupts the file, and a missing trailing newline glues two
   exports together.
 - A var a script writes at runtime is runtime-owned. Declare it in the target descriptor's
@@ -58,6 +63,8 @@ the decision is ADR-007.
   must not leave `${VAR}` or `__TOKEN__` placeholders unresolved.
 
 ## Product rules that bite here
-- HyperPod serving is vLLM via the inference operator. No SGLang on HyperPod
-  (`templates/hyperpod/`).
+- HyperPod serving goes through the inference operator (`templates/hyperpod/`, rendered by
+  `lib/hp-iec-render.sh`). Engine-specific env vars come from the engine's
+  `templates/code/serve.d/<engine>/manifest.json` (`env_var_prefix`, `dimension_map`), so
+  never hardcode `VLLM_`.
 - Don't advertise a verb, flag or target in usage/help text before it's implemented.

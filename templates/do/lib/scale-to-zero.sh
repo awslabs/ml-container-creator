@@ -18,6 +18,10 @@
 #
 # bash 3.2: no associative arrays, no ${v^^}, no mapfile.
 
+# The do/config writer. Self-sourced because this lib is designed to work
+# without lib/script-contract.sh (which also sources it).
+declare -F _config_set >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/config-store.sh"
+
 _STZ_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _STZ_PY="${_STZ_LIB_DIR}/python/scale_to_zero.py"
 _STZ_TM="${_STZ_LIB_DIR}/python/target_manifest.py"
@@ -226,12 +230,7 @@ _stz_set_status() {
 _stz_write_config() {
     local _config="${_STZ_DO_DIR}/config"
     [ -f "${_config}" ] || return 0
-    if grep -q "^export $1=" "${_config}" 2>/dev/null; then
-        sed -i.bak "s|^export $1=.*|export $1=\"$2\"|" "${_config}"
-        rm -f "${_config}.bak"
-    else
-        echo "export $1=\"$2\"" >> "${_config}"
-    fi
+    _config_set "$1" "$2" "${_config}"
 }
 
 # _stz_not_found <stderr-file> — 0 when the AWS error says the resource is gone.

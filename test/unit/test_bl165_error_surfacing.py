@@ -114,7 +114,9 @@ class _RegisterSandbox:
         _write_exec(self.do / "register", rendered)
         (self.do / "lib" / "script-contract.sh").write_text(
             "_require_python_env(){ :; }\n_require_guard(){ :; }\n"
+            'source "$(dirname "${BASH_SOURCE[0]}")/config-store.sh"\n'
         )
+        shutil.copy(LIB_DIR / "config-store.sh", self.do / "lib" / "config-store.sh")
         for name in ("profile.sh", "resolve-instance.sh"):
             (self.do / "lib" / name).write_text(":\n")
         (self.do / "config").write_text(
@@ -263,7 +265,7 @@ class _BenchmarkSandbox:
         for d in (py_dir, self.bin, self.home / ".ml-container-creator"):
             d.mkdir(parents=True, exist_ok=True)
         shutil.copy2(BENCHMARK, self.do / "benchmark")
-        for name in ("script-contract.sh", "profile.sh", "resolve-instance.sh",
+        for name in ("script-contract.sh", "config-store.sh", "profile.sh", "resolve-instance.sh",
                      "resolve-serving-config.sh"):
             shutil.copy2(LIB_DIR / name, self.do / "lib" / name)
         shutil.copy2(LIB_DIR / "python" / "benchmark_gpu_metrics.py",

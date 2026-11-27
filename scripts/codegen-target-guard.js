@@ -152,8 +152,71 @@ export const REGIONS = [
         begin: '            # >>> GENERATED: target-list (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT',
         end: '            # <<< END GENERATED target-list',
         opts: { template: '                echo "❌ --target requires a value ({{list}})"' }
+    },
+    // ── Target dispatch (DO-5): the deploy/clean driver `case`, DERIVED from each
+    // descriptor's target + aliases + deploy_script/clean_script. A hand-written
+    // dispatcher let the `realtime` alias pass the generated guard and then fail
+    // with "Unknown DEPLOYMENT_TARGET". Aliases are normalized to the canonical
+    // target before the driver is sourced, so only canonical names reach do/config.
+    {
+        name: 'deploy target dispatch',
+        file: DEPLOY,
+        kind: 'dispatch',
+        begin: '# >>> GENERATED: target dispatch (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT',
+        end: '# <<< END GENERATED target dispatch',
+        opts: { scriptField: 'deploy_script', argsVar: 'DEPLOY_ARGS', listValid: true },
+        // One-time migration: before DO-5 this dispatcher was hand-written. When the
+        // markers are absent, codegen replaces that legacy block (from this line to
+        // its closing `esac`) with the generated region.
+        legacyStart: 'case "$DEPLOYMENT_TARGET" in\n    realtime-inference|managed-inference)\n        source "${SCRIPT_DIR}/deploy.d/realtime-inference"'
+    },
+    {
+        name: 'clean target dispatch',
+        file: CLEAN,
+        kind: 'dispatch',
+        begin: '# >>> GENERATED: target dispatch (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT',
+        end: '# <<< END GENERATED target dispatch',
+        opts: { scriptField: 'clean_script', argsVar: 'CLEAN_ARGS', listValid: true }
     }
 ];
+
+/**
+ * Render a target-dispatch `case` (DO-5): one arm per descriptor, keyed by
+ * `target|<aliases…>`, that normalizes an alias to the canonical target and
+ * sources the descriptor's driver script with the forwarded args array.
+ *
+ * @param {object[]} descriptors
+ * @param {object}   opts
+ * @param {string}   opts.scriptField  descriptor field naming the driver ('deploy_script' | 'clean_script')
+ * @param {string}   opts.argsVar      bash array of forwarded args (e.g. 'DEPLOY_ARGS')
+ * @param {boolean}  opts.listValid    print the canonical target list in the unknown-target arm
+ * @returns {string}
+ */
+function renderDispatchCase(descriptors, { scriptField, argsVar, listValid }) {
+    const args = `"\${${  argsVar  }[@]+"\${${  argsVar  }[@]}"}"`;
+    const lines = ['case "$DEPLOYMENT_TARGET" in'];
+    for (const d of sortedDescriptors(descriptors)) {
+        const script = d[scriptField];
+        if (!script) {
+            throw new Error(`codegen-target-guard: descriptor ${d.target} has no ${scriptField}`);
+        }
+        lines.push(`    ${[d.target, ...(d.aliases || [])].join('|')})`);
+        if ((d.aliases || []).length) {
+            lines.push(`        DEPLOYMENT_TARGET="${d.target}"`);
+        }
+        lines.push(`        source "\${SCRIPT_DIR}/${script}" ${args}`);
+        lines.push('        ;;');
+    }
+    lines.push('    *)');
+    lines.push('        echo "❌ Unknown DEPLOYMENT_TARGET: $DEPLOYMENT_TARGET"');
+    if (listValid) {
+        lines.push(`        echo "   Valid targets: ${renderTargetList(descriptors)}"`);
+    }
+    lines.push('        exit 1');
+    lines.push('        ;;');
+    lines.push('esac');
+    return lines.join('\n');
+}
 
 /**
  * Render a comma-joined canonical target list, in canonical ORDER.
@@ -191,9 +254,14 @@ function renderTargetListLines(descriptors, { template }) {
  * @returns {string}
  */
 export function renderRegion(region, descriptors) {
-    const body = region.kind === 'targetList'
-        ? renderTargetListLines(descriptors, region.opts)
-        : renderStatusVarCase(descriptors, region.opts);
+    let body;
+    if (region.kind === 'targetList') {
+        body = renderTargetListLines(descriptors, region.opts);
+    } else if (region.kind === 'dispatch') {
+        body = renderDispatchCase(descriptors, region.opts);
+    } else {
+        body = renderStatusVarCase(descriptors, region.opts);
+    }
     return [region.begin, body, region.end].join('\n');
 }
 
@@ -210,7 +278,13 @@ export function renderGuardCaseBlock(descriptors) {
  */
 function rewriteRegion(region, descriptors) {
     const block = renderRegion(region, descriptors);
-    const src = fs.readFileSync(region.file, 'utf8');
+    let src = fs.readFileSync(region.file, 'utf8');
+    if (src.indexOf(region.begin) === -1 && region.legacyStart && src.includes(region.legacyStart)) {
+        const legacyIdx = src.indexOf(region.legacyStart);
+        const legacyEnd = src.indexOf('\nesac', legacyIdx) + '\nesac'.length;
+        src = `${src.slice(0, legacyIdx) + region.begin  }\n${  region.end  }${src.slice(legacyEnd)}`;
+        console.log(`codegen-target-guard: migrated hand-written block to "${region.name}"`);
+    }
     const beginIdx = src.indexOf(region.begin);
     const endIdx = src.indexOf(region.end);
     if (beginIdx === -1 || endIdx === -1) {
@@ -241,7 +315,7 @@ function main() {
     }
 }
 
-// Run only when invoked directly (not when imported by the parity check).
+// Run only when invoked directly (not when imported by the descriptor-conformance test).
 if (import.meta.url === `file://${process.argv[1]}`) {
     main();
 }

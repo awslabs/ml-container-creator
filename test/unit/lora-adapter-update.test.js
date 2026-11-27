@@ -227,31 +227,26 @@ describe('Feature: lora-adapter-lifecycle — do/adapter update (Req 2.5)', () =
 
     describe('Updating ADAPTER_WEIGHTS_URI in conf file', () => {
 
-        it('updates ADAPTER_WEIGHTS_URI using sed', () => {
+        it('updates ADAPTER_WEIGHTS_URI in the conf file via the shared config writer', () => {
             const rendered = renderAdapter();
             const updateSection = getUpdateSection(rendered);
             assert.ok(
-                updateSection.includes('sed') && updateSection.includes('ADAPTER_WEIGHTS_URI'),
-                'Must update ADAPTER_WEIGHTS_URI in conf file using sed'
+                updateSection.includes('_config_set ADAPTER_WEIGHTS_URI "${weights_uri}" "${conf_file}"'),
+                'Must persist ADAPTER_WEIGHTS_URI via _config_set (DO-4: escaped, atomic)'
             );
         });
 
-        it('uses in-place sed edit', () => {
+        it('records hub metadata (ADAPTER_SOURCE / ADAPTER_HF_REPO) via the shared writer', () => {
             const rendered = renderAdapter();
             const updateSection = getUpdateSection(rendered);
-            assert.ok(
-                updateSection.includes('sed -i'),
-                'Must use sed -i for in-place editing'
-            );
+            assert.ok(updateSection.includes('_config_set ADAPTER_SOURCE "hub"'), 'ADAPTER_SOURCE via _config_set');
+            assert.ok(updateSection.includes('_config_set ADAPTER_HF_REPO'), 'ADAPTER_HF_REPO via _config_set');
         });
 
-        it('cleans up sed backup file', () => {
+        it('does not edit the conf file with a raw sed substitution', () => {
             const rendered = renderAdapter();
             const updateSection = getUpdateSection(rendered);
-            assert.ok(
-                updateSection.includes('.bak') && updateSection.includes('rm -f'),
-                'Must clean up .bak file created by sed -i'
-            );
+            assert.ok(!/sed -i/.test(updateSection), 'no hand-rolled sed -i writes (use _config_set)');
         });
     });
 

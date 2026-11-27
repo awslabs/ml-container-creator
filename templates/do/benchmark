@@ -1074,12 +1074,7 @@ fi
 # --compare-baseline. Stored as BENCHMARK_PINNED_BASELINE in do/config.
 if [ "${ARG_SET_BASELINE}" = true ]; then
     if [ "${ARG_SET_BASELINE_CLEAR}" = true ]; then
-        _config_file="${SCRIPT_DIR}/config"
-        # grep -q key-presence probes (here and below): absent key is normal.
-        if grep -q "^export BENCHMARK_PINNED_BASELINE=" "${_config_file}" 2>/dev/null; then
-            sed -i.bak "/^export BENCHMARK_PINNED_BASELINE=/d" "${_config_file}"
-            rm -f "${_config_file}.bak"
-        fi
+        _config_unset BENCHMARK_PINNED_BASELINE "${SCRIPT_DIR}/config"
         echo "✅ Cleared pinned baseline. --compare-baseline reverts to rolling most-recent."
         exit 0
     fi
@@ -1095,13 +1090,7 @@ if [ "${ARG_SET_BASELINE}" = true ]; then
 
     # Write BENCHMARK_PINNED_BASELINE to do/config (this early-exit path runs
     # before _update_benchmark_var is defined later in the file).
-    _sb_config_file="${SCRIPT_DIR}/config"
-    if grep -q "^export BENCHMARK_PINNED_BASELINE=" "${_sb_config_file}" 2>/dev/null; then
-        sed -i.bak "s|^export BENCHMARK_PINNED_BASELINE=.*|export BENCHMARK_PINNED_BASELINE=\"${_SB_JOB}\"|" "${_sb_config_file}"
-        rm -f "${_sb_config_file}.bak"
-    else
-        echo "export BENCHMARK_PINNED_BASELINE=\"${_SB_JOB}\"" >> "${_sb_config_file}"
-    fi
+    _config_set BENCHMARK_PINNED_BASELINE "${_SB_JOB}" "${SCRIPT_DIR}/config"
     echo "✅ Pinned baseline set: ${_SB_JOB}"
 
     # Print the pinned run's key metrics (throughput, TTFT P90, ITL P90) so the
@@ -1442,14 +1431,9 @@ _recommend_update_or_append() {
     if [ ! -f "$file" ]; then
         return
     fi
-    # Key-presence probes (absent key → append below; safe swallow).
-    if grep -q "^export ${key}=" "${file}" 2>/dev/null || grep -q "^${key}=" "${file}" 2>/dev/null; then
-        sed -i.tmp "s|^export ${key}=.*|export ${key}=\"${value}\"|" "${file}"
-        sed -i.tmp "s|^${key}=.*|${key}=\"${value}\"|" "${file}"
-        rm -f "${file}.tmp"
-    else
-        echo "export ${key}=\"${value}\"" >> "${file}"
-    fi
+    # A bare legacy `KEY=` line (no export) is shadowed by the export line that
+    # _config_set writes, because later assignments win when the file is sourced.
+    _config_set "${key}" "${value}" "${file}"
 }
 
     # Run the Athena recommendation query.
@@ -2281,17 +2265,7 @@ fi
 
 # ── Helper: update a variable in do/config ────────────────────────────────────
 _update_benchmark_var() {
-    local var_name="$1"
-    local var_value="$2"
-    local config_file="${SCRIPT_DIR}/config"
-
-    # Key-presence probe: absent key → append (safe swallow).
-    if grep -q "^export ${var_name}=" "${config_file}" 2>/dev/null; then
-        sed -i.bak "s|^export ${var_name}=.*|export ${var_name}=\"${var_value}\"|" "${config_file}"
-        rm -f "${config_file}.bak"
-    else
-        echo "export ${var_name}=\"${var_value}\"" >> "${config_file}"
-    fi
+    _config_set "$1" "$2" "${SCRIPT_DIR}/config"
 }
 
 # ── Idempotency: Check for existing benchmark job ─────────────────────────────

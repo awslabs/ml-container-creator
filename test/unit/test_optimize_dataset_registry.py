@@ -50,6 +50,7 @@ def _build_project(tmp_path: Path, resolve_s3_uri: str | None) -> tuple[Path, Pa
     optimize = do_dir / "optimize"
     shutil.copy2(OPTIMIZE_TEMPLATE, optimize)
     shutil.copy2(SCRIPT_CONTRACT, lib_dir / "script-contract.sh")
+    shutil.copy2(SCRIPT_CONTRACT.parent / "config-store.sh", lib_dir / "config-store.sh")
     (lib_dir / "wait.sh").write_text("#!/usr/bin/env bash\n")
     (do_dir / "config").write_text(
         "\n".join(

@@ -34,6 +34,7 @@ def _make_project(tmp_path: Path) -> Path:
 
     shutil.copy2(BENCHMARK, do_dir / "benchmark")
     shutil.copy2(SCRIPT_CONTRACT, lib_dir / "script-contract.sh")
+    shutil.copy2(SCRIPT_CONTRACT.parent / "config-store.sh", lib_dir / "config-store.sh")
     shutil.copy2(PROFILE_LIB, lib_dir / "profile.sh")
     shutil.copy2(RESOLVE_INSTANCE, lib_dir / "resolve-instance.sh")
     shutil.copy2(RESOLVE_SERVING, lib_dir / "resolve-serving-config.sh")

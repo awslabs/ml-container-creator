@@ -27,16 +27,7 @@ source "${SCRIPT_DIR}/lib/profile.sh"
 # replaced in-place; otherwise it is appended. Uses | as the sed delimiter
 # to avoid issues with / in paths (e.g. s3://...).
 _update_config() {
-    local key="$1" value="$2"
-    local config="${SCRIPT_DIR}/config"
-    if grep -q "^export ${key}=" "$config" 2>/dev/null; then
-        sed -i.bak \
-          "s|^export ${key}=.*|export ${key}=\"${value}\"|" \
-          "$config"
-        rm -f "${config}.bak"
-    else
-        echo "export ${key}=\"${value}\"" >> "$config"
-    fi
+    _config_set "$1" "$2" "${SCRIPT_DIR}/config"
 }
 
 # Parse flags (--target stored as FLAG_TARGET to detect user-provided vs config)
@@ -873,14 +864,7 @@ _persist_deploy_vars() {
     for var in "${vars[@]}"; do
         local val="${!var:-}"
         if [ -n "$val" ]; then
-            if grep -q "^export ${var}=" "$tmp_config" 2>/dev/null; then
-                sed -i.bak \
-                  "s|^export ${var}=.*|export ${var}=\"${val}\"|" \
-                  "$tmp_config"
-                rm -f "${tmp_config}.bak"
-            else
-                echo "export ${var}=\"${val}\"" >> "$tmp_config"
-            fi
+            _config_set "$var" "$val" "$tmp_config"
         fi
     done
 
@@ -1036,17 +1020,22 @@ except Exception:
 " 2>/dev/null || true
 
 # Dispatch to target-specific deploy script
+# >>> GENERATED: target dispatch (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT
 case "$DEPLOYMENT_TARGET" in
-    realtime-inference|managed-inference)
+    realtime-inference|managed-inference|realtime)
+        DEPLOYMENT_TARGET="realtime-inference"
         source "${SCRIPT_DIR}/deploy.d/realtime-inference" "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}"
         ;;
-    async-inference)
+    async-inference|async)
+        DEPLOYMENT_TARGET="async-inference"
         source "${SCRIPT_DIR}/deploy.d/async-inference" "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}"
         ;;
-    batch-transform)
+    batch-transform|batch)
+        DEPLOYMENT_TARGET="batch-transform"
         source "${SCRIPT_DIR}/deploy.d/batch-transform" "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}"
         ;;
-    hyperpod-eks)
+    hyperpod-eks|hyperpod)
+        DEPLOYMENT_TARGET="hyperpod-eks"
         source "${SCRIPT_DIR}/deploy.d/hyperpod-eks" "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}"
         ;;
     eks)
@@ -1058,6 +1047,7 @@ case "$DEPLOYMENT_TARGET" in
         exit 1
         ;;
 esac
+# <<< END GENERATED target dispatch
 
 # Write DEPLOYMENT_TARGET back to do/config after successful deploy
 _update_config DEPLOYMENT_TARGET "$DEPLOYMENT_TARGET"

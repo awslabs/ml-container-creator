@@ -200,8 +200,7 @@ clean_eks() {
 
     # Clear the EKS status var so subsequent runs treat the target as not deployed.
     if grep -q "^export DEPLOYMENT_TARGET_EKS_STATUS=" "${SCRIPT_DIR}/config" 2>/dev/null; then
-        sed -i.bak "s|^export DEPLOYMENT_TARGET_EKS_STATUS=.*|export DEPLOYMENT_TARGET_EKS_STATUS=\"\"|" "${SCRIPT_DIR}/config"
-        rm -f "${SCRIPT_DIR}/config.bak"
+        _config_set DEPLOYMENT_TARGET_EKS_STATUS "" "${SCRIPT_DIR}/config"
     fi
 
     # Mark k8s resources as deleted in the manifest (non-blocking)
