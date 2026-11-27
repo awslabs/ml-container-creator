@@ -19,8 +19,8 @@ self-contained **bring-your-own-container ML serving project** for AWS, plus the
 around it:
 
 - **Generator** (`bin/cli.js`, `src/app.js`, `src/lib/`): renders EJS `templates/` into a project
-  with a Dockerfile, serving code (vLLM, TensorRT-LLM, LMI, llama.cpp, SGLang on SageMaker
-  targets, Triton, Flask/FastAPI predictors, vLLM-Omni diffusors) and `do/*` lifecycle scripts.
+  with a Dockerfile, serving code (vLLM, SGLang, TensorRT-LLM, LMI, llama.cpp,
+  Triton, Flask/FastAPI predictors, vLLM-Omni diffusors) and `do/*` lifecycle scripts.
 - **Generated-project runtime** (`templates/do/`): bash + Python scripts (build, push, deploy,
   test, benchmark, tune, train, register, adapter, optimize, …) that run in the USER's project,
   not in this repo. Deployment targets: SageMaker real-time / async / batch, HyperPod-EKS, plain EKS.
@@ -37,7 +37,11 @@ docblocks, ADRs for structural decisions.
 - **SageMaker Python SDK v3 only. No SDK v2, ever.** boto3 `sagemaker` only where v3 has no
   clean equivalent (document why); boto3 `sagemaker-runtime` is fine for benchmark invocations;
   boto3 for non-SageMaker services is fine.
-- **HyperPod serving is vLLM via the inference operator. Do not add SGLang to HyperPod.**
+- **HyperPod serving goes through the SageMaker HyperPod inference operator** (the
+  `InferenceEndpointConfig` CRD). Don't add a parallel non-operator serving path for
+  `hyperpod-eks`. Engine behaviour there (vLLM by default, plus SGLang including speculative
+  decoding, `docs/hyperpod-speculative-decoding.md`) comes from the `serve.d` manifests, not
+  from per-engine branches.
 - **Consume, don't provision, clusters** (ADR-012). HyperPod cluster provisioning is deprecated.
 - **Flexible Training Plan (`trainingPlanArn`) is NOT a bootstrap input** (no option, SSM value
   or CDK context). Integration point is undecided — ask before implementing.

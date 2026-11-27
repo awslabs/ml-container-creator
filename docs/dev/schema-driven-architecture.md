@@ -1,6 +1,6 @@
 # Schema-Driven Architecture
 
-ML Container Creator uses a schema-driven architecture where a single JSON file (`config/parameter-schema-v2.json`) is the source of truth for all 68 CLI parameters. Four code generators read this schema and produce CLI registration, validation rules, a parameter loading matrix, and documentation widget data.
+ML Container Creator uses a schema-driven architecture where a single JSON file (`config/parameter-schema-v2.json`) is the source of truth for all CLI parameters. Code generators (`npm run codegen`) read this schema and produce CLI registration, validation rules, a parameter loading matrix, and documentation widget data.
 
 No parameter can exist without a schema entry. No schema entry can drift from generated code. CI enforces this invariant on every PR.
 

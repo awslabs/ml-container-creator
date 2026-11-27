@@ -87,14 +87,18 @@ round-trip, dispatcher, per-verb support).
 
 ## The enforcer: `do/lib/script-contract.sh`
 
-Sourcing `script-contract.sh` does three things:
+Sourcing `script-contract.sh` does four things:
 
 1. Reads the caller's `# guard:` / `# type:` annotations from its header.
-2. Re-sources `config` and `profile.sh` (with `set +u`) so guard-relevant
-   variables — `DEPLOYMENT_TARGET`, the `DEPLOYMENT_TARGET_*_STATUS` vars,
-   `_PROFILE_provisionedModules` — are loaded before enforcement.
-3. Auto-calls the declared guard; a violation prints the standard message and
-   exits `3`.
+2. Sources `lib/config-store.sh` (the `do/config` writer).
+3. Re-sources `config` and `profile.sh` (with `set +u`, then restores the caller's
+   nounset setting) so guard-relevant variables — `DEPLOYMENT_TARGET`, the
+   `DEPLOYMENT_TARGET_*_STATUS` vars, `_PROFILE_provisionedModules` — are loaded
+   before enforcement.
+4. Auto-calls the declared guard; a violation prints the standard message and
+   exits `3`. Exceptions: `-h` / `--help` with an unmet guard prints the header
+   usage and exits `0`, and an unknown guard name is an `unknown-guard` violation
+   (exit `3`).
 
 Guard predicates and public API:
 
@@ -115,6 +119,7 @@ Guard predicates and public API:
 | `_guard_artifact_kind <kind> <accepted> [guidance]` | additive-deploy kind gate; unknown kind degrades, mismatch exits 3 |
 | `_resolve_additive_source <from-verb> <arg> <name>` | the shared `--from-*` source resolver (see below) |
 | `_deprecated_flag_alias <old> <new>` | the standard deprecated-flag notice (stderr) |
+| `_config_set KEY VALUE [FILE]` / `_config_unset KEY [FILE]` | the one `do/config` writer (`lib/config-store.sh`): escaped, atomic, newline-safe. Never `sed -i` an `export` line |
 
 ### Exit codes
 
@@ -124,6 +129,8 @@ Guard predicates and public API:
 | `1` | general error (including AWS-credential failures) |
 | `2` | usage / argument error |
 | `3` | **contract violation** — guard not met or target not allowed |
+| `4` | precondition not met (e.g. image not in ECR, endpoint not InService); the message names the fix |
+| `5` | `do/deploy` (realtime-inference): deployed, but scale-to-zero setup failed and was rolled back |
 
 Exit `3` is reserved so CI and the advisory agent can distinguish "couldn't
 start (preconditions unmet)" from "ran and failed." Target restrictions go

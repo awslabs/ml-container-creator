@@ -5,7 +5,7 @@
  * PATTERN: Shared pure helper (single source of truth) — the one implementation
  *   of accelerator version compatibility ("major must match, minor must be >=").
  *   Every accelerator that versions this way derives from here instead of
- *   re-inlining the split/compare (ADR-006 / .kiro/steering/derive-dont-hardcode.md).
+ *   re-inlining the split/compare (ADR-006 / .claude/rules/derive-dont-hardcode.md).
  * COLLABORATORS: used by SemverAcceleratorValidator (neuron, rocm) and by
  *   CudaValidator (which keeps its own distinct message + major.minor semantics
  *   but shares this comparison rather than re-implementing it).

@@ -7,7 +7,7 @@ npm test                    # Unit + integration tests
 npm run test:property       # Property-based tests (fast-check)
 npm run test:node           # Suites written with node:test (run via node --test)
 npm run test:all            # test + test:node + test:property (no lint/audit)
-npm run validate            # All tests + ESLint + npm audit
+npm run test:ci             # ESLint + test:all
 npm run test:servers        # MCP server standalone tests
 ```
 

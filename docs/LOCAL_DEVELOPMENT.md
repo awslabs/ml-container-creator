@@ -30,8 +30,8 @@ pip install mkdocs mkdocs-material
 ### Serve Documentation Locally
 
 ```bash
-# Using npm script (recommended)
-npm run docs:serve
+# Using the docs helper script (recommended)
+./scripts/docs.sh serve
 
 # Or directly with mkdocs
 mkdocs serve
@@ -46,8 +46,8 @@ The server will automatically reload when you make changes to the documentation 
 To build the static site (outputs to `site/` directory):
 
 ```bash
-# Using npm script
-npm run docs:build
+# Using the docs helper script (runs mkdocs build --strict)
+./scripts/docs.sh build
 
 # Or directly with mkdocs
 mkdocs build
@@ -55,13 +55,9 @@ mkdocs build
 
 ### Deploy to GitHub Pages
 
-To deploy the documentation to GitHub Pages:
+Deployment is automatic: `.github/workflows/docs.yml` builds and publishes the site when changes are pushed to `main`. To deploy manually:
 
 ```bash
-# Using npm script
-npm run docs:deploy
-
-# Or directly with mkdocs
 mkdocs gh-deploy
 ```
 
@@ -110,7 +106,7 @@ Documentation files are in the `docs/` directory and use Markdown format.
 Start the local server to see your changes in real-time:
 
 ```bash
-npm run docs:serve
+./scripts/docs.sh serve
 ```
 
 ### 3. Check for Broken Links
@@ -127,7 +123,7 @@ Before deploying, always test the build locally:
 
 ```bash
 # Build the site
-npm run docs:build
+./scripts/docs.sh build
 
 # Serve the built site
 cd site
@@ -274,16 +270,12 @@ If you get build errors:
 
 ## GitHub Pages Deployment
 
-The documentation is automatically deployed to GitHub Pages when you run:
+The documentation is automatically deployed to GitHub Pages when changes are pushed to `main` (see `.github/workflows/docs.yml`).
 
-```bash
-npm run docs:deploy
-```
-
-This will:
-1. Build the documentation
-2. Push it to the `gh-pages` branch
-3. GitHub will automatically serve it at: https://awslabs.github.io/ml-container-creator/
+The workflow will:
+1. Build the documentation with `mkdocs build --strict`
+2. Publish the built site to GitHub Pages
+3. GitHub will serve it at: https://awslabs.github.io/ml-container-creator/
 
 ### Manual Deployment
 
@@ -306,10 +298,12 @@ mkdocs build
 5. **Add Code Examples**: Include practical examples in documentation
 6. **Keep It Updated**: Update docs when adding features
 
-## NPM Scripts Reference
+## Docs Script Reference
 
 ```bash
-npm run docs:serve   # Start local documentation server
-npm run docs:build   # Build static documentation site
-npm run docs:deploy  # Deploy to GitHub Pages
+./scripts/docs.sh serve   # Start local documentation server
+./scripts/docs.sh build   # Build static documentation site (strict)
+./scripts/docs.sh clean   # Remove the built site/ directory
 ```
+
+Deployment to GitHub Pages runs from `.github/workflows/docs.yml` on push to `main`.

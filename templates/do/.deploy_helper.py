@@ -70,7 +70,7 @@ def cmd_prompt(args: argparse.Namespace) -> None:
     # DERIVED (do not hardcode): the argparse attribute IS the answer key for every
     # param that has a flag (identity map), derived from the per-target answer_params
     # in targets.d/*/manifest.json. Single source of truth per ADR-008 /
-    # .kiro/steering/derive-dont-hardcode.md; see deploy_answers.py.
+    # .claude/rules/derive-dont-hardcode.md; see deploy_answers.py.
     flag_to_answer_key: dict[str, str] = deploy_answers.flag_to_answer_key()
 
     # Collect non-empty flag values

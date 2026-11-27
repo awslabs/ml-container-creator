@@ -792,7 +792,7 @@ if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
     #
     # DERIVED (do not hardcode): the answer-key → config-var map is the builder-output
     # surface, read from deploy_answers.py (single source of truth, ADR-008 /
-    # .kiro/steering/derive-dont-hardcode.md). Falls back to an empty map only if the
+    # .claude/rules/derive-dont-hardcode.md). Falls back to an empty map only if the
     # reader is unavailable, in which case no vars are exported and the caller falls
     # back to prompts on the next run.
     _LIB_PYTHON="${SCRIPT_DIR}/lib/python"

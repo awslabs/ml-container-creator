@@ -76,7 +76,7 @@ The minimum precondition that must exist before the script runs. `script-contrac
 | `none` | Nothing — script always runs in a valid project directory |
 | `artifact-ready` | Container image has been built and pushed to ECR (`ECR_IMAGE_URI` is set) |
 | `model-staged` | Model weights are in S3 (`STAGED_MODEL_PATH` is set) |
-| `deployment-active` | `DEPLOYMENT_TARGET_*_STATUS` equals `InService` for the current target |
+| `deployment-active` | The current target's `DEPLOYMENT_TARGET_*_STATUS` is its success status: `InService` (realtime / async), `Running` (hyperpod-eks / eks) or `Completed` (batch) |
 | `training-infra` | Training bootstrap module is provisioned (S3 + IAM for SageMaker Training Jobs) |
 
 **Picking the right guard**: Match the guard to your script's *minimum* viable precondition, not every possible use case. `do/benchmark` declares `deployment-active` because it can't do anything without a deployment — even though it also needs model weights, those are implied by having a running deployment.
@@ -248,6 +248,10 @@ All guard functions live in `do/lib/script-contract.sh`.
 
 Sourcing `script-contract.sh` reads the `# guard:` annotation from the calling script and calls the corresponding guard function automatically. No code needed.
 
+- **Help always works.** If the script was called with `-h` / `--help` and the guard is **not** met (for example, nothing is deployed yet), the contract prints the script's header comment (the lines between the SPDX line and `# @mlcc-script`) as usage and exits `0`. When the guard is met, the script runs normally and prints its own help.
+- **Unknown guards fail clearly.** A `# guard:` value with no matching `_guard_<name>` function is a contract violation (`unknown-guard`, exit `3`), not a "command not found".
+- **Shell options are preserved.** The contract turns off `set -u` while it sources `do/config` and `profile.sh`, then restores the caller's setting. It never turns nounset on for a script that didn't ask for it.
+
 ### `_require_guard <guard-name>`
 
 Explicit guard enforcement for flag-escalation paths. Same exit code and message format as auto-enforcement.
@@ -283,6 +287,34 @@ _restrict_targets "realtime-inference,hyperpod-eks" \
 
 For a target that needs distinct guidance, use `_contract_violation` directly in
 an explicit branch (also exit `3`).
+
+### `_config_set KEY VALUE [FILE]` / `_config_unset KEY [FILE]`
+
+#### Writing state back to `do/config`
+
+The one writer for `export KEY="value"` state files (`do/config` and the per-IC
+conf files), defined in `do/lib/config-store.sh` and sourced by the contract. `FILE`
+defaults to `${SCRIPT_DIR}/config` and is created if missing.
+
+- Validates `KEY` as a shell identifier and refuses multi-line values (exit 1).
+- Escapes the value for a double-quoted bash string, so `|`, `&`, `"`, `$`, `` ` ``
+  and `\` round-trip exactly through `source do/config`.
+- Replaces the first `export KEY=` line and drops duplicates, or appends. The file is
+  always left newline-terminated. Writes atomically (temp file + `mv`) and keeps the
+  file mode.
+
+```bash
+_config_set DEPLOYMENT_TARGET_SMAI_STATUS "InService"
+_config_set STAGED_MODEL_PATH "${s3_uri}"
+_config_unset BENCHMARK_PINNED_BASELINE
+```
+
+Never edit `do/config` with `sed -i "s|^export KEY=.*|…|"`. That pattern corrupted
+values containing sed metacharacters and is rejected by
+`test/unit/do-config-store-and-contract.test.js`. A variable your script writes at
+runtime is *runtime-owned*: declare it in the target descriptor's
+`runtime_owned_vars` (or the engine's `dimension_map`) so `mcc regenerate`
+preserves it.
 
 ### `_aws_preflight [--verbose]`
 

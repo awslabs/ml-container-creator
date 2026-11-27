@@ -8,7 +8,7 @@
  *   deploy answer-key contract (CLI flag -> answer key -> config var) has ONE
  *   source of truth instead of the four hand-maintained tables it used to live
  *   in (CLI_FLAG_TO_VARS, flag_to_answer_key, _ANSWER_KEY_TO_VAR, the do/deploy
- *   KEY_MAP). See ADR-008 and .kiro/steering/derive-dont-hardcode.md.
+ *   KEY_MAP). See ADR-008 and .claude/rules/derive-dont-hardcode.md.
  * COLLABORATORS: reads templates/do/targets.d/(all)/manifest.json via
  *   target-manifest-reader.js; consumed at generation time by
  *   deploy-config-builder.js (CLI_FLAG_TO_VARS) and by scripts/codegen-deploy-flags.js

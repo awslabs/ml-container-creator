@@ -150,36 +150,34 @@ case "${DEPLOYMENT_CONFIG}" in
 esac
 ```
 
-### 3. EJS Partials (Include Files)
+### 3. Per-Target Drivers (`.d/` Directories)
 
-Complex scripts use EJS partials in `.d/` directories:
+`do/deploy` and `do/clean` are thin dispatchers. The per-target logic lives in one runtime driver per deployment target:
 
 ```
 templates/do/
 ├── deploy
-├── deploy.d/
-│   ├── async-inference.ejs
-│   ├── batch-transform.ejs
-│   ├── hyperpod-eks.ejs
-│   └── managed-inference.ejs
+├── deploy.d/<target>       # one driver per target
 ├── clean
-└── clean.d/
-    ├── async-inference.ejs
-    ├── batch-transform.ejs
-    ├── hyperpod-eks.ejs
-    └── managed-inference.ejs
+├── clean.d/<target>
+└── targets.d/<target>/manifest.json   # the target contract (source of truth)
 ```
 
-The main `do/deploy` template includes the appropriate partial:
+There is one driver per descriptor directory in `templates/do/targets.d/`; that directory is the list of current targets.
 
-```ejs
-<%- include('deploy.d/' + (deploymentTarget === 'realtime-inference' ? 'managed-inference' : deploymentTarget)) %>
+The drivers are **copied into the generated project** (they are not in `ignorePatterns`) and are `source`d at runtime by `do/deploy` / `do/clean` through a dispatch `case`. That `case` is **generated** from `templates/do/targets.d/*/manifest.json` by `scripts/codegen-target-guard.js` (between `# >>> GENERATED: target dispatch` markers; run `npm run codegen`, never hand-edit). Each arm accepts the target's aliases and normalizes `DEPLOYMENT_TARGET` to the canonical name before sourcing the driver:
+
+```bash
+case "$DEPLOYMENT_TARGET" in
+    async-inference|async)
+        DEPLOYMENT_TARGET="async-inference"
+        source "${SCRIPT_DIR}/clean.d/async-inference" ...
+        ;;
+    ...
+esac
 ```
 
-!!! note "Legacy partial naming"
-    The partials for realtime inference are named `managed-inference.ejs` (a legacy artifact from before the `realtime-inference` rename). The include expression handles this mapping. New partials should use the current `deploymentTarget` value as their filename.
-
-Partials are NOT copied to the output (they're in `ignorePatterns`). They're resolved at generation time.
+Some drivers contain EJS tags, which are rendered at generation time like any other template; the rest is plain bash executed at runtime. See [Deployment Target Authoring](../architecture/deployment-target-authoring.md) for adding a target.
 
 ---
 

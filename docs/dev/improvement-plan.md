@@ -87,6 +87,8 @@ Each row is its own change with its own tests. Don't combine rows.
 | `src/lib/generation-validator.js`, `dry-run-validator.js`, `mcp-validator-config.js`, `template-engine.js` | Imported only by tests | Delete along with their tests, as part of §2 (some overlap with live validators). |
 | `src/lib/e2e-bootstrap.js` + `config/bootstrap-e2e-stack.json` | No production importer; a third CI mechanism next to ci-harness and the bootstrap `ci` module | Delete once confirmed unused by docs and runbooks. |
 | `src/lib/bootstrap-provisioners.js` `_setupIamRole` | A hand-rolled copy of the core role policy, reachable only from a delegator and tests; drifts from `core/stack.ts` | Delete. |
+| `servers/lib/custom-validators.js` | Not imported outside tests. Keyed by the removed `instance-recommender` server name | Wire it into the picker factory for `instance-sizer`, or delete it with its property test. |
+| Residual `sed -i '/^export KEY=/d'` deletions in `clean.d/*` and `do/deploy` | Constant key names (safe), but a second write idiom next to `_config_unset` | Convert to `_config_unset`. |
 | `src/lib/prompts.js` | An 8-line re-export shim | Point importers at `src/lib/prompts/index.js` and delete it. |
 | `src/lib/architecture-command-handler.js` `list-architectures` / `check` | No CLI path reaches them | Expose them under `mcc bootstrap` or delete them. |
 | `infra/bootstrap-modules/hyperpod-cluster/` | Legacy stub left over from before the `eks` + `hyperpod` split | Delete with the `hyperpod` module deprecation. |
@@ -101,7 +103,7 @@ Each row is its own change with its own tests. Don't combine rows.
 | ✅ DO-2 | A guard ran before argument parsing, so `--help` exited 3 on a project with nothing deployed. | Fixed: guards are skipped when `-h` / `--help` is present. |
 | ✅ DO-3 | An unknown `# guard:` name called a non-existent function. | Fixed: it is now a contract violation (exit 3). |
 | ✅ DO-4 | Eight private `sed -i` config writers, unescaped (`|`, `&`, `"`, `\` corrupt `do/config`), only one handling a missing trailing newline, and a quoting bug in `do/stage`. | Fixed: a single `lib/config-store.sh` (`_config_set` / `_config_unset`), escaped and atomic. |
-| ✅ DO-5 | `realtime` alias: the generated guard accepted it but the hand-written dispatcher in `do/deploy` rejected it. | Fixed: the dispatch is codegen'd from the descriptors (target + aliases). |
+| ✅ DO-5 | Target aliases (`realtime`, `async`, `batch`, `hyperpod`) passed the generated guard, but the hand-written dispatchers in `do/deploy` and `do/clean` rejected them with "Unknown DEPLOYMENT_TARGET". | Fixed: both dispatchers are generated from the descriptors (`target`, `aliases`, `deploy_script` / `clean_script`). Aliases are normalized to the canonical name before the driver runs, so only canonical names reach `do/config`. |
 | 🟡 DO-6 | Sourced `deploy.d/*` drivers use `exit 0` on success paths, which skips the dispatcher's write-back of `DEPLOYMENT_TARGET`. | Convert success-path `exit 0` to `return 0`. The driver-by-driver audit needs live validation per target. |
 | 🟡 DO-7 | `lib/deployment-state.sh` hardcodes a `case "$target"` per target. | Derive it from the descriptor `status_var` / `success_status` (ADR-008). |
 | 🟡 DO-8 | The `envsubst` fallback (a Perl one-liner, duplicated in `deploy.d/eks` and `lib/hp-iec-render.sh`) leaves unset `${VAR}` literally and inserts values into YAML unquoted. | Move it into one helper. Fail on unresolved placeholders. YAML-quote values. |
@@ -112,17 +114,19 @@ Each row is its own change with its own tests. Don't combine rows.
 
 | ID | Problem | Status |
 |---|---|---|
-| ✅ PKG-1 | `servers/hyperpod-cluster-picker/gpu-capacity.js` (a runtime import) and the `adapter-picker`, `draft-model-picker` and `model-registry` servers were missing from the published package. | Fixed, and `test/unit/npm-package-contents.test.js` now checks server import closure. |
+| ✅ PKG-1 | `servers/hyperpod-cluster-picker/gpu-capacity.js` (a runtime import), `agent-knowledge/manifest.json`, and the whole `adapter-picker`, `draft-model-picker` and `model-registry` servers were missing from the published package. | Fixed. `test/unit/npm-package-contents.test.js` now checks the relative-import closure of every bundled server against `npm pack`. |
 | ✅ PKG-2 | `package.json` `main` pointed to a nonexistent `src/index.js`. | Fixed. |
 | ✅ CLI-1 | Default instance type per architecture had three disagreeing copies. | Fixed: one source. |
 | ✅ CLI-2 | The `bootstrap` help omitted `sync-serving-versions`. | Fixed. |
-| ✅ CLI-3 | Model IDs drifted across `config/agent.json`, `src/agent/config_loader.py` and `servers/lib/create-picker-server.js`, and the reasoning block lacked an inference-profile prefix. | Fixed, with a drift test. |
+| ✅ CLI-3 | Model IDs drifted across `config/agent.json`, `src/agent/config_loader.py`, the picker factory, instance-sizer, the reasoning server and `do/optimize`. Three different models were named, one ID lacked its `-v1:0` suffix, and two had no inference-profile prefix. The picker default (Sonnet 4) wasn't granted by the documented operator policy. The agent's MCP server list also differed between `agent.json` and the loader fallback, so the agent never started `draft-model-picker` / `adapter-picker`. | Fixed: everything follows `config/agent.json` (`global.anthropic.claude-sonnet-4-5-20250929-v1:0`), and the server lists are unified. `test/unit/agent-config-drift.test.js` enforces this. |
 | ✅ CLI-4 | `scripts/codegen-parity.js` matched zero items and wasn't wired anywhere. | Fixed: deleted. The pre-commit freshness check and the `deploy-flag-forwarding` / `target-descriptor-conformance` tests already cover parity. |
-| ✅ TPL-1 | The HyperPod `InferenceEndpointConfig` template emitted `SGLANG_SPECULATIVE_*`, contradicting "vLLM only on HyperPod". | Fixed. |
+| ✅ TPL-1 | Agent steering said "no SGLang on HyperPod", but SGLang serving and speculative decoding on HyperPod shipped in BL085 (v1.7) and are documented. | Resolved: the rule was wrong and has been corrected. The feature stays. |
 | ✅ INF-1 | The legacy `hyperpod-cluster` stub wrote a timestamp into a value commented "must be deterministic". | Fixed. |
 | 🟡 CLI-5 | `deploymentConfig.split('-')[0]` appears 27 times across nine files, and `GENERATOR_ROOT` is recomputed in about 12 modules. | Use `DeploymentConfigResolver` and `base-command-handler.js` exports. |
 | 🟡 CLI-6 | Bootstrap flags given after the action (`--profile`, `--region`, `--name`, `--role-arn`) fall through as positional arguments. | Fixed by the §3 Commander-options refactor. |
 | 🟡 CLI-7 | `config/mcp.json` is gitignored and unpublished, but `agent.py` exits without it, and `mcp-command-handler.js` writes it into the package root (inside `node_modules` for a global install). | Write it to `~/.ml-container-creator/mcp.json`. Fall back to bundled defaults when it's missing. |
+| 🟡 PKG-3 | `hyperpod-cluster-picker` and `model-registry` depend on `@aws-sdk/client-sagemaker`, which is in their own `package.json` but not in the root `dependencies`, so a global install can't resolve it. | Add it to the root dependencies, or lazy-import it with a clear "install X" error. Add a test: every bare import of a shipped server resolves from the root `dependencies`. |
+| 🟡 HYG-1 | `infra/bootstrap-modules/cdk.context.json` is tracked and contains account-keyed AZ lookups (the stray root copy was removed). It isn't published (guarded by `npm-package-contents`). | Decide: keep it (CDK recommends committing context for deterministic synths) or scrub the account IDs and add it to `.gitignore`. |
 | 🟡 CLI-8 | Generated files embed a `Generated:` timestamp, which adds diff noise on every regeneration. | Drop the timestamp (the pre-commit hook already ignores it). |
 
 ## 8. Infra and CI
