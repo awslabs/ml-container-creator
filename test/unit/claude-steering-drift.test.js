@@ -18,6 +18,7 @@
  */
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +26,24 @@ import { globSync } from 'tinyglobby';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const RULES_DIR = join(ROOT, '.claude', 'rules');
+
+// Judge paths against what git tracks, not the local disk: a file that exists only
+// in one checkout (or only on CI) must not decide the result. A cited path counts
+// if it is tracked (file, or directory prefix of tracked files) or is deliberately
+// git-ignored (a runtime artifact such as config/mcp.json that `mcc mcp` writes).
+const TRACKED = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean);
+const isTracked = (p) => {
+    const q = p.replace(/\/$/, '');
+    return TRACKED.some((f) => f === q || f.startsWith(`${q}/`));
+};
+const isIgnored = (p) => {
+    try {
+        execFileSync('git', ['check-ignore', '-q', p], { cwd: ROOT, stdio: 'ignore' });
+        return true;
+    } catch {
+        return false;
+    }
+};
 
 function steeringFiles() {
     const rules = readdirSync(RULES_DIR, { recursive: true })
@@ -78,7 +97,7 @@ describe('Claude steering drift', () => {
         const { globs, body } = parse(f);
 
         it(`${f}: every cited repo path exists`, () => {
-            const missing = citedPaths(body).filter((p) => !existsSync(join(ROOT, p)));
+            const missing = citedPaths(body).filter((p) => !isTracked(p) && !isIgnored(p));
             assert.deepStrictEqual(missing, [], `stale paths in ${f}`);
         });
 

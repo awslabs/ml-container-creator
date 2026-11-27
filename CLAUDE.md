@@ -83,7 +83,7 @@ There is no `npm run generate`. Release: `npm version <level> && npm publish && 
 `package.json` version.
 
 ## Commit gate
-`.husky/pre-commit` is the live gate (`core.hooksPath` → `.husky/_`). In order: reject hardcoded
+`.husky/pre-commit` is the live gate (`core.hooksPath` points at husky's generated `_` directory). In order: reject hardcoded
 `numRuns` in staged property tests; `lint-staged`; `ast.parse` on staged `.py` (skips EJS
 templates); codegen freshness when schema / codegen scripts / catalogs are staged; catalog and
 tune-manifest validation; `node scripts/sync-command-generator.js --check`; `tsc` build of
