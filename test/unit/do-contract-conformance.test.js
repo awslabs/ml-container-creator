@@ -29,6 +29,7 @@ import assert from 'node:assert';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { listTargets } from '../../src/lib/target-manifest-reader.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DO_DIR = resolve(__dirname, '../../templates/do');
@@ -42,7 +43,8 @@ const VALID_LIFECYCLE = [
 ];
 // `eks` = EKS without the HyperPod Inference Operator (first-class, currently
 // untested/unvalidated). It is a supported DEPLOYMENT_TARGET, not deprecated.
-const VALID_TARGETS = ['realtime-inference', 'async-inference', 'batch-transform', 'hyperpod-eks', 'eks'];
+// Derived from templates/do/targets.d (ADR-008): adding a target descriptor is enough.
+const VALID_TARGETS = listTargets();
 
 // Documented exceptions (ADR-007):
 //   - `config` is a sourced data file: it does not source the enforcer.

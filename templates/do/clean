@@ -100,17 +100,22 @@ fi
 DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET:-realtime-inference}"
 
 # Dispatch
+# >>> GENERATED: target dispatch (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT
 case "$DEPLOYMENT_TARGET" in
-    realtime-inference|managed-inference)
+    realtime-inference|managed-inference|realtime)
+        DEPLOYMENT_TARGET="realtime-inference"
         source "${SCRIPT_DIR}/clean.d/realtime-inference" "${CLEAN_ARGS[@]+"${CLEAN_ARGS[@]}"}"
         ;;
-    async-inference)
+    async-inference|async)
+        DEPLOYMENT_TARGET="async-inference"
         source "${SCRIPT_DIR}/clean.d/async-inference" "${CLEAN_ARGS[@]+"${CLEAN_ARGS[@]}"}"
         ;;
-    batch-transform)
+    batch-transform|batch)
+        DEPLOYMENT_TARGET="batch-transform"
         source "${SCRIPT_DIR}/clean.d/batch-transform" "${CLEAN_ARGS[@]+"${CLEAN_ARGS[@]}"}"
         ;;
-    hyperpod-eks)
+    hyperpod-eks|hyperpod)
+        DEPLOYMENT_TARGET="hyperpod-eks"
         source "${SCRIPT_DIR}/clean.d/hyperpod-eks" "${CLEAN_ARGS[@]+"${CLEAN_ARGS[@]}"}"
         ;;
     eks)
@@ -118,6 +123,8 @@ case "$DEPLOYMENT_TARGET" in
         ;;
     *)
         echo "❌ Unknown DEPLOYMENT_TARGET: $DEPLOYMENT_TARGET"
+        echo "   Valid targets: realtime-inference, async-inference, batch-transform, hyperpod-eks, eks"
         exit 1
         ;;
 esac
+# <<< END GENERATED target dispatch

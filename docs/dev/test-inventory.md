@@ -153,7 +153,9 @@ Notes:
   it explicitly (script + doc) would clarify intent.
 - `test:servers` runs only 5 of the 12 `servers/*/test.js` runners — 7 server
   runners are never exercised by an npm script. Wave 2 (MCP factory) will
-  revisit this; flagged here for coverage-parity.
+  revisit this; flagged here for coverage-parity. *(Resolved since this snapshot:
+  `scripts/run-server-tests.js` discovers every server test under `servers/`, and
+  `servers/server-tests-wired.test.js` fails on any undiscovered test file.)*
 - Python tests are split across `test/unit/*.py` and `tests/*.py` with
   overlapping `test_property_*` files; consolidating to one root is a Wave 6/9
   cleanup.

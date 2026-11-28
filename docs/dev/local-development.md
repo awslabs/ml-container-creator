@@ -212,11 +212,11 @@ This runs 4 scripts:
 pip install mkdocs mkdocs-material
 
 # Start live-reload server at http://127.0.0.1:8000
-npm run docs:serve
+./scripts/docs.sh serve
 # or: mkdocs serve
 
 # Build static site (checks for broken links with --strict)
-npm run docs:build
+./scripts/docs.sh build
 # or: mkdocs build --strict
 ```
 
@@ -266,8 +266,8 @@ Add console.log in `src/app.js` during the writing phase, or use `--dry-run` (if
 ### Debugging test failures
 
 ```bash
-# Verbose output
-npm run test:verbose
+# Verbose output (spec reporter)
+npx mocha 'test/unit/**/*.test.js' --reporter spec
 
 # Single file with full stack traces
 npx mocha test/unit/config-manager-unit.test.js --reporter spec --timeout 60000
@@ -342,16 +342,23 @@ CI will run all of the above automatically on your PR.
 
 | Script | Purpose |
 |---|---|
-| `npm test` | Run all tests |
+| `npm test` | Mocha tests (everything except `test/property/`) |
+| `npm run test:unit` | Unit tests only |
+| `npm run test:property` | Property-based tests (fast-check) |
+| `npm run test:node` | `node:test` suites |
+| `npm run test:servers` | MCP server standalone tests |
 | `npm run test:fast` | Fast parallel test run |
 | `npm run test:watch` | Watch mode |
 | `npm run test:coverage` | Tests + coverage |
+| `npm run test:ci` | Lint + `test:all` (pre-push gate) |
 | `npm run lint` | ESLint check |
 | `npm run lint:fix` | ESLint auto-fix |
 | `npm run codegen` | Regenerate all files from parameter schema |
-| `npm run validate` | Lint + all tests (pre-push gate) |
-| `npm run validate:catalogs` | Validate catalog enum consistency |
-| `npm run docs:serve` | Local docs server |
-| `npm run docs:build` | Build static docs |
-| `npm run dev` | npm link + run generator |
-| `npm run clean` | Remove test output directories |
+| `npm run validate:catalogs` | Validate catalog consistency |
+| `npm run validate:doc-commands` | Verify docs match the CLI |
+| `npm run validate:serve-manifests` | Validate serving-engine manifests |
+| `npm run validate:tune-manifests` | Validate tune manifests |
+| `./scripts/docs.sh serve` | Local docs server |
+| `./scripts/docs.sh build` | Build static docs (strict) |
+
+See `package.json` `scripts` for the full list.

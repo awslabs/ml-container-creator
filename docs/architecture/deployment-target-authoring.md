@@ -155,9 +155,13 @@ The touchpoint files, and how each relates to the descriptor:
 - **`deploy.d/` / `clean.d/`** — `templates/do/deploy.d/<target>` / `clean.d/<target>`;
   hand-authored per target (the actual work — not derivable)
 - **dispatcher arm** — the `case "$DEPLOYMENT_TARGET"` in `templates/do/deploy` /
-  `templates/do/clean`; hand-authored (1:1 `source deploy.d/<target>`), conformance-checked
-- (plus **`VALID_TARGETS`** in `test/unit/do-contract-conformance.test.js` and the
-  `--target` / clean menus)
+  `templates/do/clean`; **generated** from the descriptor (`target|aliases…` →
+  normalize to the canonical name → `source <deploy_script|clean_script>`) between
+  `# >>> GENERATED: target dispatch` markers
+- **`--target` error / usage target lists** in `deploy`, `clean`, `logs`, `export`,
+  `test`; **generated** (`target-list` regions)
+- **`VALID_TARGETS`** in `test/unit/do-contract-conformance.test.js`; **derived** via
+  `listTargets()`
 
 Every derivation is guarded by `test/unit/target-descriptor-conformance.test.js`,
 which fails if any authority drifts from the descriptor.
@@ -187,15 +191,14 @@ derived from the descriptor.
 2. **Write the deploy script** — `templates/do/deploy.d/<target>` (does the work,
    writes the status var).
 3. **Write the teardown script** — `templates/do/clean.d/<target>`.
-4. **Add the dispatcher + menu arms** — a `source deploy.d/<target>` / `source
-   clean.d/<target>` arm in `templates/do/deploy` and `templates/do/clean`, plus the
-   `--help` / interactive-menu entries. (These stay hand-authored because each arm is
-   a 1:1 wiring to the script; they are conformance-checked, not generated.)
-5. **Run `npm run codegen`** — regenerates the shell status-var maps (guard +
-   `deploy` reconfigure + switch-or-deploy) from your descriptor.
-6. **Add to `VALID_TARGETS`** — `test/unit/do-contract-conformance.test.js` (the
-   `@mlcc-script` enum), and add the target to the `_guard_deployment_active` matrix
-   in `test/unit/do-script-contracts.test.js`.
+4. **Run `npm run codegen`** — regenerates, from your descriptor, the shell
+   status-var maps (guard + `deploy` reconfigure + switch-or-deploy), the
+   `do/deploy` / `do/clean` dispatch arms (including aliases), and the `--target`
+   error and usage target lists. Run it twice; the second run must be a no-op.
+5. *(nothing to do)* — the `@mlcc-script` `targets:` enum (`VALID_TARGETS` in
+   `test/unit/do-contract-conformance.test.js`) derives from `targets.d/`.
+6. **Extend the guard matrix** — add the target to the `_guard_deployment_active`
+   matrix in `test/unit/do-script-contracts.test.js`.
 7. **Declare verb support** — for each `do/` verb, set its `@mlcc-script` `targets:`
    or add a `_restrict_targets` / `_contract_violation` guard (exit 3). Keep the
    verb's descriptor `verbs` map in step 1 in agreement.
@@ -288,17 +291,18 @@ from your descriptor — no edit needed:
   `TARGET_ALIASES` are all derived at import from the descriptor's `status_var`,
   `required_vars` / `optional_vars`, and `aliases`.
 
-### 6. Add to the contract enum
+### 6. The contract enum — derived
 
-`test/unit/do-contract-conformance.test.js` → `VALID_TARGETS`. The conformance
-test rejects any `@mlcc-script` `targets:` value not in this enum, so a new
-target must be added here or every script that lists it fails the suite.
+`VALID_TARGETS` in `test/unit/do-contract-conformance.test.js` is `listTargets()`
+over `templates/do/targets.d/`. The conformance test rejects any `@mlcc-script`
+`targets:` value that has no descriptor.
 
-### 7. Wire the dispatcher and menus — `templates/do/deploy`, `templates/do/clean`
+### 7. The dispatcher and target lists — generated
 
-- Add a `case` arm in `do/deploy` that `source`s `deploy.d/<target>`.
-- Add the target to the `do/deploy --help` target list and the interactive
-  target menu in `do/clean`.
+`npm run codegen` (`scripts/codegen-target-guard.js`) writes the `do/deploy` and
+`do/clean` dispatch `case` (one arm per descriptor, keyed by `target|aliases…`,
+sourcing `deploy_script` / `clean_script`) and the `--target` error / usage target
+lists. Don't hand-edit them.
 
 ### 8. Ship the deploy/clean scripts into generated projects
 
@@ -344,8 +348,8 @@ touchpoint set:
 | 4 | guard | `templates/do/lib/script-contract.sh` | `eks) status_var="DEPLOYMENT_TARGET_EKS_STATUS"` |
 | 5 | JS round-trip | `src/lib/do-config.js` | `DEPLOYMENT_TARGET_EKS_STATUS → deploymentTargetEksStatus` |
 | 5 | regenerate | `src/lib/regenerate-command-handler.js` | STATUS_VARS += `DEPLOYMENT_TARGET_EKS_STATUS` |
-| 6 | contract enum | `test/unit/do-contract-conformance.test.js` | `VALID_TARGETS += 'eks'` |
-| 7 | dispatcher + menus | `templates/do/deploy`, `templates/do/clean` | `eks)` case + menu entries |
+| 6 | contract enum | `test/unit/do-contract-conformance.test.js` | derived (`listTargets()`); historically `VALID_TARGETS += 'eks'` |
+| 7 | dispatcher + menus | `templates/do/deploy`, `templates/do/clean` | generated by `npm run codegen` (historically a hand-written `eks)` arm) |
 | 9 | verb support | `do/benchmark`, `do/test` (accept) / `do/optimize`, `do/ci` (refuse via exit 3) | per-verb target guards |
 | 9 | additive verbs | `do/adapter` (accept) / `do/add-ic` (refuse) | derived from `_additive_target_mechanisms` (`eks) echo "vllm-hotload"`) — no per-script guard |
 

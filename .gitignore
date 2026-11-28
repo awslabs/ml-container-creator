@@ -50,3 +50,7 @@ mlruns/
 mlflow.db
 mlflow.db-journal
 mlflow.db-wal
+
+# Stray root-level artifacts (no CDK app lives at the repo root)
+/cdk.context.json
+/null

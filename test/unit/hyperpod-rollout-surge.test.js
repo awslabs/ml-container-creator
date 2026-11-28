@@ -134,6 +134,8 @@ describe('Wave 6.1 — hyperpod-eks deploy: prefetch, derived rank, rollout capa
             'set -e',
             'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
             'source "${SCRIPT_DIR}/config"',
+            // do/deploy has sourced lib/script-contract.sh, which provides the config writer.
+            'source "${SCRIPT_DIR}/lib/config-store.sh"',
             '_update_config() { echo "CONFIG $1=$2" >> "${STUB_STATE}/config.log"; }',
             'cd "${SCRIPT_DIR}/.."',
             'source "${SCRIPT_DIR}/deploy.d/hyperpod-eks" "$@"',

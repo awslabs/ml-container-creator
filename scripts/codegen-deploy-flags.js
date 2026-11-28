@@ -5,7 +5,7 @@
  * codegen-deploy-flags.js — regenerates the mechanical per-target deploy-flag
  * bash in templates/do/deploy FROM the per-target answer_params descriptors
  * (templates/do/targets.d/(all)/manifest.json), so the flag plumbing has a single
- * source of truth (ADR-008 / .kiro/steering/derive-dont-hardcode.md).
+ * source of truth (ADR-008 / .claude/rules/derive-dont-hardcode.md).
  *
  * Three regions are generated, each delimited by marker comments so the
  * surrounding hand-authored logic is untouched:

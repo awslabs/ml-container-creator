@@ -93,11 +93,11 @@ class AcceleratorValidator {
 
 ### Step 1: Extend AcceleratorValidator
 
-Create a new file in `generators/app/lib/`:
+Create a new file in `src/lib/` (the codebase is ES modules):
 
 ```javascript
-// generators/app/lib/tpu-validator.js
-const AcceleratorValidator = require('./accelerator-validator');
+// src/lib/tpu-validator.js
+import AcceleratorValidator from './accelerator-validator.js';
 
 class TpuValidator extends AcceleratorValidator {
   /**
@@ -119,7 +119,7 @@ class TpuValidator extends AcceleratorValidator {
   }
 }
 
-module.exports = TpuValidator;
+export default TpuValidator;
 ```
 
 ### Step 2: Implement Validation Logic
@@ -198,19 +198,18 @@ getVersionMismatchMessage(required, provided) {
 Add your validator to the default validators:
 
 ```javascript
-// generators/app/lib/validation-engine.js
-const TpuValidator = require('./tpu-validator');
+// src/lib/validation-engine.js
+import TpuValidator from './tpu-validator.js';
 
-class ValidationEngine {
-  constructor(options = {}) {
-    this.acceleratorValidators = {
-      cuda: new CudaValidator(),
-      neuron: new NeuronValidator(),
-      cpu: new CpuValidator(),
-      rocm: new RocmValidator(),
-      tpu: new TpuValidator()  // Add your validator
-    };
-  }
+export default class ValidationEngine {
+    constructor() {
+        this.acceleratorValidators = new Map();
+        this.registerAcceleratorValidator('cuda', new CudaValidator());
+        this.registerAcceleratorValidator('neuron', new NeuronValidator());
+        this.registerAcceleratorValidator('cpu', new CpuValidator());
+        this.registerAcceleratorValidator('rocm', new RocmValidator());
+        this.registerAcceleratorValidator('tpu', new TpuValidator()); // Add your validator
+    }
 }
 ```
 
@@ -229,12 +228,12 @@ validationEngine.registerAcceleratorValidator('tpu', tpuValidator);
 
 ### Unit Tests
 
-Create unit tests for your validator:
+Tests use mocha + `node:assert` (no chai/sinon); see `test/input-parsing-and-generation/accelerator.test.js` for the existing validators. Create unit tests for your validator:
 
 ```javascript
 // test/input-parsing-and-generation/tpu-validator.test.js
-const assert = require('assert');
-const TpuValidator = require('../../generators/app/lib/tpu-validator');
+import assert from 'assert';
+import TpuValidator from '../../src/lib/tpu-validator.js';
 
 describe('TpuValidator', () => {
   let validator;
@@ -302,8 +301,8 @@ Add property-based tests for universal behavior:
 
 ```javascript
 // test/input-parsing-and-generation/tpu-validator.property.test.js
-const fc = require('fast-check');
-const TpuValidator = require('../../generators/app/lib/tpu-validator');
+import fc from 'fast-check';
+import TpuValidator from '../../src/lib/tpu-validator.js';
 
 describe('TpuValidator Property Tests', () => {
   it('should always return a validation result', () => {
@@ -343,44 +342,37 @@ describe('TpuValidator Property Tests', () => {
 
 ### Integration Tests
 
-Test your validator in the full validation flow:
+Test your validator in the full validation flow by registering it with `ValidationEngine` (mirrors `test/input-parsing-and-generation/validation-engine.test.js`):
 
 ```javascript
 // test/input-parsing-and-generation/tpu-integration.test.js
-const helpers = require('yeoman-test');
-const assert = require('yeoman-assert');
-const path = require('path');
+import assert from 'assert';
+import ValidationEngine from '../../src/lib/validation-engine.js';
+import TpuValidator from '../../src/lib/tpu-validator.js';
 
 describe('TPU Integration', () => {
-  it('should validate TPU instance types', async () => {
-    await helpers.run(path.join(__dirname, '../../generators/app'))
-      .withPrompts({
-        framework: 'jax-serving',
-        version: '0.4.0',
-        instanceType: 'ml.tpu.v4-8'
-      });
-    
-    // Should generate successfully
-    assert.file(['Dockerfile', 'requirements.txt']);
-    
-    // Should include TPU configuration
-    assert.fileContent('Dockerfile', /TPU/);
+  let engine;
+
+  before(() => {
+    engine = new ValidationEngine();
+    engine.registerAcceleratorValidator('tpu', new TpuValidator());
   });
-  
-  it('should reject incompatible TPU versions', async () => {
-    try {
-      await helpers.run(path.join(__dirname, '../../generators/app'))
-        .withPrompts({
-          framework: 'jax-serving',  // Requires TPU v5
-          version: '0.5.0',
-          instanceType: 'ml.tpu.v4-8'  // Only supports v4
-        });
-      
-      assert.fail('Should have thrown error');
-    } catch (error) {
-      assert.ok(error.message.includes('TPU'));
-      assert.ok(error.message.includes('v5'));
-    }
+
+  it('should accept a compatible TPU version', () => {
+    const result = engine.validateAcceleratorCompatibility(
+      { accelerator: { type: 'tpu', version: 'v4' } },
+      { accelerator: { type: 'tpu', versions: ['v4'] } }
+    );
+    assert.strictEqual(result.compatible, true);
+  });
+
+  it('should reject incompatible TPU versions', () => {
+    const result = engine.validateAcceleratorCompatibility(
+      { accelerator: { type: 'tpu', version: 'v5' } },  // Requires TPU v5
+      { accelerator: { type: 'tpu', versions: ['v4'] } } // Only supports v4
+    );
+    assert.strictEqual(result.compatible, false);
+    assert.ok(result.error.includes('v5'));
   });
 });
 ```
@@ -390,8 +382,8 @@ describe('TPU Integration', () => {
 ### Example 1: TPU Validator (Generation-Based Versioning)
 
 ```javascript
-// generators/app/lib/tpu-validator.js
-const AcceleratorValidator = require('./accelerator-validator');
+// src/lib/tpu-validator.js
+import AcceleratorValidator from './accelerator-validator.js';
 
 class TpuValidator extends AcceleratorValidator {
   validate(frameworkConfig, instanceConfig) {
@@ -426,14 +418,14 @@ class TpuValidator extends AcceleratorValidator {
   }
 }
 
-module.exports = TpuValidator;
+export default TpuValidator;
 ```
 
 ### Example 2: Intel Gaudi Validator (Semantic Versioning)
 
 ```javascript
-// generators/app/lib/gaudi-validator.js
-const AcceleratorValidator = require('./accelerator-validator');
+// src/lib/gaudi-validator.js
+import AcceleratorValidator from './accelerator-validator.js';
 
 class GaudiValidator extends AcceleratorValidator {
   validate(frameworkConfig, instanceConfig) {
@@ -479,14 +471,14 @@ class GaudiValidator extends AcceleratorValidator {
   }
 }
 
-module.exports = GaudiValidator;
+export default GaudiValidator;
 ```
 
 ### Example 3: Custom Validator with Range Support
 
 ```javascript
-// generators/app/lib/custom-validator.js
-const AcceleratorValidator = require('./accelerator-validator');
+// src/lib/custom-validator.js
+import AcceleratorValidator from './accelerator-validator.js';
 
 class CustomValidator extends AcceleratorValidator {
   validate(frameworkConfig, instanceConfig) {
@@ -548,7 +540,7 @@ class CustomValidator extends AcceleratorValidator {
   }
 }
 
-module.exports = CustomValidator;
+export default CustomValidator;
 ```
 
 ## Best Practices
@@ -645,26 +637,20 @@ validate(frameworkConfig, instanceConfig) {
 
 ## Adding Instance Type Support
 
-After creating your validator, add instance types to the Instance Accelerator Mapping:
+After creating your validator, add instance types to the instance catalog, `servers/lib/catalogs/instances.json` (entries live under `catalog`, keyed by instance type; mirror the fields of existing entries):
 
-```javascript
-// generators/app/config/registries/instance-accelerator-mapping.js
-{
-  "ml.tpu.v4-8": {
-    "family": "tpu",
-    "accelerator": {
-      "type": "tpu",
-      "hardware": "Google TPU v4",
-      "architecture": "TPU v4",
-      "versions": ["v4"],
-      "default": "v4"
-    },
-    "memory": "32 GB",
-    "vcpus": 8,
-    "notes": "Google TPU v4 for ML inference"
-  }
+```json
+"ml.tpu.v4-8": {
+  "family": "tpu",
+  "acceleratorType": "tpu",
+  "hardware": "Google TPU v4",
+  "vcpus": 8,
+  "memGb": 32,
+  "notes": "Google TPU v4 for ML inference"
 }
 ```
+
+Then run `npm run validate:catalogs`; it checks the entry against the catalog's allowed values, so extend those first if your accelerator type is new.
 
 ## Getting Help
 

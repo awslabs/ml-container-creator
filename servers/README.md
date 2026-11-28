@@ -2,123 +2,37 @@
 
 This directory contains first-party MCP (Model Context Protocol) servers that ship with ML Container Creator. Each server is self-contained with its own `package.json` and dependencies, and shares a common Bedrock client library under `lib/`.
 
-## Directory Structure
+## Layout
 
-```
-servers/
-├── lib/                        # Shared library (Bedrock client)
-│   ├── bedrock-client.js       # Reusable Bedrock invocation module
-│   ├── package.json            # @aws-sdk/client-bedrock-runtime dependency
-│   └── LICENSE
-├── instance-recommender/       # Instance type recommendation server
-│   ├── index.js                # MCP server entry point
-│   ├── test.js                 # Standalone tests (node test.js)
-│   ├── package.json
-│   └── LICENSE
-├── region-picker/              # AWS region suggestion server
-│   ├── index.js                # MCP server entry point
-│   ├── test.js                 # Standalone tests (node test.js)
-│   ├── package.json
-│   └── LICENSE
-└── endpoint-picker/            # SageMaker endpoint discovery server
-    ├── index.js                # MCP server entry point
-    ├── test.js                 # Standalone tests (node test.js)
-    ├── package.json
-    └── LICENSE
-```
+- `servers/<name>/`: one self-contained MCP server per directory, with its own
+  `package.json`, `manifest.json`, `index.js` and standalone tests. Every server is
+  built on the shared factory `servers/lib/create-picker-server.js` (ADR-003).
+- `servers/lib/`: shared code, including the Bedrock client (`bedrock-client.js`),
+  catalog loading and project overrides, dynamic resolvers, and the curated catalogs
+  in `servers/lib/catalogs/`.
 
 ## Available Servers
 
-### instance-recommender
+The maintained list of bundled servers, their tools and their configuration is in
+[MCP Configuration → Bundled Servers](../docs/mcp-configuration.md#bundled-servers).
+To list them from the CLI:
 
-Recommends SageMaker instance types based on the current ML framework. Traditional ML frameworks (sklearn, xgboost, tensorflow) get CPU instance suggestions; transformer frameworks get GPU instances.
-
-**Static mode (default):** Returns hardcoded instance lists by framework category — no AWS credentials needed.
-
-**Smart mode (`BEDROCK_SMART=true`):** Queries Amazon Bedrock for context-aware instance recommendations, then pads with static results up to the requested limit. Falls back to static on any failure.
-
-**Tool:** `get_ml_config`
-
-| Input Field | Type | Description |
-|-------------|------|-------------|
-| `parameters` | `string[]` | Must include `"instanceType"` to get results |
-| `limit` | `number` | Max choices to return (default: 10) |
-| `context` | `object` | Current config — `framework`, `modelServer`, etc. |
-
-**Example response:**
-
-```json
-{
-  "values": { "instanceType": "ml.g5.xlarge" },
-  "choices": { "instanceType": ["ml.g5.xlarge", "ml.g5.2xlarge", "ml.g4dn.xlarge"] }
-}
+```bash
+ml-container-creator mcp list --bundled
 ```
 
-### region-picker
-
-Suggests AWS regions for SageMaker deployments based on a search term. Filters the built-in list of 22 SageMaker-available regions by case-insensitive substring match against both region codes and labels.
-
-**Static mode (default):** Filters the hardcoded region list — no AWS credentials needed.
-
-**Smart mode (`BEDROCK_SMART=true`):** Queries Amazon Bedrock for a context-aware region recommendation, uses it as the top choice, and pads with static results. Falls back to static on any failure.
-
-**Tool:** `get_ml_config`
-
-| Input Field | Type | Description |
-|-------------|------|-------------|
-| `parameters` | `string[]` | Must include `"awsRegion"` to get results |
-| `limit` | `number` | Max choices to return (default: 10) |
-| `context` | `object` | Use `regionSearch` for filtering (e.g., `"europe"`, `"us-east"`, `"tokyo"`) |
-
-**Example response:**
-
-```json
-{
-  "values": { "awsRegion": "eu-west-1" },
-  "choices": { "awsRegion": ["eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1"] }
-}
-```
-
-### endpoint-picker
-
-Discovers InService SageMaker real-time endpoints with available GPU capacity for attaching new inference components. Uses `ListEndpoints`, `DescribeEndpoint`, and `ListInferenceComponents` to calculate available capacity.
-
-**Discover mode:** Queries the SageMaker API using a 3-strategy credential fallback (explicit profile → default chain → detect profiles). No static mode — always requires AWS credentials.
-
-**Tool:** `get_inference_endpoints`
-
-| Input Field | Type | Description |
-|-------------|------|-------------|
-| `parameters` | `string[]` | Must include `"endpointName"` to get results |
-| `limit` | `number` | Max endpoints to return (default: 10) |
-| `context` | `object` | `awsRegion`, `awsProfile`, `deploymentTarget` (must be `realtime-inference`) |
-
-**Example response:**
-
-```json
-{
-  "values": { "endpointName": "my-endpoint-1234567890" },
-  "choices": { "endpointName": ["my-endpoint-1234567890", "prod-llm-endpoint"] },
-  "metadata": {
-    "my-endpoint-1234567890": {
-      "variantName": "AllTraffic",
-      "instanceType": "ml.g6e.48xlarge",
-      "instanceCount": 1,
-      "icCount": 2,
-      "availableGpus": 4,
-      "hasInstancePools": false
-    }
-  }
-}
-```
+Each server's tools are declared in its `index.js` (the `tools:` array passed to
+`createPickerServer`). For example, `instance-sizer` exposes
+`get_instance_recommendation` and `get_instance_types`, `region-picker` exposes
+`get_regions`, and `endpoint-picker` exposes `get_inference_endpoints`.
 
 ## Usage
 
 ### Adding a Bundled Server
 
 ```bash
-# Add instance-recommender
-ml-container-creator mcp add instance-recommender --bundled
+# Add instance-sizer
+ml-container-creator mcp add instance-sizer --bundled
 
 # Add region-picker with a search filter for European regions
 ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
@@ -137,7 +51,7 @@ ml-container-creator mcp list --bundled
 Pass `BEDROCK_SMART=true` as an environment variable when adding the server:
 
 ```bash
-ml-container-creator mcp add instance-recommender --bundled -e BEDROCK_SMART=true
+ml-container-creator mcp add instance-sizer --bundled -e BEDROCK_SMART=true
 ml-container-creator mcp add region-picker --bundled -e BEDROCK_SMART=true
 ```
 
@@ -148,7 +62,7 @@ Both servers share the same environment variable interface:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BEDROCK_SMART` | `false` | Set to `"true"` to enable Bedrock-powered recommendations |
-| `BEDROCK_MODEL` | `global.anthropic.claude-sonnet-4-20250514-v1:0` | Bedrock model ID |
+| `BEDROCK_MODEL` | `global.anthropic.claude-sonnet-4-5-20250929-v1:0` | Bedrock model ID |
 | `BEDROCK_REGION` | Falls back: `AWS_REGION` → `us-east-1` | AWS region for Bedrock API calls |
 
 
@@ -185,11 +99,11 @@ The calling identity needs `bedrock:InvokeModel` on the inference profile:
 {
     "Effect": "Allow",
     "Action": "bedrock:InvokeModel",
-    "Resource": "arn:aws:bedrock:*:*:inference-profile/global.anthropic.claude-sonnet-4-20250514-v1:0"
+    "Resource": "arn:aws:bedrock:*:*:inference-profile/global.anthropic.claude-sonnet-4-5-20250929-v1:0"
 }
 ```
 
-The default model (`global.anthropic.claude-sonnet-4-20250514-v1:0`) uses a cross-region inference profile that routes to the nearest available region. If you override `BEDROCK_MODEL` with a region-specific model, adjust the resource ARN accordingly.
+The default model (`global.anthropic.claude-sonnet-4-5-20250929-v1:0`) uses a cross-region inference profile that routes to the nearest available region. If you override `BEDROCK_MODEL` with a region-specific model, adjust the resource ARN accordingly.
 
 ### Enabling Model Access
 
@@ -222,10 +136,10 @@ $ ml-container-creator
 
 The user sees a generic list of regions and must know which instance type to pick.
 
-### With instance-recommender (Static Mode)
+### With instance-sizer (Static Mode)
 
 ```bash
-ml-container-creator mcp add instance-recommender --bundled
+ml-container-creator mcp add instance-sizer --bundled
 ml-container-creator
 ```
 
@@ -265,7 +179,7 @@ The search term `"europe"` filters the region list to only show European regions
 ### With Smart Mode (Bedrock)
 
 ```bash
-ml-container-creator mcp add instance-recommender --bundled -e BEDROCK_SMART=true
+ml-container-creator mcp add instance-sizer --bundled -e BEDROCK_SMART=true
 ml-container-creator mcp add region-picker --bundled -e BEDROCK_SMART=true
 ml-container-creator
 ```
@@ -313,7 +227,7 @@ Your AWS credentials don't have permission to call Bedrock. Either:
 
 The configured model ID isn't available in your account or region. Either:
 - Enable model access in the Bedrock console (see "Enabling Model Access" above)
-- Override with a model you have access to: `BEDROCK_MODEL=us.anthropic.claude-sonnet-4-20250514-v1:0`
+- Override with a model you have access to: `BEDROCK_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0`
 
 ### "Bedrock rate limit hit"
 
@@ -329,12 +243,12 @@ The Bedrock API didn't respond within 10 seconds. This usually means network con
 
 1. Check the server is registered: `ml-container-creator mcp list`
 2. Check stderr output — all diagnostic messages go to stderr
-3. Verify the tool is being called with the right parameters (e.g., `"awsRegion"` for region-picker, `"instanceType"` for instance-recommender)
+3. Verify the tool is being called with the right parameters (e.g., `"awsRegion"` for region-picker, `"instanceType"` for instance-sizer)
 4. Try running the standalone tests to verify the server logic:
 
 ```bash
 node servers/region-picker/test.js
-node servers/instance-recommender/test.js
+node servers/instance-sizer/test.js
 node servers/endpoint-picker/test.js
 ```
 
@@ -351,7 +265,7 @@ Each server has standalone tests that run without AWS credentials or network acc
 ```bash
 # Run individual server tests
 node servers/region-picker/test.js
-node servers/instance-recommender/test.js
+node servers/instance-sizer/test.js
 node servers/endpoint-picker/test.js
 
 # Run all server tests from the project root

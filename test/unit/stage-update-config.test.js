@@ -43,22 +43,20 @@ describe('do/stage --update-config (FTP-2: 2.1, 2.2)', () => {
         );
     });
 
-    it('stage template uses sed to update MODEL_NAME in do/config', () => {
+    it('stage template persists MODEL_NAME / STAGED_MODEL_PATH through the shared config writer', () => {
         const content = fs.readFileSync(STAGE_TEMPLATE, 'utf8');
-        // Verify sed command targets the MODEL_NAME export line
+        // DO-4: every do/config write goes through _config_set (lib/config-store.sh),
+        // which escapes the value and writes atomically; no hand-rolled sed edits.
         assert.ok(
-            content.includes('sed -i.bak'),
-            'do/stage should use sed -i.bak for in-place editing'
+            content.includes('_config_set MODEL_NAME "${MODEL_S3_URI}" "${CONFIG_FILE}"'),
+            'do/stage should persist MODEL_NAME via _config_set'
         );
         assert.ok(
-            content.includes('export MODEL_NAME='),
-            'sed pattern should target export MODEL_NAME= lines'
+            content.includes('_config_set STAGED_MODEL_PATH'),
+            'do/stage should persist STAGED_MODEL_PATH via _config_set'
         );
-        // Verify backup file cleanup
-        assert.ok(
-            content.includes('rm -f "${CONFIG_FILE}.bak"'),
-            'do/stage should remove the .bak file after sed'
-        );
+        assert.ok(!/sed -i[^\n]*export (MODEL_NAME|STAGED_MODEL_PATH)=/.test(content),
+            'do/stage must not edit do/config with a raw sed substitution');
     });
 
     it('stage template documents config-update behavior in --help output', () => {

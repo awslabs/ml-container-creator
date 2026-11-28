@@ -32,7 +32,7 @@ class AgentConfig:
 
 
 _DEFAULTS = AgentConfig(
-    model_id="us.anthropic.claude-sonnet-4-20250514",
+    model_id="global.anthropic.claude-sonnet-4-5-20250929-v1:0",  # mirrors config/agent.json (drift-tested)
     provider="bedrock",
     mcp_servers=[
         "instance-sizer",
@@ -43,6 +43,7 @@ _DEFAULTS = AgentConfig(
         "adapter-picker",
         "e2e-status",
         "agent-knowledge",
+        "reasoning",
     ],
     input_cost_per_1k=0.003,
     output_cost_per_1k=0.015,

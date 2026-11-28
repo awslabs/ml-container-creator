@@ -3,7 +3,7 @@
 
 /**
  * Conformance guard for the deploy per-target flag plumbing (see ADR-008 /
- * .kiro/steering/derive-dont-hardcode.md).
+ * .claude/rules/derive-dont-hardcode.md).
  *
  * The per-target answer_params arrays in targets.d/(all)/manifest.json are the
  * single source of truth. Everything else DERIVES from them:

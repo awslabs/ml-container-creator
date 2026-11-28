@@ -592,23 +592,7 @@ for family in sorted(families.keys()):
 # Write or update a variable in do/config.
 # Usage: _update_config_var VAR_NAME "value"
 _update_config_var() {
-    local var_name="$1"
-    local var_value="$2"
-    local config_file="${SCRIPT_DIR}/config"
-
-    if grep -q "^export ${var_name}=" "${config_file}" 2>/dev/null; then
-        sed -i.bak "s|^export ${var_name}=.*|export ${var_name}=\"${var_value}\"|" "${config_file}"
-        rm -f "${config_file}.bak"
-    else
-        # Guard against a config whose last line has no trailing newline: appending
-        # directly would GLUE the new export onto the previous one (observed:
-        # `...SIZE="2"export TUNE_ADAPTER_PATH_DPO=...`, corrupting both vars). If the
-        # file is non-empty and does not already end in a newline, add one first.
-        if [ -s "${config_file}" ] && [ -n "$(tail -c 1 "${config_file}")" ]; then
-            echo "" >> "${config_file}"
-        fi
-        echo "export ${var_name}=\"${var_value}\"" >> "${config_file}"
-    fi
+    _config_set "$1" "$2" "${SCRIPT_DIR}/config"
 }
 
 # ── _promote_tune_output() ────────────────────────────────────────────────────

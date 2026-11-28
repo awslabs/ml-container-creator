@@ -29,6 +29,7 @@ import {
 import { _ensureTemplateVariables, _validateEnvironmentVariables } from './lib/template-variable-resolver.js';
 import ejs from 'ejs';
 import { globSync } from 'tinyglobby';
+import { defaultInstanceTypeFor } from './lib/instance-defaults.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -70,7 +71,9 @@ export async function run(projectName, options) {
     try {
         baseConfig = await configManager.loadConfiguration();
     } catch (error) {
-        console.log(`⚠️  ${error.message}`);
+        // A failed generation must exit non-zero (ERR-1): CI and scripts read exit 0 as success.
+        console.log(`❌ ${error.message}`);
+        process.exitCode = 1;
         return;
     }
 
@@ -84,7 +87,8 @@ export async function run(projectName, options) {
 
     const errors = configManager.validateConfiguration();
     if (errors.length > 0) {
-        console.log(`⚠️  ${errors[0]}`);
+        console.log(`❌ ${errors[0]}`);
+        process.exitCode = 1;
         return;
     }
 
@@ -176,13 +180,7 @@ export async function run(projectName, options) {
         if (!answers.instanceType) {
             // Use architecture-based heuristic: transformers/diffusors → GPU, predictor/http → CPU
             const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];
-            const HEURISTIC_DEFAULTS = {
-                'transformers': 'ml.g5.xlarge',
-                'diffusors': 'ml.g5.2xlarge',
-                'predictor': 'ml.m5.large',
-                'http': 'ml.m5.large'
-            };
-            answers.instanceType = HEURISTIC_DEFAULTS[architecture] || 'ml.g5.xlarge';
+            answers.instanceType = defaultInstanceTypeFor(architecture);
             // This is an architecture heuristic, NOT a VRAM sizing of the model —
             // say so, so a large model does not silently land on a small GPU.
             console.log(`   • Instance type defaulted: ${answers.instanceType} (architecture heuristic for ${architecture || 'default'}, not sized to the model — pass --instance-type to choose)`);
@@ -305,6 +303,7 @@ export async function run(projectName, options) {
                 console.log('\n❌ Refusing to generate into the generator\'s own directory.');
                 console.log('   This would overwrite the generator source files.');
                 console.log('   Use --project-dir or provide a project name instead.\n');
+                process.exitCode = 1;
                 return;
             }
         } catch {

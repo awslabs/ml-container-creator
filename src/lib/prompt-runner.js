@@ -36,6 +36,7 @@ import SecretsPromptRunner from './secrets-prompt-runner.js';
 import { isMarketplaceConfig, isMarketplaceModelName, refuseMarketplaceAndExit } from './marketplace-refusal.js';
 import { engineFeature } from './serve-manifest-reader.js';
 import { isKnownBackend as isTritonBackend, isLlm as tritonIsLlm, modelFormats as tritonModelFormats } from './triton-backend-reader.js';
+import { defaultInstanceTypeFor } from './instance-defaults.js';
 
 const __pr_filename = fileURLToPath(import.meta.url);
 const __pr_dirname = path.dirname(__pr_filename);
@@ -815,15 +816,7 @@ export default class PromptRunner {
      * @private
      */
     _getArchitectureHeuristicDefault(architecture) {
-        const HEURISTIC_DEFAULTS = {
-            'transformers': 'ml.g5.xlarge',
-            'transformer': 'ml.g5.xlarge',
-            'diffusors': 'ml.g5.2xlarge',
-            'diffusor': 'ml.g5.2xlarge',
-            'predictor': 'ml.m5.large',
-            'http': 'ml.m5.large'
-        };
-        return Object.hasOwn(HEURISTIC_DEFAULTS, architecture) ? HEURISTIC_DEFAULTS[architecture] : 'ml.g5.xlarge';
+        return defaultInstanceTypeFor(architecture);
     }
 
     /**

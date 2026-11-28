@@ -53,7 +53,7 @@ function log(message) {
  */
 const DEFAULT_REASONING_CONFIG = {
     provider: 'bedrock',
-    modelId: 'anthropic.claude-sonnet-4-5-20250929-v1:0',
+    modelId: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
     maxTokens: 2048,
     temperature: 0.3
 };

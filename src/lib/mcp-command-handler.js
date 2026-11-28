@@ -341,8 +341,8 @@ ADD OPTIONS:
 
 EXAMPLES:
   ml-container-creator mcp init
-  ml-container-creator mcp add team-config -- node servers/instance-recommender/index.js
-  ml-container-creator mcp add instance-recommender --bundled
+  ml-container-creator mcp add team-config -- node ./my-config-server.js
+  ml-container-creator mcp add instance-sizer --bundled
   ml-container-creator mcp add corp-policy -- npx -y @corp/mcp-policy -e TEAM_ID=ml-platform
   ml-container-creator mcp list
   ml-container-creator mcp list --bundled

@@ -27,7 +27,7 @@ Contributions via pull requests are much appreciated. Before sending us a pull r
 2. You check existing open, and recently merged, pull requests to make sure someone else hasn't addressed the problem already.
 3. You open an issue to discuss any significant work - we would hate for your time to be wasted.
 4. **You have Node.js v24+** - Required for running tests. Use `nvm use node` to switch to the latest version.
-5. **All tests pass** - Run `npm run validate` to ensure your changes don't break existing functionality.
+5. **All tests pass** - Run `npm run test:ci` (lint + `test:all`) to ensure your changes don't break existing functionality.
 6. **New functionality includes tests** - Add appropriate unit tests and property tests for new features.
 
 To send us a pull request, please:
@@ -35,7 +35,7 @@ To send us a pull request, please:
 1. Fork the repository.
 2. Modify the source; please focus on the specific change you are contributing. If you also reformat all the code, it will be hard for us to focus on your change.
 3. **Ensure you're using Node.js v24+** by running `nvm use node`.
-4. **Ensure all tests pass** by running `npm run validate`.
+4. **Ensure all tests pass** by running `npm run test:ci`.
 5. **Add tests for new functionality** following our testing patterns.
 6. Commit to your fork using clear commit messages.
 7. Send us a pull request, answering any default questions in the pull request interface.
@@ -72,13 +72,13 @@ All pull requests must pass our comprehensive test suite:
 nvm use node
 
 # Run the full validation suite (required before PR submission)
-npm run validate
+npm run test:ci
 
 # This runs:
-# 1. ESLint code quality checks
-# 2. Security audit (npm audit)
-# 3. Unit tests (238 tests)
-# 4. Property-based tests (10 universal correctness properties)
+# 1. ESLint code quality checks (npm run lint)
+# 2. Mocha unit + integration tests (npm test)
+# 3. node:test suites (npm run test:node)
+# 4. Property-based tests (npm run test:property)
 ```
 
 ### Test Organization
@@ -88,13 +88,12 @@ Our test suite is organized into two complementary layers:
 #### 📋 **Unit Tests** (`test/` directory)
 Focused tests for specific functionality organized by capability. See **[`test/README.md`](./test/README.md)** for detailed documentation.
 
-- **CLI Options** (`cli-options.test.js`) - CLI option parsing and validation
-- **Environment Variables** (`environment-variables.test.js`) - Environment variable handling  
-- **Configuration Files** (`configuration-files.test.js`) - Config file parsing
-- **Configuration Precedence** (`configuration-precedence.test.js`) - Multi-source precedence
-- **File Generation** (`file-generation.test.js`) - Template processing and file creation
-- **Error Handling** (`error-handling.test.js`) - Validation and error scenarios
-- **Property-Based Tests** - 10 universal correctness properties with 1000+ test iterations
+- **`test/unit/`** - Fast, focused unit tests (mocha + `node:assert`)
+- **`test/property/`** - Property-based tests (fast-check); run with `npm run test:property`
+- **`test/integration/`** - Cross-module integration tests
+- **`test/input-parsing-and-generation/`** - CLI parsing, configuration and file-generation tests
+- **Python tests** - under `test/` and `tests/`, run with `python3 -m pytest`
+- **MCP server tests** - standalone tests in `servers/`, run with `npm run test:servers`
 
 #### 🚀 **Integration Tests** (`scripts/` directory)
 End-to-end project generation and validation scripts. See **[`scripts/README.md`](./scripts/README.md)** for detailed documentation.
@@ -107,14 +106,13 @@ End-to-end project generation and validation scripts. See **[`scripts/README.md`
 
 | What You're Adding | Where to Add Tests | Documentation |
 |-------------------|-------------------|---------------|
-| **New CLI option** | `test/input-parsing-and-generation/cli-options.test.js` | [`test/README.md`](./test/README.md) |
-| **New environment variable** | `test/input-parsing-and-generation/environment-variables.test.js` | [`test/README.md`](./test/README.md) |
-| **New configuration option** | `test/input-parsing-and-generation/configuration-files.test.js` | [`test/README.md`](./test/README.md) |
-| **New framework support** | Both unit tests + `scripts/test-generate-projects.sh` | Both README files |
-| **New template/file generation** | `test/input-parsing-and-generation/file-generation.test.js` | [`test/README.md`](./test/README.md) |
-| **New validation/error handling** | `test/input-parsing-and-generation/error-handling.test.js` | [`test/README.md`](./test/README.md) |
+| **New CLI option / schema parameter** | `test/input-parsing-and-generation/` (generation behaviour) + `test/property/` (schema-derived properties) | [`test/README.md`](./test/README.md) |
+| **Config precedence / env vars / config files** | `test/input-parsing-and-generation/` (e.g. `configuration.test.js`) | [`test/README.md`](./test/README.md) |
+| **New validation/error handling** | `test/input-parsing-and-generation/error-handling.test.js` or a validator test in `test/unit/` | [`test/README.md`](./test/README.md) |
+| **Generated `do/` script behaviour** | `test/unit/` (bash sandboxes via `test/helpers/additive-sandbox.js`) or pytest in `test/unit/*.py` / `tests/` | [`test/README.md`](./test/README.md) |
+| **New deployment target / serve engine** | The descriptor conformance tests (`test/unit/target-descriptor-conformance.test.js`, serve-manifest validators) | [`docs/architecture/deployment-target-authoring.md`](./docs/architecture/deployment-target-authoring.md) |
+| **MCP server changes** | `servers/<name>/test.js` (run with `npm run test:servers`) | [`servers/README.md`](./servers/README.md) |
 | **End-to-end scenarios** | `scripts/test-generate-projects.sh` | [`scripts/README.md`](./scripts/README.md) |
-| **Universal correctness properties** | `test/input-parsing-and-generation/parameter-matrix-compliance.property.test.js` | [`test/README.md`](./test/README.md) |
 
 ### Writing Tests for New Features
 
@@ -122,12 +120,9 @@ When adding new functionality, include appropriate tests. **See [`test/README.md
 
 #### 1. Choose the Right Test Location
 
-**Unit Tests** (fast, focused testing):
-- **CLI option changes** → `test/input-parsing-and-generation/cli-options.test.js`
-- **Environment variable changes** → `test/input-parsing-and-generation/environment-variables.test.js`
-- **Config file changes** → `test/input-parsing-and-generation/configuration-files.test.js`
-- **Precedence changes** → `test/input-parsing-and-generation/configuration-precedence.test.js`
-- **Template/file changes** → `test/input-parsing-and-generation/file-generation.test.js`
+**Unit, generation and property tests** (fast, focused): use the table above. Find
+the existing test that covers the nearest behaviour (`grep -rl <option> test/`) and
+extend it before creating a new file.
 
 **Integration Tests** (end-to-end validation):
 - **New framework support** → `scripts/test-generate-projects.sh`
@@ -138,11 +133,8 @@ When adding new functionality, include appropriate tests. **See [`test/README.md
 
 **Unit Test Example:**
 ```javascript
-import { 
-    runGenerator,
-    validateFiles, 
-    setupTestHooks 
-} from './test-utils.js';
+import { validateFiles, setupTestHooks } from './test-utils.js';
+import { runGenerator } from '../helpers/run-generator.js';
 
 describe('Your Feature Category', () => {
     setupTestHooks('Your Feature Category');
@@ -224,7 +216,6 @@ If your feature affects parameter handling, consider adding property tests. See 
 ```bash
 # Run tests continuously during development
 npm run test:watch              # Unit tests in watch mode
-npm run test:property:watch     # Property tests in watch mode
 
 # Run specific test categories
 npm test -- --grep "CLI Options"     # Your specific functionality
@@ -234,7 +225,7 @@ npm test -- --grep "sklearn"         # Framework-specific tests
 ./scripts/test-generate-projects.sh --verbose --keep-output
 
 # Quick validation before committing
-npm run validate                # Full test suite + linting
+npm run test:ci                 # Full test suite + linting
 ```
 
 ### Test Quality Standards

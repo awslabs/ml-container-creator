@@ -109,6 +109,7 @@ nav:
       - Validation System: dev/validation-system.md
       - Accelerator Validators: ACCELERATOR_VALIDATOR_GUIDE.md
       - Testing: dev/testing.md
+      - Improvement Plan: dev/improvement-plan.md
       - Architecture Corpus:
           - Overview: architecture/index.md
           - System Overview: architecture/system-overview.md

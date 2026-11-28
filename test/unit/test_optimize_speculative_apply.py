@@ -32,6 +32,7 @@ def _run_apply(tmp_path: Path, recommendation: dict) -> tuple[subprocess.Complet
     optimize = do_dir / "optimize"
     shutil.copy2(OPTIMIZE_TEMPLATE, optimize)
     shutil.copy2(SCRIPT_CONTRACT, lib_dir / "script-contract.sh")
+    shutil.copy2(SCRIPT_CONTRACT.parent / "config-store.sh", lib_dir / "config-store.sh")
     (lib_dir / "wait.sh").write_text("#!/usr/bin/env bash\n")
     (do_dir / "config").write_text(
         "\n".join(

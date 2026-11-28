@@ -339,7 +339,7 @@ def diff_config(target: str, config_vars: dict[str, str]) -> dict[str, str | Non
 # DERIVED (do not hardcode): this is the DEPLOY_ANSWERS *input* surface, the union
 # of every target's answer_params in targets.d/*/manifest.json minus the pure
 # builder-output keys. Single source of truth per ADR-008 /
-# .kiro/steering/derive-dont-hardcode.md; see deploy_answers.py.
+# .claude/rules/derive-dont-hardcode.md; see deploy_answers.py.
 _ANSWER_KEY_TO_VAR: dict[str, str] = deploy_answers.answer_key_to_var("input")
 
 # Reverse mapping: config var name to answer JSON key

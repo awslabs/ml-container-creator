@@ -297,8 +297,7 @@ clean_hyperpod() {
     # Clear ENDPOINT_NAME from do/config so downstream workflows don't target a
     # deleted endpoint.
     if grep -q "^export ENDPOINT_NAME=" "${SCRIPT_DIR}/config" 2>/dev/null; then
-        sed -i.bak "s|^export ENDPOINT_NAME=.*|export ENDPOINT_NAME=\"\"|" "${SCRIPT_DIR}/config"
-        rm -f "${SCRIPT_DIR}/config.bak"
+        _config_set ENDPOINT_NAME "" "${SCRIPT_DIR}/config"
     fi
 
     # Mark k8s resources as deleted in manifest (non-blocking)

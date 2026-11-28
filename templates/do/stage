@@ -212,13 +212,7 @@ _submit_processing_job() {
         # will re-enter the AlreadyStaged path and overwrite with the confirmed URI.
         if [ "${UPDATE_CONFIG}" = true ] && [ -n "${s3_uri}" ]; then
             CONFIG_FILE="${SCRIPT_DIR}/config"
-            if grep -q '^export STAGED_MODEL_PATH=' "${CONFIG_FILE}"; then
-                sed -i.bak "s|^export STAGED_MODEL_PATH=.*|export STAGED_MODEL_PATH="${s3_uri}"|" "${CONFIG_FILE}"
-            else
-                echo "" >> "${CONFIG_FILE}"
-                echo "export STAGED_MODEL_PATH="${s3_uri}"" >> "${CONFIG_FILE}"
-            fi
-            rm -f "${CONFIG_FILE}.bak"
+            _config_set STAGED_MODEL_PATH "${s3_uri}" "${CONFIG_FILE}"
             echo "   ✅ STAGED_MODEL_PATH written to do/config (confirm S3 upload completes)"
         fi
     elif [ "${job_status}" = "Completed" ]; then
@@ -247,13 +241,7 @@ _submit_processing_job() {
     if [ "${UPDATE_CONFIG}" = true ] && [ -n "${s3_uri}" ] && [ "${job_status}" != "Submitted" ]; then
         CONFIG_FILE="${SCRIPT_DIR}/config"
         # BL076: write to STAGED_MODEL_PATH instead of overwriting MODEL_NAME (preserves HF model ID)
-        if grep -q '^export STAGED_MODEL_PATH=' "${CONFIG_FILE}"; then
-            sed -i.bak "s|^export STAGED_MODEL_PATH=.*|export STAGED_MODEL_PATH=\"${s3_uri}\"|" "${CONFIG_FILE}"
-        else
-            echo "" >> "${CONFIG_FILE}"
-            echo "export STAGED_MODEL_PATH=\"${s3_uri}\"" >> "${CONFIG_FILE}"
-        fi
-        rm -f "${CONFIG_FILE}.bak"
+        _config_set STAGED_MODEL_PATH "${s3_uri}" "${CONFIG_FILE}"
         echo ""
         echo "   ✅ Updated STAGED_MODEL_PATH in do/config (MODEL_NAME preserved: ${MODEL_NAME})"
         echo "   Subsequent tasks (submit, deploy) will pull from S3."
@@ -368,13 +356,7 @@ if [ "${FORCE}" = false ]; then
         if [ "${UPDATE_CONFIG}" = true ]; then
             CONFIG_FILE="${SCRIPT_DIR}/config"
             # BL076: write to STAGED_MODEL_PATH instead of overwriting MODEL_NAME
-            if grep -q '^export STAGED_MODEL_PATH=' "${CONFIG_FILE}"; then
-                sed -i.bak "s|^export STAGED_MODEL_PATH=.*|export STAGED_MODEL_PATH=\"${MODEL_S3_URI}\"|" "${CONFIG_FILE}"
-            else
-                echo "" >> "${CONFIG_FILE}"
-                echo "export STAGED_MODEL_PATH=\"${MODEL_S3_URI}\"" >> "${CONFIG_FILE}"
-            fi
-            rm -f "${CONFIG_FILE}.bak"
+            _config_set STAGED_MODEL_PATH "${MODEL_S3_URI}" "${CONFIG_FILE}"
             echo "   ✅ Updated STAGED_MODEL_PATH in do/config (MODEL_NAME preserved: ${MODEL_NAME})"
         else
             echo "   To use this staged model, set in do/config:"
@@ -527,8 +509,7 @@ python3 "${SCRIPT_DIR}/lib/python/catalog_registration.py" \
 echo ""
 if [ "${UPDATE_CONFIG}" = true ]; then
     CONFIG_FILE="${SCRIPT_DIR}/config"
-    sed -i.bak "s|^export MODEL_NAME=.*|export MODEL_NAME=\"${MODEL_S3_URI}\"|" "${CONFIG_FILE}"
-    rm -f "${CONFIG_FILE}.bak"
+    _config_set MODEL_NAME "${MODEL_S3_URI}" "${CONFIG_FILE}"
     echo "   ✅ Updated MODEL_NAME in do/config → S3-backed"
     echo "   Subsequent tasks (submit, deploy) will pull from S3."
 else

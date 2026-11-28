@@ -57,11 +57,12 @@ const targets = listTargets();
 describe('target-descriptor conformance (ADR-008 T3 — safety net)', () => {
     it('descriptor set matches VALID_TARGETS in the do-contract conformance test', () => {
         const conf = read('test/unit/do-contract-conformance.test.js');
-        // VALID_TARGETS lists the deployment targets a @mlcc-script may declare.
-        for (const t of targets) {
-            assert.ok(conf.includes(`'${t}'`),
-                `VALID_TARGETS must include '${t}'`);
-        }
+        // VALID_TARGETS lists the deployment targets a @mlcc-script may declare. It is
+        // DERIVED from the descriptors (listTargets()), so it can never miss a target;
+        // guard against it regressing to a hand-kept literal list.
+        assert.match(conf, /const VALID_TARGETS = listTargets\(\);/,
+            'VALID_TARGETS must be derived via listTargets(), not hand-listed');
+        assert.ok(targets.length > 0, 'expected at least one target descriptor');
     });
 
     describe('do/config template — status export block', () => {

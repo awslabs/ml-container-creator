@@ -590,7 +590,7 @@ def _smai_sandbox(tmp_path):
     do = tmp_path / "do"
     (do / "lib" / "python" / "boto3").mkdir(parents=True)
     shutil.copy(os.path.join(_DO, "adapter"), do / "adapter")
-    for f in ("script-contract.sh", "wait.sh", "profile.sh", "s3-layout.sh"):
+    for f in ("script-contract.sh", "config-store.sh", "wait.sh", "profile.sh", "s3-layout.sh"):
         shutil.copy(os.path.join(_DO, "lib", f), do / "lib" / f)
     for f in ("s3_layout.py", "right_sizing.py", "serve_manifest.py", "target_manifest.py", "instance_sizer.py"):
         shutil.copy(os.path.join(_PY, f), do / "lib" / "python" / f)

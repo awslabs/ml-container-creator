@@ -17,6 +17,10 @@
 #   # INSTANCE_TYPE and DEPLOYED_GPU_COUNT are now resolved
 
 # Resolve SCRIPT_DIR if not already set (defensive — normally inherited from caller)
+# The do/config writer. Self-sourced because this lib is designed to work
+# without lib/script-contract.sh (which also sources it).
+declare -F _config_set >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/config-store.sh"
+
 if [ -z "${SCRIPT_DIR:-}" ]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
@@ -104,12 +108,7 @@ fi
 # Persist to do/config (one-time write — subsequent sources read it directly)
 if [ -n "${_RESOLVED_INSTANCE}" ]; then
     _config_file="${SCRIPT_DIR}/config"
-    if grep -q "^export DEPLOYED_INSTANCE_TYPE=" "${_config_file}" 2>/dev/null; then
-        sed -i.bak "s|^export DEPLOYED_INSTANCE_TYPE=.*|export DEPLOYED_INSTANCE_TYPE=\"${_RESOLVED_INSTANCE}\"|" "${_config_file}"
-        rm -f "${_config_file}.bak"
-    else
-        echo "export DEPLOYED_INSTANCE_TYPE=\"${_RESOLVED_INSTANCE}\"" >> "${_config_file}"
-    fi
+    _config_set DEPLOYED_INSTANCE_TYPE "${_RESOLVED_INSTANCE}" "${_config_file}"
     INSTANCE_TYPE="${_RESOLVED_INSTANCE}"
     DEPLOYED_INSTANCE_TYPE="${_RESOLVED_INSTANCE}"
     export INSTANCE_TYPE DEPLOYED_INSTANCE_TYPE
@@ -165,12 +164,7 @@ except Exception:
 
     _GPU_COUNT=$(_resolve_gpu_count "${_RESOLVED_INSTANCE}")
     if [ -n "${_GPU_COUNT}" ]; then
-        if grep -q "^export DEPLOYED_GPU_COUNT=" "${_config_file}" 2>/dev/null; then
-            sed -i.bak "s|^export DEPLOYED_GPU_COUNT=.*|export DEPLOYED_GPU_COUNT=\"${_GPU_COUNT}\"|" "${_config_file}"
-            rm -f "${_config_file}.bak"
-        else
-            echo "export DEPLOYED_GPU_COUNT=\"${_GPU_COUNT}\"" >> "${_config_file}"
-        fi
+        _config_set DEPLOYED_GPU_COUNT "${_GPU_COUNT}" "${_config_file}"
         DEPLOYED_GPU_COUNT="${_GPU_COUNT}"
         export DEPLOYED_GPU_COUNT
     fi

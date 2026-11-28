@@ -9,6 +9,8 @@
     "base-image-picker",
     "model-picker",
     "workload-picker",
+    "draft-model-picker",
+    "adapter-picker",
     "e2e-status",
     "agent-knowledge",
     "reasoning"
@@ -31,7 +33,7 @@
   },
   "reasoning": {
     "provider": "bedrock",
-    "modelId": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "modelId": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
     "maxTokens": 2048,
     "temperature": 0.3
   }

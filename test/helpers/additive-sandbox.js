@@ -38,6 +38,7 @@ export function makeSandbox({ scripts = [], config = '', pyHelpers = false, real
     mkdirSync(bin, { recursive: true });
     // The real contract library + the libs the verb scripts source.
     writeFileSync(join(libDir, 'script-contract.sh'), readFileSync(join(DO_SRC, 'lib/script-contract.sh')));
+    writeFileSync(join(libDir, 'config-store.sh'), readFileSync(join(DO_SRC, 'lib/config-store.sh')));
     writeFileSync(join(libDir, 'wait.sh'), readFileSync(join(DO_SRC, 'lib/wait.sh')));
     writeFileSync(join(libDir, 'profile.sh'), '# stub profile.sh\n');
     // Bucket consolidation R3: the thin shell wrapper over s3_layout.py.

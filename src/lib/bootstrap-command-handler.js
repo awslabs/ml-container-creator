@@ -1830,7 +1830,7 @@ MODULES:
   benchmark                           S3 bucket + Glue DB for benchmark results
   registry                            Model Package Group + AI Registry Hub
   training                            Artifacts bucket (+ legacy training/adapters buckets) + MLflow (best-effort)
-  ci                                  CodeBuild + DynamoDB + StepFunctions
+  ci                                  CodeBuild + DynamoDB results table + S3 source bucket
   sagemaker-domain                    SageMaker Studio domain + default user profile
   eks                                 Standalone EKS cluster (VPC, OIDC, add-ons, inference role) ~$73+/mo
   hyperpod                            HyperPod cluster + Inference Operator (requires eks) — runs a REQUIRED

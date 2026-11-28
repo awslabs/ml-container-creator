@@ -269,23 +269,30 @@ ml-container-creator bootstrap add my-profile
 Select the **ci** module in the multi-select. Because `ci` depends on `benchmark` and `registry`, you'll be prompted to include them (dependencies are not auto-added). The bootstrap process will:
 
 1. Run `cdk bootstrap` if needed (one-time CDK setup)
-2. Deploy the `MlccCiHarnessStack` via CDK
-3. Create all resources listed in the architecture diagram
+2. Deploy the per-profile `mlcc-<profile>-ci` stack: the CodeBuild executor
+   (`mlcc-ci-executor-<profile>`), the DynamoDB results table
+   (`mlcc-ci-table-<profile>`) and the S3 source bucket
+
+The Step Functions orchestrator, scanner Lambdas and EventBridge schedules are a
+**separate** CDK app, `MlccCiHarnessStack` in `infra/ci-harness/`, deployed with
+`cdk deploy` from that directory. The bootstrap `ci` module does not create them.
 
 **Adding CI to an existing bootstrap:**
 
 ```bash
-ml-container-creator bootstrap update --ci
+ml-container-creator bootstrap add-module ci
 ```
 
-This deploys the CI stack without affecting your existing IAM roles, ECR repositories, or S3 buckets.
+This deploys the `ci` module stack without affecting your existing IAM roles, ECR repositories, or S3 buckets. Provision `benchmark` and `registry` first: `add-module` refuses when a dependency is missing.
 
 #### Benchmark Infrastructure (the `benchmark` module)
 
-Stage 2 (Athena-backed benchmark persistence) comes from the `benchmark` module, which the `ci` module already depends on — so provisioning `ci` includes it:
+Stage 2 (Athena-backed benchmark persistence) comes from the `benchmark` module, which the `ci` module depends on. Dependencies are never auto-added, so provision it first:
 
 ```bash
-ml-container-creator bootstrap add-module ci      # pulls in benchmark + registry
+ml-container-creator bootstrap add-module benchmark
+ml-container-creator bootstrap add-module registry
+ml-container-creator bootstrap add-module ci
 ml-container-creator bootstrap update             # re-applies all installed modules
 ```
 
@@ -295,13 +302,15 @@ This provisions:
 - **Athena table** (`benchmark_results`) with the full metrics schema
 - **S3 results bucket** (`mlcc-benchmark-results-{accountId}-{region}`)
 
-Without the `benchmark` module, CI would deploy only the DynamoDB table, Lambda, Step Functions, and CodeBuild — Stage 2 writes would fail silently if the Glue/Athena infrastructure doesn't exist. Since `ci` depends on `benchmark`, this is provisioned automatically.
+Without the `benchmark` module there would be no Glue/Athena infrastructure for Stage 2 writes. That's why `ci` declares `benchmark` as a dependency and `add-module ci` refuses to run without it.
 
 ---
 
 ### CI Harness Roles (Region-Scoped)
 
-CI IAM role names include the region to prevent cross-region conflicts:
+The bootstrap `ci` module has one role, `mlcc-ci-codebuild-<profile>-<region>`. The
+separate `MlccCiHarnessStack` (`infra/ci-harness/`) has these roles; their names
+include the region to prevent cross-region conflicts:
 
 | Role | Purpose |
 |---|---|
@@ -317,18 +326,24 @@ This means you can deploy CI harnesses in multiple regions without IAM conflicts
 
 ### Teardown and Rebuild
 
-The CI harness stack can be torn down and rebuilt cleanly:
+The two CI stacks are managed separately.
+
+**Bootstrap `ci` module** (`mlcc-<profile>-ci`):
 
 ```bash
-# Delete the CI harness (retains DynamoDB data via RETAIN policy on table)
-aws cloudformation delete-stack --stack-name MlccCiHarnessStack --region <region>
-
-# Rebuild fresh
 ml-container-creator bootstrap remove-module ci
 ml-container-creator bootstrap add-module ci
 ```
 
-**Roles are disposable** — they do NOT have `RemovalPolicy.RETAIN`. Removing the `ci` module deletes its IAM roles. Re-adding it (`bootstrap add-module ci`) creates them fresh with the correct permissions. No orphaned resources.
+**CI harness** (`MlccCiHarnessStack`, from `infra/ci-harness/`):
+
+```bash
+cd infra/ci-harness
+cdk destroy MlccCiHarnessStack
+cdk deploy MlccCiHarnessStack
+```
+
+**Roles are disposable** — they do NOT have `RemovalPolicy.RETAIN`, so tearing down either stack deletes its IAM roles and redeploying creates them fresh. No orphaned resources.
 
 This is the recommended approach if you encounter role conflicts or need to move CI to a different region.
 
@@ -651,7 +666,7 @@ cdk destroy MlccCiHarnessStack
 ⚠️  CI table not provisioned — saving results locally only.
 ```
 
-**Resolution**: Run `ml-container-creator bootstrap update --ci` to deploy the CI stack. The runner still works without it (results save locally).
+**Resolution**: Run `ml-container-creator bootstrap add-module ci` (after `benchmark` and `registry`) to deploy the CI stack. The runner still works without it (results save locally).
 
 #### Tune Stage Timeout
 

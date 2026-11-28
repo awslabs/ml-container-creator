@@ -44,12 +44,12 @@
     },
     "ci": {
       "displayName": "CI/CD Pipeline",
-      "description": "CodeBuild + DynamoDB + StepFunctions + EventBridge",
+      "description": "CodeBuild + DynamoDB results table + S3 source bucket",
       "estimatedMonthlyCost": "$15",
       "required": false,
       "depends": ["core", "benchmark", "registry"],
       "stackNameSuffix": "ci",
-      "exports": ["CodeBuildProject", "StateMachineArn", "CiTableName", "SourceBucket"],
+      "exports": ["CodeBuildProject", "CiTableName", "SourceBucket"],
       "resourceLevel": "profile"
     },
     "sagemaker-domain": {

@@ -56,7 +56,7 @@ function normalizeTarget(target) {
 // DERIVED (do not hardcode): the flag→{configVar, answerKey} mapping is the union
 // of the per-target answer_params in targets.d/*/manifest.json (flag-input, minus
 // the core prompt-core flags handled directly). Single source of truth per ADR-008
-// / .kiro/steering/derive-dont-hardcode.md; see deploy-answers-reader.js.
+// / .claude/rules/derive-dont-hardcode.md; see deploy-answers-reader.js.
 const CLI_FLAG_TO_VARS = flagToVars();
 
 // ── Config parsing ───────────────────────────────────────────────────────────

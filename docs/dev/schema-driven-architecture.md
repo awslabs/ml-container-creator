@@ -1,6 +1,6 @@
 # Schema-Driven Architecture
 
-ML Container Creator uses a schema-driven architecture where a single JSON file (`config/parameter-schema-v2.json`) is the source of truth for all 68 CLI parameters. Four code generators read this schema and produce CLI registration, validation rules, a parameter loading matrix, and documentation widget data.
+ML Container Creator uses a schema-driven architecture where a single JSON file (`config/parameter-schema-v2.json`) is the source of truth for all CLI parameters. Code generators (`npm run codegen`) read this schema and produce CLI registration, validation rules, a parameter loading matrix, and documentation widget data.
 
 No parameter can exist without a schema entry. No schema entry can drift from generated code. CI enforces this invariant on every PR.
 
@@ -267,8 +267,7 @@ Widget coverage is tracked in `docs/data/widget-coverage.json`. Every parameter 
 
 | Command | Purpose |
 |---------|---------|
-| `npm run codegen` | Regenerate all 4 output files from schema |
-| `npm run codegen:check` | Regenerate + verify parity (for CI) |
+| `npm run codegen` | Regenerate everything derived from the schema and the target descriptors (idempotent: a second run is a no-op) |
 | `node scripts/validate-schema-v2.js` | Validate schema well-formedness + CLI coverage |
 | `node scripts/sync-command-generator.js --check` | Verify widget coverage is complete |
 | `node scripts/schema-template-coverage.js --strict` | Verify all parameters are used in templates |
@@ -285,12 +284,14 @@ On every PR, CI runs three schema-related checks (in `.github/workflows/ci.yml`)
 
 The docs workflow (`.github/workflows/docs.yml`) also runs `npm run codegen` before `mkdocs build` to ensure the widget manifest is fresh.
 
+Generated-file freshness is enforced at commit time. When the schema, a `scripts/codegen-*` file or a catalog is staged, `.husky/pre-commit` runs `npm run codegen` and fails if `src/lib/generated/` or `docs/data/` changed (ignoring the `Generated:` timestamp). `test/unit/target-descriptor-conformance.test.js` and `test/unit/deploy-flag-forwarding.test.js` fail if a generated `do/` region drifts from its descriptors.
+
 ### What CI Catches
 
 | Scenario | Error |
 |----------|-------|
 | New CLI flag added without schema entry | `❌ CLI flags not in schema: --quantization` |
-| Schema changed but codegen not run | `❌ Generated code is stale` (codegen:check) |
+| Schema changed but codegen not run | `❌ Generated files are stale. Run: npm run codegen` (pre-commit hook) |
 | New parameter not in widget coverage | `❌ CLI option --quantization is not covered or excluded` |
 | New parameter not used in any template | `❌ templateVar 'quantization' has no template usage` |
 
@@ -300,7 +301,7 @@ The docs workflow (`.github/workflows/docs.yml`) also runs `npm run codegen` bef
 
 | File | Purpose |
 |------|---------|
-| `config/parameter-schema-v2.json` | Source of truth (68 parameters) |
+| `config/parameter-schema-v2.json` | Source of truth for all parameters |
 | `src/lib/generated/cli-options.js` | Generated CLI option definitions |
 | `src/lib/generated/validation-rules.js` | Generated validation functions |
 | `src/lib/generated/parameter-matrix.js` | Generated config loading matrix |
@@ -310,7 +311,6 @@ The docs workflow (`.github/workflows/docs.yml`) also runs `npm run codegen` bef
 | `scripts/codegen-validator.js` | Validation rule generator |
 | `scripts/codegen-parameter-matrix.js` | Parameter matrix generator |
 | `scripts/codegen-widget.js` | Widget manifest generator |
-| `scripts/codegen-parity.js` | Parity verification (used by `codegen:check`) |
 | `scripts/validate-schema-v2.js` | Schema validation (CLI coverage) |
 | `scripts/sync-command-generator.js` | Widget coverage enforcement |
 | `scripts/schema-template-coverage.js` | Template usage enforcement |

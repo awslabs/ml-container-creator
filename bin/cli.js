@@ -282,7 +282,7 @@ program
     .command('bootstrap')
     .description('Set up modular AWS infrastructure (per-module CDK stacks; `bootstrap --help` lists the modules)')
     .passThroughOptions()
-    .argument('[action]', 'Bootstrap action (add, remove, add-module, remove-module, add-secret, status, use, list, scan, prune, update, migrate, sync-schemas, sync-model-families)')
+    .argument('[action]', 'Bootstrap action (add, remove, add-module, remove-module, add-secret, status, use, list, scan, prune, update, migrate, sync-schemas, sync-model-families, sync-serving-versions)')
     .argument('[args...]', 'Additional arguments')
     .option('--profile <profile>', 'AWS profile name')
     .option('--region <region>', 'AWS region')
@@ -998,7 +998,13 @@ const _invokedAsScript = process.argv[1] && (() => {
     }
 })();
 if (_invokedAsScript) {
-    program.parse();
+    // parseAsync so a rejected async action becomes a ❌ message and exit 1 (ERR-2),
+    // not an unhandled-rejection stack trace.
+    program.parseAsync().catch((error) => {
+        console.error(`❌ ${error?.message || error}`);
+        if (process.env.MCC_DEBUG) console.error(error?.stack);
+        process.exit(1);
+    });
 }
 
 // Exported for unit testing (BL079). These are internal helpers; not a public API.

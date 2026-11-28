@@ -100,11 +100,22 @@ _contract_violation() {
     exit 3
 }
 
+# ── do/config writer ───────────────────────────────────────────────────────
+# _config_set / _config_unset live in lib/config-store.sh (also sourced by the
+# self-contained libs). Part of the contract's public API.
+# shellcheck source=config-store.sh
+source "$(dirname "${BASH_SOURCE[0]}")/config-store.sh"
+
 # ── Public API ─────────────────────────────────────────────────────────────
 
 # Called by flag-handling code to escalate requirements at parse time
 _require_guard() {
     local guard="$1"
+    if ! declare -F "_guard_${guard//-/_}" >/dev/null; then
+        _contract_violation "unknown-guard" \
+            "Script declares guard '${guard}', which script-contract.sh does not define." \
+            "Fix the '# guard:' header (valid: none, artifact-ready, model-staged, deployment-active, training-infra)"
+    fi
     "_guard_${guard//-/_}"
 }
 
@@ -739,18 +750,50 @@ _require_python_env() {
 # Source config and profile to load guard-relevant variables (DEPLOYMENT_TARGET,
 # status vars, _PROFILE_provisionedModules, etc.) before enforcement.
 # Temporarily disable nounset (-u) since older generated configs may reference
-# unset variables without :- guards (e.g., pre-v1.5 HyperPod vars).
+# unset variables without :- guards (e.g., pre-v1.5 HyperPod vars), then RESTORE
+# the caller's setting — the contract must not impose nounset on scripts that
+# only declared `set -e`.
 _MLCC_SCRIPT_DIR="$(cd "$(dirname "$_MLCC_SCRIPT_PATH")" && pwd)"
 if [ -f "${_MLCC_SCRIPT_DIR}/config" ]; then
-    set +u 2>/dev/null || true
+    case $- in *u*) _MLCC_HAD_NOUNSET=1 ;; *) _MLCC_HAD_NOUNSET=0 ;; esac
+    set +u
     source "${_MLCC_SCRIPT_DIR}/config" 2>/dev/null || true
     if [ -f "${_MLCC_SCRIPT_DIR}/lib/profile.sh" ]; then
         source "${_MLCC_SCRIPT_DIR}/lib/profile.sh" 2>/dev/null || true
     fi
-    set -u 2>/dev/null || true
+    if [ "$_MLCC_HAD_NOUNSET" = 1 ]; then set -u; fi
 fi
 
-# Auto-enforce declared guard
+# _mlcc_help_requested — true when the caller's argv contains -h / --help.
+# (A file sourced without arguments sees the caller's positional parameters.)
+_mlcc_help_requested() {
+    local _a
+    for _a in "$@"; do
+        case "$_a" in -h|--help) return 0 ;; esac
+    done
+    return 1
+}
+
+# _mlcc_print_usage — print the script's header comment (between the SPDX line
+# and the `# @mlcc-script` block) as usage text.
+_mlcc_print_usage() {
+    awk '
+        /^# @mlcc-script/ { exit }
+        NR == 1 || /Copyright|SPDX-License-Identifier/ { next }
+        /^#/ { sub(/^# ?/, ""); print; next }
+        { exit }
+    ' "$_MLCC_SCRIPT_PATH"
+}
+
+# Auto-enforce declared guard. Help must always work: when -h/--help is given
+# and the guard is NOT met (e.g. nothing deployed yet), print the header usage
+# and exit 0 instead of a contract violation. When the guard is met the script
+# runs normally and prints its own (richer) help.
 if [ -n "$_MLCC_GUARD" ] && [ "$_MLCC_GUARD" != "none" ]; then
+    if _mlcc_help_requested "$@" && declare -F "_guard_${_MLCC_GUARD//-/_}" >/dev/null \
+        && ! _guard_met "$_MLCC_GUARD"; then
+        _mlcc_print_usage
+        exit 0
+    fi
     _require_guard "$_MLCC_GUARD"
 fi

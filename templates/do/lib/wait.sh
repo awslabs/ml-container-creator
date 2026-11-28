@@ -4,19 +4,16 @@
 # Shared helper: wait/polling functions and config persistence utilities.
 # Sourced by do/deploy — expects AWS_REGION and SCRIPT_DIR to be set by the caller.
 
+# The do/config writer. Self-sourced because this lib is designed to work
+# without lib/script-contract.sh (which also sources it).
+declare -F _config_set >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/config-store.sh"
+
 # _update_config_var <var_name> <var_value> [config_file]
 #   Persist a variable to a config file so other scripts can use it.
 #   If the variable already exists, update it in place; otherwise append.
 #   Defaults to ${SCRIPT_DIR}/config if no config_file is specified.
 _update_config_var() {
-    local var_name="$1" var_value="$2" config_file="${3:-${SCRIPT_DIR}/config}"
-    if grep -q "^export ${var_name}=" "${config_file}" 2>/dev/null; then
-        sed -i.bak "s|^export ${var_name}=.*|export ${var_name}=\"${var_value}\"|" "${config_file}"
-        rm -f "${config_file}.bak"
-    else
-        echo "" >> "${config_file}"
-        echo "export ${var_name}=\"${var_value}\"" >> "${config_file}"
-    fi
+    _config_set "$1" "$2" "${3:-${SCRIPT_DIR}/config}"
 }
 
 # _get_endpoint_status <endpoint_name>

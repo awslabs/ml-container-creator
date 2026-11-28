@@ -103,7 +103,7 @@ class StzSandbox:
     """A throwaway project: do/lib (the REAL scale-to-zero.sh and friends),
     do/targets.d, a do/manifest stub and a stub `aws` on PATH."""
 
-    LIBS = ('scale-to-zero.sh', 'endpoint-config.sh', 'wait.sh', 'aws-preflight.sh')
+    LIBS = ('scale-to-zero.sh', 'endpoint-config.sh', 'wait.sh', 'aws-preflight.sh', 'config-store.sh')
     PYS = ('scale_to_zero.py', 'target_manifest.py')
     DATA = ('scale_to_zero_reference.json',)
 

@@ -690,8 +690,8 @@ The FCD is generated from live codebase data, not hardcoded content. Here's what
 | File | What It Feeds |
 |------|--------------|
 | `docs/index.md` | Product one-liner, key messaging |
-| `.kiro/steering/project-context.md` | Architecture description, what the tool is/isn't |
-| `.kiro/steering/aws-sagemaker-context.md` | SageMaker BYOC requirements (for "The Problem" slide) |
+| `CLAUDE.md` | Architecture description, what the tool is/isn't |
+| `docs/aws-sagemaker.md` | SageMaker BYOC requirements (for "The Problem" slide) |
 
 ### Improving the FCD
 
